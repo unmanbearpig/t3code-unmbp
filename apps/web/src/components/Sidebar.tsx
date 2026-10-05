@@ -1,5 +1,6 @@
 import { updateThreadShortcutTargets } from "~/threadShortcutTargets";
 import { addAppShortcutListener } from "~/appShortcutEvents";
+import { useExternalTerminal } from "../hooks/useExternalTerminal";
 import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
@@ -2413,6 +2414,7 @@ export default function Sidebar() {
     },
   });
   const newThreadContext = useHandleNewThread();
+  const { available: externalTerminalAvailable } = useExternalTerminal();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
     [],
@@ -4836,8 +4838,14 @@ export default function Sidebar() {
   // shift+click and its keyboard twin chat.newLocal for direct create.
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
-    (projectGroups.length <= 1 ? shortcutLabelForCommand(keybindings, "chat.newLocal") : undefined);
-  const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
+    (projectGroups.length <= 1
+      ? shortcutLabelForCommand(keybindings, "chat.newLocal", {
+          context: { externalTerminalAvailable },
+        })
+      : undefined);
+  const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal", {
+    context: { externalTerminalAvailable },
+  });
   return (
     <>
       <ThreadContextDragGhost />

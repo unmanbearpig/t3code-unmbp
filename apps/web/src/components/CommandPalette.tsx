@@ -111,6 +111,7 @@ import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
+import { useExternalTerminal } from "../hooks/useExternalTerminal";
 import { useNewProject } from "../hooks/useNewProject";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
@@ -1140,6 +1141,7 @@ function OpenCommandPaletteDialog(props: {
   const currentProjectEnvironmentId =
     activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null;
   const currentProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
+  const externalTerminal = useExternalTerminal();
   // Where "without a project" threads start: the current environment when it
   // offers them, otherwise the first connected one that does.
   const scratchTargetEnvironmentId = scratchEnvironmentId(
@@ -1946,6 +1948,18 @@ function OpenCommandPaletteDialog(props: {
       icon: <LinkIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "thread.copyReference",
       run: copyActiveThreadReference,
+    });
+  }
+
+  if (externalTerminal.available) {
+    actionItems.push({
+      kind: "action",
+      value: "action:open-external-terminal",
+      searchTerms: ["terminal", "foot", "kitty", "alacritty", "shell", "window"],
+      title: "Open external terminal",
+      icon: <MonitorIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "terminal.openExternal",
+      run: externalTerminal.open,
     });
   }
 

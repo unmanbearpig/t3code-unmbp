@@ -317,6 +317,27 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
+  it.effect("backfills the external terminal shortcut after the saved new-thread shortcut", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const saved = Keybindings.DEFAULT_KEYBINDINGS.filter(
+        (rule) => rule.command !== "terminal.openExternal",
+      );
+      yield* writeKeybindingsConfig(keybindingsConfigPath, saved);
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      const terminalIndex = persisted.findIndex((rule) => rule.command === "terminal.openExternal");
+      const threadIndex = persisted.findIndex((rule) => rule.command === "chat.newLocal");
+      assert.isAbove(terminalIndex, threadIndex);
+      assert.deepEqual(persisted[terminalIndex], {
+        key: "ctrl+shift+n",
+        command: "terminal.openExternal",
+        when: "!terminalFocus && externalTerminalAvailable",
+      });
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
   it.effect("adds a late default to an existing command once", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;

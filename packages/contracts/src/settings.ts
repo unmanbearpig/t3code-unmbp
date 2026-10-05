@@ -14,6 +14,7 @@ import {
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
 import { EnvironmentMachineKind, ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
 import { KeybindingShortcut } from "./keybindings.ts";
+import { ExternalTerminalId } from "./externalTerminal.ts";
 import {
   CustomModelSetting,
   DEFAULT_TEXT_GENERATION_MODEL,
@@ -315,6 +316,9 @@ export const ClientSettingsSchema = Schema.Struct({
         modKey: false,
       }),
     ),
+  ),
+  externalTerminal: ExternalTerminalId.pipe(
+    Schema.withDecodingDefault(Effect.succeed("foot" as const)),
   ),
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
@@ -1742,6 +1746,7 @@ export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
 export const ClientSettingsPatch = Schema.Struct({
   leaderShortcut: Schema.optionalKey(Schema.NullOr(LeaderShortcut)),
+  externalTerminal: Schema.optionalKey(ExternalTerminalId),
   notificationMode: Schema.optionalKey(NotificationMode),
   inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),

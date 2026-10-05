@@ -11,6 +11,7 @@ import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useExternalTerminal } from "../hooks/useExternalTerminal";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
@@ -35,6 +36,8 @@ export function AppGlobalShortcuts() {
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projects = useProjects();
+  const { available: externalTerminalAvailable, open: openExternalTerminal } =
+    useExternalTerminal();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const { scratchEnvironmentId, startScratchThread } = useScratchProject();
   const projectGroupCount = useMemo(
@@ -71,6 +74,7 @@ export function AppGlobalShortcuts() {
           previewOpen,
           editableFocus: isEditableFocused(event.target),
           modelPickerOpen: isModelPickerOpen(),
+          externalTerminalAvailable,
         },
       });
 
@@ -102,6 +106,13 @@ export function AppGlobalShortcuts() {
           defaultProjectRef,
           handleNewThread,
         });
+        return;
+      }
+
+      if (command === "terminal.openExternal") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) void openExternalTerminal();
         return;
       }
 
@@ -183,6 +194,8 @@ export function AppGlobalShortcuts() {
   }, [
     activeDraftThread,
     activeThread,
+    externalTerminalAvailable,
+    openExternalTerminal,
     clearSelection,
     handleNewThread,
     keybindings,

@@ -18,6 +18,7 @@ import {
   DEFAULT_MOBILE_THEME_ID,
   flattenThemeColor,
   getMobileThemePreviewColors,
+  MOBILE_PALETTE_THEMES,
   getMobileThemeVariables,
   normalizeMobileThemeId,
   normalizeMobileThemeMode,
@@ -76,9 +77,40 @@ describe("mobile themes", () => {
     }
   });
 
+  it.each(["ios", "android"])("keeps unmbp's idle dark surfaces black on %s", (platform) => {
+    const variables = getMobileThemeRuntimeVariables("unmbp", "dark", platform);
+    for (const role of [
+      "--color-screen",
+      "--color-thread-canvas",
+      "--color-card",
+      "--color-card-alt",
+      "--color-grouped-card",
+      "--color-sheet-solid",
+      "--color-drawer",
+      "--color-secondary",
+      "--color-subtle",
+      "--color-user-bubble",
+      "--color-md-code-bg",
+      "--color-header",
+      "--color-composer-surface",
+      "--color-glass-fallback",
+    ] as const) {
+      expect(flattenThemeColor(variables[role], "#000000"), role).toBe("#000000");
+    }
+    expect(variables["--color-thread-hover"]).toBe("#1c1c1c");
+    expect(variables["--color-thread-selected"]).toBe("#222222");
+    expect(
+      contrastRatio(
+        variables["--color-thread-selected-foreground"],
+        variables["--color-thread-selected"],
+      ),
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(getMobileThemeVariables("unmbp", "light")["--color-screen"]).toBe("#ffffff");
+  });
+
   it.each(MOBILE_THEME_IDS)("uses the web color roles for %s in both appearances", (themeId) => {
     for (const appearance of ["light", "dark"] as const) {
-      const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId);
+      const theme = MOBILE_PALETTE_THEMES.find((candidate) => candidate.id === themeId);
       const colors = theme
         ? getThemeColorsForAppearance(theme, appearance)!
         : appearance === "dark"
@@ -239,6 +271,7 @@ describe("mobile themes", () => {
 
   it("normalizes persisted theme preferences", () => {
     expect(normalizeMobileThemeId("ocean")).toBe("ocean");
+    expect(normalizeMobileThemeId("unmbp")).toBe("unmbp");
     expect(normalizeMobileThemeId("missing-theme")).toBe(DEFAULT_MOBILE_THEME_ID);
     expect(normalizeMobileThemeMode("dark")).toBe("dark");
     expect(normalizeMobileThemeMode("sepia")).toBe("system");
