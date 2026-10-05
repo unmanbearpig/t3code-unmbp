@@ -1,3 +1,4 @@
+import { useNativeLeaderConfig } from "./leaderKeyboardShortcuts";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/shared/threadReference";
 import {
@@ -115,6 +116,8 @@ export function HardwareKeyboardCommandProvider({
     return [...commands];
   }, [activeThreadRef, pathname, registrationVersion, navigation]);
 
+  const leaderConfig = useNativeLeaderConfig(pathname, enabledCommands);
+
   const onCommand = useCallback(
     (command: HardwareKeyboardCommand) => {
       if (command === "commandPalette") {
@@ -185,7 +188,11 @@ export function HardwareKeyboardCommandProvider({
 
   return (
     <CommandPaletteContext value={palette}>
-      <T3KeyboardCommands enabledCommands={enabledCommands} onCommand={onCommand}>
+      <T3KeyboardCommands
+        leaderConfig={leaderConfig}
+        enabledCommands={enabledCommands}
+        onCommand={onCommand}
+      >
         {children}
       </T3KeyboardCommands>
       <GitActionProgressOverlay progress={copyFeedback} onDismiss={dismissCopyFeedback} />
