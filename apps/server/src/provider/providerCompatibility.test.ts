@@ -69,7 +69,7 @@ describe("provider compatibility", () => {
           ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
           driver,
           version,
-          V2_RELEASE,
+          "0.0.45",
         )?.status,
         expected,
       );

@@ -148,7 +148,7 @@ export interface ComposerPromptEditorProps {
   ) => void;
   onVisibleSelectionChange?: () => void;
   onCommandKeyDown?: (
-    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape",
+    key: string,
     event: KeyboardEvent,
     isTaskItem?: boolean,
   ) => boolean;
