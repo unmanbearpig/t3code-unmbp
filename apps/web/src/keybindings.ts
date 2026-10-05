@@ -10,12 +10,17 @@ import {
 } from "@t3tools/contracts";
 import { isElectron } from "./env";
 import { isMacPlatform } from "./lib/utils";
+import { isEditableFocused } from "./lib/editableFocus";
+import { composerEmacsAction, isComposerEmacsFocused } from "./lib/composerEmacsShortcuts";
 
 export interface ShortcutEventLike {
   getModifierState?: (key: "AltGraph") => boolean;
   type?: string;
   code?: string;
   key: string;
+  repeat?: boolean;
+  target?: EventTarget | null;
+  isComposing?: boolean;
   metaKey: boolean;
   ctrlKey: boolean;
   shiftKey: boolean;
@@ -239,7 +244,17 @@ export function resolveShortcutCommand(
   options?: ShortcutMatchOptions,
 ): KeybindingCommand | null {
   const platform = resolvePlatform(options);
-  const context = resolveContext(options);
+  const target = event.target ?? (typeof document !== "undefined" ? document.activeElement : null);
+  const context = resolveContext({
+    ...options,
+    context: {
+      editableFocus: typeof Element !== "undefined" && isEditableFocused(target),
+      ...options?.context,
+    },
+  });
+  if (!context.terminalFocus && isComposerEmacsFocused(target) && composerEmacsAction(event)) {
+    return null;
+  }
 
   for (let index = keybindings.length - 1; index >= 0; index -= 1) {
     const binding = keybindings[index];

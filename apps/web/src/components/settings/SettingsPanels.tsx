@@ -595,6 +595,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.composerRichTextEnabled !== DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled
         ? ["Rich text composer"]
         : []),
+      ...(settings.composerEmacsEditingEnabled !==
+      DEFAULT_UNIFIED_SETTINGS.composerEmacsEditingEnabled
+        ? ["Emacs / readline editing"]
+        : []),
       ...(settings.sendShortcut !== DEFAULT_UNIFIED_SETTINGS.sendShortcut ? ["Send shortcut"] : []),
       ...(settings.followUpBehavior !== DEFAULT_UNIFIED_SETTINGS.followUpBehavior
         ? ["Follow-up behavior"]
@@ -661,6 +665,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadUnpin,
       settings.composerCollapseOnScroll,
       settings.composerRichTextEnabled,
+      settings.composerEmacsEditingEnabled,
       settings.sendShortcut,
       settings.followUpBehavior,
       settings.addProjectBaseDirectory,
@@ -778,6 +783,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       composerCollapseOnScroll: DEFAULT_UNIFIED_SETTINGS.composerCollapseOnScroll,
       composerRichTextEnabled: DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled,
+      composerEmacsEditingEnabled: DEFAULT_UNIFIED_SETTINGS.composerEmacsEditingEnabled,
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
       contextWindowMeterEnabled: DEFAULT_UNIFIED_SETTINGS.contextWindowMeterEnabled,
@@ -2685,6 +2691,34 @@ export function GeneralSettingsPanel() {
                 updateSettings({ composerRichTextEnabled: Boolean(checked) })
               }
               aria-label="Rich text composer"
+            />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("composer-emacs-editing")}
+          description="Use Ctrl and Alt to move, select, delete, and kill/yank text in the composer. Editing keys take priority over app shortcuts while you type."
+          resetAction={
+            settings.composerEmacsEditingEnabled !==
+            DEFAULT_UNIFIED_SETTINGS.composerEmacsEditingEnabled ? (
+              <SettingResetButton
+                label="Emacs / readline editing"
+                onClick={() =>
+                  updateSettings({
+                    composerEmacsEditingEnabled:
+                      DEFAULT_UNIFIED_SETTINGS.composerEmacsEditingEnabled,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.composerEmacsEditingEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ composerEmacsEditingEnabled: Boolean(checked) })
+              }
+              aria-label="Emacs / readline editing"
             />
           }
         />
