@@ -2,7 +2,9 @@ import {
   chainCommands,
   deleteSelection,
   joinBackward,
+  joinForward,
   selectNodeBackward,
+  selectNodeForward,
   splitBlockKeepMarks,
 } from "@tiptap/pm/commands";
 import { Slice, type Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -13,6 +15,16 @@ import { composerEmacsAction } from "./lib/composerEmacsShortcuts";
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const backspace = chainCommands(deleteSelection, joinBackward, selectNodeBackward);
+const forwardDelete = chainCommands(deleteSelection, joinForward, selectNodeForward);
+
+/** Only a single empty paragraph represents an empty prompt; breaks and chips are content. */
+export function isComposerEmacsDocumentEmpty(doc: ProseMirrorNode) {
+  return (
+    doc.childCount === 1 &&
+    doc.firstChild?.type.name === "paragraph" &&
+    doc.firstChild.content.size === 0
+  );
+}
 
 function characterPosition(view: EditorView, direction: -1 | 1, extend = false) {
   const { selection, doc } = view.state;
@@ -130,6 +142,11 @@ export function createComposerEmacsHandler() {
     }
     const { state } = view;
     const { selection } = state;
+    // Readline's EOF chord reaches the app only on a fresh press in an empty buffer.
+    if (action === "delete" && isComposerEmacsDocumentEmpty(state.doc) && !event.repeat) {
+      afterKill = null;
+      return false;
+    }
     const dispatch = view.dispatch.bind(view);
     const extend = event.shiftKey && event.key !== "<" && event.key !== ">";
     if (!action.startsWith("kill")) afterKill = null;
@@ -159,16 +176,24 @@ export function createComposerEmacsHandler() {
       case "transpose":
         transpose(view);
         break;
-      case "backspace": {
+      case "backspace":
+      case "delete": {
         if (!selection.empty) {
           deleteSelection(state, dispatch);
         } else {
-          const adjacent = selection.$head.nodeBefore;
+          const direction = action === "backspace" ? -1 : 1;
+          const adjacent =
+            direction === -1 ? selection.$head.nodeBefore : selection.$head.nodeAfter;
           if (adjacent?.isInline) {
-            const position = characterPosition(view, -1);
-            dispatch(state.tr.delete(position, selection.head));
+            const position = characterPosition(view, direction);
+            dispatch(
+              state.tr.delete(
+                Math.min(position, selection.head),
+                Math.max(position, selection.head),
+              ),
+            );
           } else {
-            backspace(state, dispatch);
+            (direction === -1 ? backspace : forwardDelete)(state, dispatch);
           }
         }
         break;

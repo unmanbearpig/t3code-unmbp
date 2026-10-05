@@ -11,7 +11,7 @@ import {
 import { isElectron } from "./env";
 import { isMacPlatform } from "./lib/utils";
 import { isEditableFocused } from "./lib/editableFocus";
-import { composerEmacsAction, isComposerEmacsFocused } from "./lib/composerEmacsShortcuts";
+import { isComposerEmacsEditingShortcut } from "./lib/composerEmacsShortcuts";
 import { isTextboxNewlineShortcut } from "./lib/textboxNewline";
 
 export interface ShortcutEventLike {
@@ -255,8 +255,7 @@ export function resolveShortcutCommand(
   });
   if (
     !context.terminalFocus &&
-    (isTextboxNewlineShortcut(event, target) ||
-      (isComposerEmacsFocused(target) && composerEmacsAction(event)))
+    (isTextboxNewlineShortcut(event, target) || isComposerEmacsEditingShortcut(event, target))
   ) {
     return null;
   }

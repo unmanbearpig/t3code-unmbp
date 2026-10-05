@@ -4,7 +4,7 @@ import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tip
 import StarterKit from "@tiptap/starter-kit";
 import { type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { splitBlockKeepMarks } from "@tiptap/pm/commands";
-import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type {
   AssistantCitation,
@@ -63,7 +63,7 @@ import {
   markAsClipboardEdit,
 } from "~/composer-undo-grouping";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
-import { createComposerEmacsHandler } from "~/composer-emacs";
+import { createComposerEmacsHandler, isComposerEmacsDocumentEmpty } from "~/composer-emacs";
 import { isCtrlNewlineShortcut } from "~/lib/textboxNewline";
 import { composerEmacsAction } from "~/lib/composerEmacsShortcuts";
 import { useClientSettings } from "~/hooks/useSettings";
@@ -785,7 +785,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
   }, []);
 
   const editorAttributes = useMemo(
-    () => ({
+    () => (state: EditorState) => ({
       class: cn(
         "composer-tiptap -m-1 block max-h-52 min-h-19.5 overflow-y-auto p-1 whitespace-pre-wrap wrap-break-word bg-transparent leading-relaxed text-foreground focus:outline-none",
         className,
@@ -793,6 +793,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
       "data-testid": "composer-editor",
       "data-composer-rich-text": richText ? "true" : "false",
       "data-composer-emacs": emacsEditingEnabled ? "true" : "false",
+      "data-composer-empty": String(isComposerEmacsDocumentEmpty(state.doc)),
       role: "textbox",
       "aria-multiline": "true",
       ...(ariaLabel ? { "aria-label": ariaLabel } : {}),
