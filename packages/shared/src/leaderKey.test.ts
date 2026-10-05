@@ -68,6 +68,26 @@ describe("leader sequences", () => {
     expect(controller.handle(key(".", "keyup"), false, 30)).toBe("pass");
   });
 
+  it("supports shifted numbers and punctuation without physical QWERTY positions", () => {
+    const input = {
+      key: ">",
+      code: "KeyE",
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: true,
+      altKey: false,
+    };
+    expect(matchesLeaderStroke(input, parseKeybindingShortcut("shift+.")!, false)).toBe(true);
+    expect(
+      matchesLeaderStroke(
+        { ...input, key: "!", code: "Digit1" },
+        parseKeybindingShortcut("shift+1")!,
+        false,
+      ),
+    ).toBe(true);
+    expect(matchesLeaderStroke(input, parseKeybindingShortcut("shift+e")!, false)).toBe(false);
+  });
+
   it("matches logical Dvorak keys and exact modifiers", () => {
     const shortcut = parseKeybindingShortcut("ctrl+.")!;
     const input = {

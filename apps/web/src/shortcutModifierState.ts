@@ -1,7 +1,9 @@
+import { useLeaderActive } from "./leaderState";
 import { useEffect, useRef, useState } from "react";
 import { isEditableFocused } from "./lib/editableFocus";
 
 export interface ShortcutModifierState {
+  leaderKey?: boolean;
   metaKey: boolean;
   ctrlKey: boolean;
   altKey: boolean;
@@ -20,6 +22,7 @@ export function areShortcutModifierStatesEqual(
   right: ShortcutModifierState,
 ): boolean {
   return (
+    (left.leaderKey ?? false) === (right.leaderKey ?? false) &&
     left.metaKey === right.metaKey &&
     left.ctrlKey === right.ctrlKey &&
     left.altKey === right.altKey &&
@@ -28,6 +31,7 @@ export function areShortcutModifierStatesEqual(
 }
 
 export function useShortcutModifierState(ignoreEditable = false): ShortcutModifierState {
+  const leaderKey = useLeaderActive();
   const [state, setState] = useState(EMPTY_SHORTCUT_MODIFIER_STATE);
   const stateRef = useRef(EMPTY_SHORTCUT_MODIFIER_STATE);
 
@@ -72,7 +76,7 @@ export function useShortcutModifierState(ignoreEditable = false): ShortcutModifi
     };
   }, [ignoreEditable]);
 
-  return state;
+  return leaderKey ? { ...state, leaderKey: true } : state;
 }
 
 function normalizeModifierKey(key: string): keyof ShortcutModifierState | null {

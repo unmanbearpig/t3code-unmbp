@@ -1,3 +1,4 @@
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import type { EditorId, EnvironmentId, ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { useEffect } from "react";
 
@@ -37,7 +38,6 @@ export function useOpenFavoriteEditorShortcut({
         },
       });
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    return addAppShortcutListener(window, handler);
   }, [enabled, environmentId, keybindings, openInCwd, openInEditorMutation, preferredEditor]);
 }
