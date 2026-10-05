@@ -165,6 +165,7 @@ import {
   buildLinkedThreadActionItems,
   buildCommandPaletteRows,
   enumerateCommandPaletteItems,
+  findBrowseCompletionItem,
   findHighlightedCommandPaletteItem,
   type CommandPaletteActionItem,
   type CommandPaletteOpenIntent,
@@ -3165,6 +3166,22 @@ function OpenCommandPaletteDialog(props: {
 
     // Base UI ignores navigation keys with modifiers, so these fallbacks do too.
     if (event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
+    if (
+      isBrowsing &&
+      event.key === "Tab" &&
+      !isBrowsePending &&
+      !event.nativeEvent.isComposing &&
+      event.keyCode !== 229
+    ) {
+      const completionItem = findBrowseCompletionItem(displayedGroups, highlightedItemValue);
+      if (completionItem) {
+        (event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.();
+        event.preventDefault();
+        event.stopPropagation();
+        executeItem(completionItem);
+      }
+      return;
+    }
     // Base UI only keeps a hidden highlight on the first row when it auto-highlights.
     const firstItemValue = autoHighlightsFirstRow ? resultRows.itemValues[0] : undefined;
     if (
