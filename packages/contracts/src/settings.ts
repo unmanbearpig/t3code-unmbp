@@ -297,7 +297,30 @@ export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
 export const ChatWidth = Schema.Literals(["comfortable", "wide", "full"]);
 export type ChatWidth = typeof ChatWidth.Type;
 
+export const LeaderShortcut = KeybindingShortcut.check(
+  Schema.makeFilter(
+    (shortcut) =>
+      shortcut.ctrlKey ||
+      shortcut.metaKey ||
+      shortcut.altKey ||
+      shortcut.modKey ||
+      "A leader trigger requires Ctrl, Meta, Alt, or Mod.",
+  ),
+);
+
 export const ClientSettingsSchema = Schema.Struct({
+  leaderShortcut: Schema.NullOr(LeaderShortcut).pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed({
+        key: ".",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+        modKey: false,
+      }),
+    ),
+  ),
   notificationMode: NotificationMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("off" as const)),
   ),
@@ -1549,6 +1572,7 @@ export function requiredScopesForServerSettingsPatch(
 }
 
 export const ClientSettingsPatch = Schema.Struct({
+  leaderShortcut: Schema.optionalKey(Schema.NullOr(LeaderShortcut)),
   notificationMode: Schema.optionalKey(NotificationMode),
   inAppNotificationsEnabled: Schema.optionalKey(Schema.Boolean),
   diffColorScheme: Schema.optionalKey(DiffColorScheme),

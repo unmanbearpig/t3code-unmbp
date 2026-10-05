@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import {
   KeybindingsConfig,
   KeybindingRule,
+  KeybindingShortcut,
   ResolvedKeybindingRule,
   ResolvedKeybindingsConfig,
 } from "./keybindings.ts";
@@ -20,6 +21,7 @@ const decode = <S extends Schema.Top>(
   >;
 
 const decodeResolvedRule = Schema.decodeUnknownEffect(ResolvedKeybindingRule as never);
+const isPhysicalShortcut = Schema.is(KeybindingShortcut);
 const encodeResolvedKeybindings = Schema.encodeEffect(ResolvedKeybindingsConfig);
 
 it.effect("parses keybinding rules", () =>
@@ -208,7 +210,7 @@ it.effect("parses resolved keybinding rules", () =>
         },
       },
     });
-    assert.strictEqual(parsed.shortcut.key, "d");
+    assert.strictEqual("key" in parsed.shortcut && parsed.shortcut.key, "d");
   }),
 );
 
@@ -325,4 +327,14 @@ it.effect("drops unknown fields in resolved keybinding rules", () =>
       assert.strictEqual(view.command, "terminal.toggle");
     }),
   ),
+);
+
+it.effect("round trips leader rules and rejects them as physical accelerators", () =>
+  Effect.gen(function* () {
+    const rule = { command: "thread.next", shortcut: { leader: shortcut } };
+    const parsed = yield* decode(ResolvedKeybindingsConfig, [rule]);
+    assert.deepEqual(yield* encodeResolvedKeybindings(parsed), [rule]);
+    // An older client's physical shortcut decoder must not interpret a suffix as a bare key.
+    assert.isFalse(isPhysicalShortcut(rule.shortcut));
+  }),
 );

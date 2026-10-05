@@ -1,4 +1,5 @@
 import {
+  type AppKeybindingShortcut,
   type KeybindingRule,
   type KeybindingShortcut,
   type KeybindingWhenNode,
@@ -185,6 +186,22 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+o", command: "editor.openFavorite" },
   { key: "mod+shift+[", command: "thread.previous" },
   { key: "mod+shift+]", command: "thread.next" },
+  { key: "leader+p", command: "thread.previous" },
+  { key: "leader+n", command: "thread.next" },
+  { key: "leader+b", command: "sidebar.toggle" },
+  { key: "leader+j", command: "terminal.toggle" },
+  { key: "leader+k", command: "commandPalette.toggle" },
+  { key: "leader+shift+n", command: "chat.new" },
+  { key: "leader+m", command: "modelPicker.toggle" },
+  ...THREAD_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
+    key: `leader+${index + 1}`,
+    command,
+  })),
+  ...MODEL_PICKER_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
+    key: `leader+${index + 1}`,
+    command,
+    when: "modelPickerOpen",
+  })),
   { key: "mod+shift+c", command: "thread.copyReference", when: "!terminalFocus" },
   { key: "mod+shift+s", command: "thread.settle", when: "!terminalFocus" },
   { key: "mod+shift+p", command: "thread.pin", when: "!terminalFocus" },
@@ -215,6 +232,7 @@ function normalizeKeyToken(token: string): string {
 }
 
 export function parseKeybindingShortcut(value: string): KeybindingShortcut | null {
+  if (!value.trim()) return null;
   const rawTokens = value
     .toLowerCase()
     .split("+")
@@ -260,6 +278,8 @@ export function parseKeybindingShortcut(value: string): KeybindingShortcut | nul
       case "mod":
         modKey = true;
         break;
+      case "leader":
+        return null;
       default: {
         if (key !== null) return null;
         key = normalizeKeyToken(token);
@@ -412,8 +432,36 @@ export function parseKeybindingWhenExpression(expression: string): KeybindingWhe
   return ast;
 }
 
+export function parseAppKeybindingShortcut(value: string): AppKeybindingShortcut | null {
+  const tokens = value
+    .toLowerCase()
+    .split("+")
+    .map((token) => token.trim());
+  const leaderCount = tokens.filter((token) => token === "leader").length;
+  if (leaderCount > 1) return null;
+  const stroke = parseKeybindingShortcut(tokens.filter((token) => token !== "leader").join("+"));
+  return stroke ? (leaderCount === 1 ? { leader: stroke } : stroke) : null;
+}
+
+export function shortcutStroke(shortcut: AppKeybindingShortcut): KeybindingShortcut {
+  return "leader" in shortcut ? shortcut.leader : shortcut;
+}
+
+export function keybindingShortcutInput(shortcut: AppKeybindingShortcut): string {
+  const stroke = shortcutStroke(shortcut);
+  const parts: string[] = [];
+  if ("leader" in shortcut) parts.push("leader");
+  if (stroke.modKey) parts.push("mod");
+  if (stroke.metaKey) parts.push("meta");
+  if (stroke.ctrlKey) parts.push("ctrl");
+  if (stroke.altKey) parts.push("alt");
+  if (stroke.shiftKey) parts.push("shift");
+  parts.push(stroke.key === " " ? "space" : stroke.key === "escape" ? "esc" : stroke.key);
+  return parts.join("+");
+}
+
 export function compileResolvedKeybindingRule(rule: KeybindingRule): ResolvedKeybindingRule | null {
-  const shortcut = parseKeybindingShortcut(rule.key);
+  const shortcut = parseAppKeybindingShortcut(rule.key);
   if (!shortcut) return null;
 
   if (rule.when !== undefined) {
@@ -449,15 +497,33 @@ export const DEFAULT_RESOLVED_KEYBINDINGS = compileResolvedKeybindingsConfig(DEF
 
 export function mergeWithDefaultKeybindings(
   custom: ResolvedKeybindingsConfig,
+  options?: { readonly leaderBindingsSupported?: boolean },
 ): ResolvedKeybindingsConfig {
   if (custom.length === 0) {
     return [...DEFAULT_RESOLVED_KEYBINDINGS];
   }
 
   const overriddenCommands = new Set(custom.map((binding) => binding.command));
-  const retainedDefaults = DEFAULT_RESOLVED_KEYBINDINGS.filter(
-    (binding) => !overriddenCommands.has(binding.command),
-  );
+  const retainedDefaults = DEFAULT_RESOLVED_KEYBINDINGS.filter((binding) => {
+    if (!overriddenCommands.has(binding.command)) return true;
+    // Older servers cannot persist leader rules. Offer them alongside an
+    // untouched physical default until that environment is upgraded.
+    if (options?.leaderBindingsSupported !== false || !("leader" in binding.shortcut)) return false;
+    if (custom.some((rule) => rule.command === binding.command && "leader" in rule.shortcut))
+      return false;
+    return DEFAULT_RESOLVED_KEYBINDINGS.some(
+      (defaultRule) =>
+        defaultRule.command === binding.command &&
+        !("leader" in defaultRule.shortcut) &&
+        custom.some(
+          (rule) =>
+            rule.command === defaultRule.command &&
+            keybindingShortcutInput(rule.shortcut) ===
+              keybindingShortcutInput(defaultRule.shortcut) &&
+            sameWhenNode(rule.whenAst, defaultRule.whenAst),
+        ),
+    );
+  });
   const merged = [...retainedDefaults, ...custom];
 
   if (merged.length <= MAX_KEYBINDINGS_COUNT) {
@@ -465,4 +531,21 @@ export function mergeWithDefaultKeybindings(
   }
 
   return merged.slice(-MAX_KEYBINDINGS_COUNT);
+}
+
+function sameWhenNode(
+  left: KeybindingWhenNode | undefined,
+  right: KeybindingWhenNode | undefined,
+): boolean {
+  if (!left || !right) return left === right;
+  if (left.type !== right.type) return false;
+  if (left.type === "identifier" && right.type === "identifier") return left.name === right.name;
+  if (left.type === "not" && right.type === "not") return sameWhenNode(left.node, right.node);
+  if (
+    (left.type === "and" || left.type === "or") &&
+    (right.type === "and" || right.type === "or")
+  ) {
+    return sameWhenNode(left.left, right.left) && sameWhenNode(left.right, right.right);
+  }
+  return false;
 }
