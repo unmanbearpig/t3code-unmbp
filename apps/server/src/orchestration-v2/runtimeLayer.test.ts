@@ -3311,9 +3311,10 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       }),
   );
 
-  it.effect("rejects settling a thread while a run is active", () =>
+  it.effect("defers settlement while a run is active and fulfills it once idle", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
       const threadId = ThreadId.make("runtime-layer-active-settle-thread");
 
       yield* orchestrator.dispatch({
@@ -3359,20 +3360,64 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         .pipe(Effect.flip);
       assert.instanceOf(nonEmptyClaim, Orchestrator.OrchestratorDispatchError);
 
-      const error = yield* orchestrator
-        .dispatch({
-          type: "thread.settle",
-          commandId: CommandId.make("runtime-layer-active-settle"),
-          threadId,
-        })
-        .pipe(Effect.flip);
-
-      assert.equal(error._tag, "OrchestratorDispatchError");
+      const accepted = yield* orchestrator.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("runtime-layer-active-settle"),
+        threadId,
+      });
+      assert.deepEqual(
+        accepted.storedEvents.map(({ event }) => event.type),
+        ["thread.settle-when-idle-set"],
+      );
       const projection = yield* orchestrator.getThreadProjection(threadId);
       assert.equal(projection.runs[0]?.status, "starting");
+      assert.isNotNull(projection.thread.settleWhenIdleAt);
       assert.isNull(projection.thread.settledOverride);
       assert.isNull(projection.thread.settledAt);
       assert.isNotNull(projection.thread.unsettledAt);
+      assert.deepEqual(
+        (yield* orchestrator.getThreadShell(threadId))?.settleWhenIdleAt,
+        projection.thread.settleWhenIdleAt,
+      );
+      const premature = yield* orchestrator
+        .dispatch({
+          type: "thread.settle-when-idle",
+          commandId: CommandId.make("runtime-layer-active-settle-premature"),
+          threadId,
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(premature, Orchestrator.OrchestratorDispatchError);
+
+      yield* TestClock.adjust("1 second");
+      const now = yield* DateTime.now;
+      const run = projection.runs[0]!;
+      yield* eventSink.commitCommand({
+        commandId: CommandId.make("runtime-layer-active-settle-completed"),
+        threadId,
+        commandType: "provider-runtime.reconcile",
+        acceptedAt: now,
+        events: [
+          {
+            id: EventId.make("runtime-layer-active-settle-completed"),
+            type: "run.updated",
+            threadId,
+            runId: run.id,
+            occurredAt: now,
+            payload: { ...run, status: "completed", startedAt: now, completedAt: now },
+          },
+        ],
+        effects: [],
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.settle-when-idle",
+        commandId: CommandId.make("runtime-layer-active-settle-fulfilled"),
+        threadId,
+      });
+      const settled = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(settled.runs[0]?.status, "completed");
+      assert.equal(settled.thread.settledOverride, "settled");
+      assert.deepEqual(settled.thread.settledAt, projection.thread.settleWhenIdleAt);
+      assert.isNull(settled.thread.settleWhenIdleAt);
     }),
   );
 
@@ -3444,7 +3489,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
     }),
   );
 
-  it.effect("settles past held automatic runs but not held user messages", () =>
+  it.effect("settles past held automatic runs and defers for held user messages", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const eventSink = yield* EventSink.EventSinkV2;
@@ -3537,7 +3582,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       assert.isNotNull(settled.thread.settledAt);
       assert.isTrue(settled.runs.every((run) => run.status === "cancelled"));
 
-      // A held message the user typed still blocks settling.
+      // A held message the user typed remains queued until the user handles it.
       yield* orchestrator.dispatch({
         type: "thread.unsettle",
         commandId: CommandId.make("settle-automatic-unsettle"),
@@ -3558,14 +3603,47 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       });
       yield* queueMessage("settle-automatic-user-queued", false);
       yield* holdQueueAfterRestart("settle-automatic-restart-2");
-      const error = yield* orchestrator
+      const deferred = yield* orchestrator.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("settle-automatic-settle-2"),
+        threadId,
+      });
+      assert.deepEqual(
+        deferred.storedEvents.map(({ event }) => event.type),
+        ["thread.settle-when-idle-set"],
+      );
+      const filed = yield* orchestrator.getThreadProjection(threadId);
+      const queued = filed.runs.find(
+        (run) => run.userMessageId === MessageId.make("settle-automatic-user-queued"),
+      )!;
+      assert.equal(queued.status, "queued");
+      assert.isTrue(queued.queueHeld);
+      assert.isNull(filed.thread.settledAt);
+      assert.isNotNull(filed.thread.settleWhenIdleAt);
+      const premature = yield* orchestrator
         .dispatch({
-          type: "thread.settle",
-          commandId: CommandId.make("settle-automatic-settle-2"),
+          type: "thread.settle-when-idle",
+          commandId: CommandId.make("settle-automatic-premature-2"),
           threadId,
         })
         .pipe(Effect.flip);
-      assert.equal(error._tag, "OrchestratorDispatchError");
+      assert.instanceOf(premature, Orchestrator.OrchestratorDispatchError);
+
+      yield* orchestrator.dispatch({
+        type: "queued-run.cancel",
+        commandId: CommandId.make("settle-automatic-cancel-queued"),
+        threadId,
+        runId: queued.id,
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.settle-when-idle",
+        commandId: CommandId.make("settle-automatic-fulfill-2"),
+        threadId,
+      });
+      const fulfilled = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(fulfilled.thread.settledOverride, "settled");
+      assert.deepEqual(fulfilled.thread.settledAt, filed.thread.settleWhenIdleAt);
+      assert.isNull(fulfilled.thread.settleWhenIdleAt);
     }),
   );
 

@@ -125,6 +125,36 @@ const makeHarness = Effect.fn("TestThreadCommands.makeHarness")(function* () {
 });
 
 describe("remote thread lifecycle commands", () => {
+  it.effect.each([
+    ["files a running thread", { status: "running" as const }, { settledOverride: null }],
+    [
+      "settles past a dev server",
+      {
+        status: "completed" as const,
+        pendingBackgroundTasks: [{ taskId: "dev", kind: "command" }],
+      },
+      { settledOverride: "settled", settleWhenIdleAt: null },
+    ],
+  ] as const)("%s at once and restores it when the server rejects", ([, thread, expected]) =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      const initial = { ...SNAPSHOT, threads: [{ ...SNAPSHOT.threads[0]!, ...thread }] };
+      h.registry.set(h.snapshotAtom(ENVIRONMENT_ID), initial);
+      const result = h.commands.settle.run(h.registry, {
+        environmentId: ENVIRONMENT_ID,
+        input: { threadId: THREAD_ID },
+      });
+      expect(h.registry.get(h.visibleAtom)?.threads[0]).toMatchObject({
+        settleWhenIdleAt: expect.any(Object),
+        ...expected,
+      });
+      const request = yield* Queue.take(h.requests);
+      yield* Deferred.fail(request.reply, new Error("Attention required"));
+      expect((yield* Effect.promise(() => result))._tag).toBe("Failure");
+      expect(h.registry.get(h.visibleAtom)).toBe(initial);
+    }),
+  );
+
   const actions = [
     ["settle", {}, { settledOverride: "settled", pinnedAt: null, snoozedUntil: null }],
     ["unsettle", { reason: "user" }, { settledOverride: "active", settledAt: null }],

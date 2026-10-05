@@ -142,6 +142,8 @@ export function isAutoSettlementCandidate(
 ): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
   if (thread.pinnedAt != null || thread.autoSettleDisabledAt != null) return false;
+  // A filed thread settles through its own intent once its work finishes.
+  if (thread.settleWhenIdleAt != null) return false;
   // Blocked-on-you work must never park behind a settled override.
   if (thread.pendingRuntimeRequest !== null) return false;
   // A live run, or background work that will wake the agent, is not
@@ -309,12 +311,35 @@ export const make = Effect.gen(function* () {
     threadId?: ThreadId,
   ) {
     const settings = yield* settingsService.getSettings;
-    if (!autoSettlementConfigured(settings)) {
-      return;
+    const automatic = autoSettlementConfigured(settings);
+    // Explicit user intent remains actionable with every automatic rule disabled.
+    const threads = yield* projections.getSettlementCandidates(threadId, !automatic);
+    for (const thread of threads) {
+      // Candidates never have a live run or a pending request.
+      if (
+        thread.settleWhenIdleAt == null ||
+        backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])
+      )
+        continue;
+      const uuid = yield* crypto.randomUUIDv4;
+      yield* orchestrator
+        .dispatch({
+          type: "thread.settle-when-idle",
+          commandId: CommandId.make(`server:settle-when-idle:${thread.id}:${uuid}`),
+          threadId: thread.id,
+        })
+        .pipe(
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause)
+              : Effect.logWarning("deferred thread settlement skipped", {
+                  threadId: thread.id,
+                  cause: Cause.pretty(cause),
+                }),
+          ),
+        );
     }
-    // A sweep for one thread reads only that thread's candidate row.
-    const threads = yield* projections.getSettlementCandidates(threadId);
-    if (threads.length === 0) return;
+    if (!automatic || threads.length === 0) return;
     const projectShells = yield* projectStore.listShells();
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
     const projects = new Map(projectShells.map((project) => [project.id, project]));
@@ -600,6 +625,10 @@ export const make = Effect.gen(function* () {
     switch (event.type) {
       case "thread.settled":
         return cleanUpSettledThread(event.threadId);
+      case "thread.settle-when-idle-set":
+        return event.payload.settleWhenIdleAt != null
+          ? worker.enqueue(event.threadId)
+          : Effect.void;
       case "thread.pull-request-synced":
       case "provider-session.detached":
         return worker.enqueue(event.threadId);

@@ -1,4 +1,8 @@
-import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
+import {
+  resolveThreadWorkingStartedAt,
+  settleWaitsForWork,
+} from "@t3tools/client-runtime/state/models";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
@@ -32,13 +36,17 @@ export function shouldNavigateAfterThreadPark(input: {
   readonly currentThreadKey: string | null;
   readonly action: "settle" | "snooze";
   readonly now: string;
-  readonly thread: (ThreadSnoozeShell & Pick<SidebarThreadSummary, "settledOverride">) | null;
+  readonly thread:
+    | (ThreadSnoozeShell &
+        Pick<SidebarThreadSummary, "settledOverride"> &
+        Partial<Pick<SidebarThreadSummary, "settleWhenIdleAt">>)
+    | null;
 }): boolean {
   return (
     input.threadKey === input.currentThreadKey &&
     input.thread !== null &&
     (input.action === "settle"
-      ? input.thread.settledOverride === "settled"
+      ? isFiledAsSettled(input.thread)
       : effectiveSnoozed(input.thread, { now: input.now }))
   );
 }
@@ -432,19 +440,25 @@ export function applySidebarThreadDrop<
     | "snoozedUntil"
     | "settledAt"
     | "settledOverride"
+    | "settleWhenIdleAt"
     | "unsettledAt"
-  >,
+  > &
+    Partial<Pick<SidebarThreadSummary, "runtime" | "pendingBackgroundTasks">>,
 >(thread: T, section: "pinned" | "active" | "settled", now: string, orderKey?: string): T {
-  const wasSettled = thread.settledOverride === "settled";
-  const awake = { ...thread, snoozedAt: null, snoozedUntil: null };
+  const wasSettled = isFiledAsSettled(thread);
+  const awake = { ...thread, settleWhenIdleAt: null, snoozedAt: null, snoozedUntil: null };
   if (section === "settled") {
     return {
       ...awake,
       pinnedAt: null,
       pinOrderKey: null,
       activeOrderKey: null,
-      settledOverride: "settled",
-      settledAt: wasSettled ? (thread.settledAt ?? now) : now,
+      ...(settleWaitsForWork(thread.runtime?.status, thread.pendingBackgroundTasks)
+        ? { settleWhenIdleAt: thread.settleWhenIdleAt ?? now }
+        : {
+            settledOverride: "settled" as const,
+            settledAt: wasSettled ? (thread.settledAt ?? now) : (thread.settleWhenIdleAt ?? now),
+          }),
       unsettledAt: null,
     };
   }
