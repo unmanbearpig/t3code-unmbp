@@ -1,3 +1,4 @@
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Spinner } from "~/components/ui/spinner";
 import { useShortcutModifierState } from "~/shortcutModifierState";
@@ -2200,8 +2201,7 @@ function PullRequestsRouteView() {
       if (command === "thread.copyReference") copyPullRequestFromShortcut(event);
     };
     // Let panel shortcuts consume Escape before page navigation at window.
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return addAppShortcutListener(document, onKeyDown);
   }, [keybindings]);
 
   return (
@@ -2575,8 +2575,7 @@ function PullRequestsColumn({
       input?.focus();
       input?.select();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return addAppShortcutListener(window, onKeyDown);
   }, [condensed]);
   useEffect(() => {
     if (condensed) return;

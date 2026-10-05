@@ -1,17 +1,19 @@
 import {
   STATIC_KEYBINDING_COMMANDS,
   type KeybindingCommand,
-  type KeybindingShortcut,
+  type AppKeybindingShortcut,
   type KeybindingWhenNode,
   type ResolvedKeybindingRule,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import {
   DEFAULT_RESOLVED_KEYBINDINGS,
+  keybindingShortcutInput,
   parseKeybindingWhenExpression,
 } from "@t3tools/shared/keybindings";
 
 import { shortcutKeyFromEvent } from "../../keybindings";
+import { leaderStrokeKey } from "@t3tools/shared/leaderKey";
 import { isMacPlatform } from "../../lib/utils";
 import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
 
@@ -82,15 +84,8 @@ export const DEFAULT_WHEN_VARIABLE =
   ) ?? "terminalFocus";
 const KNOWN_WHEN_VARIABLES = new Set(DEFAULT_WHEN_VARIABLES);
 
-export function shortcutToKeybindingInput(shortcut: KeybindingShortcut): string {
-  const parts: string[] = [];
-  if (shortcut.modKey) parts.push("mod");
-  if (shortcut.metaKey) parts.push("meta");
-  if (shortcut.ctrlKey) parts.push("ctrl");
-  if (shortcut.altKey) parts.push("alt");
-  if (shortcut.shiftKey) parts.push("shift");
-  parts.push(shortcut.key === " " ? "space" : shortcut.key === "escape" ? "esc" : shortcut.key);
-  return parts.join("+");
+export function shortcutToKeybindingInput(shortcut: AppKeybindingShortcut): string {
+  return keybindingShortcutInput(shortcut);
 }
 
 export function whenAstToExpression(node: KeybindingWhenNode | undefined): string {
@@ -421,8 +416,11 @@ function normalizeShortcutKeyToken(key: string): string | null {
 export function keybindingFromKeyboardEvent(
   event: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
   platform: string,
+  logicalKey = false,
 ): string | null {
-  const keyToken = normalizeShortcutKeyToken(shortcutKeyFromEvent(event));
+  const keyToken = normalizeShortcutKeyToken(
+    logicalKey ? leaderStrokeKey(event) : shortcutKeyFromEvent(event),
+  );
   if (!keyToken) return null;
 
   const parts: string[] = [];

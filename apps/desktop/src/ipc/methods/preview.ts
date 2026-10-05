@@ -1,5 +1,6 @@
 import {
   DesktopPreviewAnnotationSendEnabledInputSchema,
+  DesktopLeaderConfig,
   DesktopPreviewAnnotationThemeInputSchema,
   DesktopPreviewArtifactInputSchema,
   DesktopPreviewConfigInputSchema,
@@ -434,8 +435,19 @@ export const saveRecording = DesktopIpc.makeIpcMethod({
   }),
 });
 
+const configureLeader = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_LEADER_CONFIG_CHANNEL,
+  payload: DesktopLeaderConfig,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.configureLeader")(function* (config) {
+    const manager = yield* PreviewManager.PreviewManager;
+    yield* manager.configureLeader(config);
+  }),
+});
+
 export const methods = [
   setForwardedShortcuts,
+  configureLeader,
   createTab,
   closeTab,
   registerWebview,

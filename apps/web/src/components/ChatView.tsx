@@ -1,5 +1,6 @@
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
+import { addAppShortcutListener, isLeaderShortcutEvent } from "~/appShortcutEvents";
 import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
 import {
@@ -7977,6 +7978,7 @@ export default function ChatView(props: ChatViewProps) {
       if (
         !shortcutContext.terminalFocus &&
         !shortcutContext.modelPickerOpen &&
+        !isLeaderShortcutEvent(event) &&
         shouldTypeToFocusComposer(event)
       ) {
         if (composerRef.current?.insertTextAtEnd(event.key)) {
@@ -8265,10 +8267,10 @@ export default function ChatView(props: ChatViewProps) {
       closeThreadFind();
       focusComposer();
     };
-    window.addEventListener("keydown", handler, true);
+    const unsubscribeShortcuts = addAppShortcutListener(window, handler, true);
     window.addEventListener("keydown", dismissFind);
     return () => {
-      window.removeEventListener("keydown", handler, true);
+      unsubscribeShortcuts();
       window.removeEventListener("keydown", dismissFind);
     };
   }, [

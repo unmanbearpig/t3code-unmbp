@@ -15,6 +15,7 @@ import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from
 import { KeybindingShortcut, ResolvedKeybindingsConfig } from "./keybindings.ts";
 
 export const DesktopLeaderConfig = Schema.Struct({
+  context: Schema.optionalKey(Schema.Record(Schema.String, Schema.Boolean)),
   trigger: Schema.NullOr(KeybindingShortcut),
   bindings: ResolvedKeybindingsConfig,
 });

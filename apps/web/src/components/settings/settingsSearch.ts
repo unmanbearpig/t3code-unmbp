@@ -557,6 +557,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/keybindings",
     searchTerms: ["keyboard shortcuts hotkeys commands bindings json"],
   },
+  {
+    id: "leader-trigger",
+    title: "Leader trigger",
+    to: "/settings/keybindings",
+    searchTerms: ["leader prefix keyboard ctrl period sequence"],
+  },
   ...KEYBINDING_SEARCH_ITEMS,
   {
     id: "snap-shot-enabled",

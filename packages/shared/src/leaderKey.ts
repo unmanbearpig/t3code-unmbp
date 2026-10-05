@@ -11,19 +11,50 @@ export interface LeaderStroke {
   readonly altKey: boolean;
 }
 
+export function leaderStrokeKey(input: Pick<LeaderStroke, "key" | "shiftKey">): string {
+  const key = input.key.toLowerCase();
+  return (input.shiftKey ? SHIFTED_KEYS[key] : undefined) ?? key;
+}
+
 export function matchesLeaderStroke(
   input: LeaderStroke,
   shortcut: KeybindingShortcut,
   isMac: boolean,
 ) {
+  const key = input.key.toLowerCase();
+  const unshiftedKey = leaderStrokeKey(input);
   return (
-    input.key.toLowerCase() === shortcut.key &&
+    (key === shortcut.key || unshiftedKey === shortcut.key) &&
     input.ctrlKey === (shortcut.ctrlKey || (shortcut.modKey && !isMac)) &&
     input.metaKey === (shortcut.metaKey || (shortcut.modKey && isMac)) &&
     input.shiftKey === shortcut.shiftKey &&
     input.altKey === shortcut.altKey
   );
 }
+
+const SHIFTED_KEYS: Readonly<Record<string, string>> = {
+  "!": "1",
+  "@": "2",
+  "#": "3",
+  $: "4",
+  "%": "5",
+  "^": "6",
+  "&": "7",
+  "*": "8",
+  "(": "9",
+  ")": "0",
+  "~": "`",
+  _: "-",
+  "+": "=",
+  "{": "[",
+  "}": "]",
+  "|": "\\",
+  ":": ";",
+  '"': "'",
+  "<": ",",
+  ">": ".",
+  "?": "/",
+};
 
 export function matchesLeaderWhen(
   node: KeybindingWhenNode | undefined,

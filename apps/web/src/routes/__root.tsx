@@ -1,4 +1,6 @@
 import { PermissionUpdateNotice } from "../components/PermissionUpdateNotice";
+import { AppGlobalShortcuts } from "../components/AppGlobalShortcuts";
+import { LeaderKeyCoordinator } from "../components/LeaderKeyCoordinator";
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
@@ -185,6 +187,8 @@ function RootRouteView() {
           <CustomSnoozeDialogHost />
           <CommandPalette>
             <AppSidebarLayout>
+              <LeaderKeyCoordinator />
+              <AppGlobalShortcuts />
               <Outlet />
             </AppSidebarLayout>
           </CommandPalette>
@@ -205,6 +209,8 @@ function RootRouteView() {
   const appShell = (
     <CommandPalette>
       <AppSidebarLayout>
+        <LeaderKeyCoordinator />
+        <AppGlobalShortcuts />
         <Outlet />
       </AppSidebarLayout>
     </CommandPalette>
