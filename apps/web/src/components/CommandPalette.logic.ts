@@ -231,6 +231,19 @@ export function findHighlightedCommandPaletteItem(
   return null;
 }
 
+/** Tab completes a directory, using the first suggestion when none is highlighted. */
+export function findBrowseCompletionItem(
+  groups: ReadonlyArray<CommandPaletteGroup>,
+  highlightedItemValue: string | null,
+) {
+  const directories = groups
+    .flatMap((group) => group.items)
+    .filter(
+      (item) => item.value.startsWith("browse:") && item.value !== "browse:up" && !item.disabled,
+    );
+  return directories.find((item) => item.value === highlightedItemValue) ?? directories[0] ?? null;
+}
+
 export function enumerateCommandPaletteItems(
   items: ReadonlyArray<CommandPaletteActionItem>,
 ): CommandPaletteActionItem[] {

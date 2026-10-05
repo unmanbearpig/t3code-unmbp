@@ -12,6 +12,7 @@ import {
   enumerateCommandPaletteItems,
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
+  findBrowseCompletionItem,
   findHighlightedCommandPaletteItem,
   reduceCommandPaletteUiState,
   type CommandPaletteActionItem,
@@ -741,6 +742,53 @@ describe("buildBrowseGroups", () => {
     finishNavigation?.();
     await action;
     expect(actionSettled).toBe(true);
+  });
+});
+
+describe("findBrowseCompletionItem", () => {
+  const groups = buildBrowseGroups({
+    browseEntries: [
+      { name: "projects", fullPath: "/home/test/projects" },
+      { name: "projects-old", fullPath: "/home/test/projects-old" },
+    ],
+    browseQuery: "~/proj",
+    canBrowseUp: true,
+    upIcon: null,
+    directoryIcon: null,
+    browseUp: () => {},
+    browseTo: () => {},
+  });
+
+  it("completes the first directory instead of the parent-directory action", () => {
+    expect(findBrowseCompletionItem(groups, null)?.value).toBe("browse:/home/test/projects");
+  });
+
+  it("completes the highlighted directory", () => {
+    expect(findBrowseCompletionItem(groups, "browse:/home/test/projects-old")?.value).toBe(
+      "browse:/home/test/projects-old",
+    );
+  });
+
+  it.each(["browse:up", "browse:/home/test/missing"])(
+    "falls back to the first directory for %s",
+    (highlightedItemValue) => {
+      expect(findBrowseCompletionItem(groups, highlightedItemValue)?.value).toBe(
+        "browse:/home/test/projects",
+      );
+    },
+  );
+
+  it("leaves Tab alone when there are no directory suggestions", () => {
+    expect(findBrowseCompletionItem([], null)).toBeNull();
+    expect(
+      findBrowseCompletionItem(
+        groups.map((group) => ({
+          ...group,
+          items: group.items.map((item) => ({ ...item, disabled: true })),
+        })),
+        null,
+      ),
+    ).toBeNull();
   });
 });
 
