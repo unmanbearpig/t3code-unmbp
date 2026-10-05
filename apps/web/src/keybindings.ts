@@ -23,7 +23,7 @@ import { projectScriptIdFromCommand } from "./projectScripts";
 export type { ShortcutEventLike, ShortcutModifierStateLike } from "@t3tools/shared/keybindings";
 export { shortcutKeyFromEvent } from "@t3tools/shared/keybindings";
 import { isEditableFocused } from "./lib/editableFocus";
-import { composerEmacsAction, isComposerEmacsFocused } from "./lib/composerEmacsShortcuts";
+import { isComposerEmacsEditingShortcut } from "./lib/composerEmacsShortcuts";
 import { isTextboxNewlineShortcut } from "./lib/textboxNewline";
 
 export interface ShortcutMatchContext {
@@ -171,8 +171,7 @@ export function resolveShortcutCommand(
   });
   if (
     !context.terminalFocus &&
-    (isTextboxNewlineShortcut(event, target) ||
-      (isComposerEmacsFocused(target) && composerEmacsAction(event)))
+    (isTextboxNewlineShortcut(event, target) || isComposerEmacsEditingShortcut(event, target))
   ) {
     return null;
   }

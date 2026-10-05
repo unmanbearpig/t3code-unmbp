@@ -6,6 +6,7 @@ interface EditingKeyEvent {
   metaKey: boolean;
   shiftKey: boolean;
   isComposing?: boolean;
+  repeat?: boolean;
 }
 
 const CONTROL_ACTIONS = {
@@ -16,6 +17,7 @@ const CONTROL_ACTIONS = {
   p: "previousLine",
   n: "nextLine",
   h: "backspace",
+  d: "delete",
   k: "killEnd",
   u: "killStart",
   w: "killWordBackward",
@@ -78,10 +80,21 @@ const COMPOSER_MOVEMENT_ACTIONS = new Set([
   "documentEnd",
 ]);
 
-export function isComposerEmacsFocused(target: EventTarget | null | undefined) {
+/** Capture-phase app shortcuts yield to editing, except a fresh Ctrl+D on an empty prompt. */
+export function isComposerEmacsEditingShortcut(
+  event: EditingKeyEvent,
+  target: EventTarget | null | undefined,
+) {
+  const composer =
+    typeof Element !== "undefined" && target instanceof Element
+      ? target.closest('[data-composer-emacs="true"]')
+      : null;
+  if (!composer) return false;
+  const action = composerEmacsAction(event);
   return (
-    typeof Element !== "undefined" &&
-    target instanceof Element &&
-    target.closest('[data-composer-emacs="true"]') !== null
+    action !== null &&
+    (action !== "delete" ||
+      event.repeat === true ||
+      composer.getAttribute("data-composer-empty") !== "true")
   );
 }
