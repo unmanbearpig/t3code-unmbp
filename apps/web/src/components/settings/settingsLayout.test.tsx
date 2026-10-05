@@ -47,7 +47,7 @@ describe("settings search targets", () => {
 
     expect(scrollToSettingsTarget("providers")).toBe(true);
     expect(headerScrollIntoView).toHaveBeenCalledWith({
-      behavior: "smooth",
+      behavior: "instant",
       block: "center",
     });
     expect(sectionScrollIntoView).not.toHaveBeenCalled();
@@ -79,7 +79,7 @@ describe("settings search targets", () => {
 
     expect(scrollToSettingsTarget("word-wrap")).toBe(true);
     expect(scrollIntoView).toHaveBeenCalledWith({
-      behavior: "auto",
+      behavior: "instant",
       block: "center",
     });
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
