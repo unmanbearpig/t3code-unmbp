@@ -103,7 +103,8 @@ describe("Emacs composer editing", () => {
     expect(editor.view.state.selection.head).toBe(7);
     editor.press("b");
     expect(editor.view.state.selection.head).toBe(2);
-    editor.press("d");
+    editor.press("f");
+    editor.press("h");
     expect(editor.text()).toBe("aéz");
     editor.at(4);
     editor.press("h");
@@ -203,10 +204,10 @@ describe("Emacs composer editing", () => {
     expect(editor.view.state.selection.head).toBe(1);
   });
 
-  it("joins hard lines with Control-D and Control-H", () => {
+  it("joins hard lines with Control-H", () => {
     const editor = composer(["first", "second"]);
-    editor.at(6);
-    editor.press("d");
+    editor.at(8);
+    editor.press("h");
     expect(editor.text()).toBe("firstsecond");
     editor.press("j");
     editor.press("h");
@@ -307,6 +308,49 @@ describe("Emacs composer editing", () => {
     expect(editor.view.state.selection.head).toBe(4);
   });
 
+  it("leaves Ctrl-D to app shortcuts without deleting composer text", () => {
+    const editor = composer();
+    editor.at(4);
+    expect(editor.press("d").defaultPrevented).toBe(false);
+    expect(editor.text()).toBe("hello world");
+    expect(editor.view.state.selection.head).toBe(4);
+  });
+
+  it.each([
+    { platform: "Linux", key: "mod+d" },
+    { platform: "Win32", key: "ctrl+d" },
+    { platform: "MacIntel", key: "ctrl+d" },
+  ])("lets $key settle a thread from the enabled composer on $platform", ({ platform, key }) => {
+    const editor = composer();
+    editor.at(4);
+    const keybindings = mergeWithDefaultKeybindings(
+      compileResolvedKeybindingsConfig([{ key, command: "thread.settle", when: "!terminalFocus" }]),
+    );
+    const commands: string[] = [];
+    const listener = (event: KeyboardEvent) => {
+      const command = resolveShortcutCommand(event, keybindings, { platform });
+      if (command) {
+        commands.push(command);
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    window.addEventListener("keydown", listener, true);
+    cleanups.push(() => window.removeEventListener("keydown", listener, true));
+
+    expect(editor.press("d").defaultPrevented).toBe(true);
+    expect(commands).toEqual(["thread.settle"]);
+    expect(editor.text()).toBe("hello world");
+    expect(editor.view.state.selection.head).toBe(4);
+    expect(
+      resolveShortcutCommand(
+        new KeyboardEvent("keydown", { key: "d", ctrlKey: true }),
+        keybindings,
+        { platform, context: { terminalFocus: true } },
+      ),
+    ).not.toBe("thread.settle");
+  });
+
   it("inserts and undoes Ctrl-J with Emacs editing off without toggling the terminal", () => {
     const editor = composer(["hello"], false);
     editor.at(3);
@@ -340,7 +384,7 @@ describe("Emacs composer editing", () => {
     };
     window.addEventListener("keydown", listener, true);
     cleanups.push(() => window.removeEventListener("keydown", listener, true));
-    for (const key of ["k", "b", "d", "j", "n", "p", "u", "o", "w", "y"]) editor.press(key);
+    for (const key of ["k", "b", "j", "n", "p", "u", "o", "w", "y"]) editor.press(key);
     expect(commands).toEqual([]);
     editor.view.dom.setAttribute("data-composer-emacs", "false");
     editor.press("k");
