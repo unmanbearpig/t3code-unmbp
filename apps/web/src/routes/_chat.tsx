@@ -14,6 +14,7 @@ import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useScratchProject } from "../hooks/useScratchProject";
+import { useExternalTerminal } from "../hooks/useExternalTerminal";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -37,6 +38,8 @@ function ChatRouteGlobalShortcuts() {
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projects = useProjects();
+  const { available: externalTerminalAvailable, open: openExternalTerminal } =
+    useExternalTerminal();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const { scratchEnvironmentId, startScratchThread } = useScratchProject();
   const projectGroupCount = useMemo(
@@ -73,6 +76,7 @@ function ChatRouteGlobalShortcuts() {
           previewOpen,
           editableFocus: isEditableFocused(event.target),
           modelPickerOpen: isModelPickerOpen(),
+          externalTerminalAvailable,
         },
       });
 
@@ -104,6 +108,13 @@ function ChatRouteGlobalShortcuts() {
           defaultProjectRef,
           handleNewThread,
         });
+        return;
+      }
+
+      if (command === "terminal.openExternal") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) void openExternalTerminal();
         return;
       }
 
@@ -188,6 +199,8 @@ function ChatRouteGlobalShortcuts() {
   }, [
     activeDraftThread,
     activeThread,
+    externalTerminalAvailable,
+    openExternalTerminal,
     clearSelection,
     handleNewThread,
     keybindings,

@@ -168,6 +168,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["new thread project provider reasoning effort"],
   },
   {
+    id: "external-terminal",
+    title: "External terminal",
+    to: "/settings/general",
+    searchTerms: ["foot kitty alacritty shell window project worktree"],
+  },
+  {
     id: "default-permissions",
     title: "Permissions",
     to: "/settings/general",
