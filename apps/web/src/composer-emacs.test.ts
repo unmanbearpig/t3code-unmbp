@@ -11,7 +11,7 @@ import {
   mergeWithDefaultKeybindings,
 } from "@t3tools/shared/keybindings";
 
-import { createComposerEmacsHandler } from "./composer-emacs";
+import { createComposerEmacsHandler, isComposerEmacsDocumentEmpty } from "./composer-emacs";
 import { isCtrlNewlineShortcut } from "./lib/textboxNewline";
 import { resolveShortcutCommand } from "./keybindings";
 import { groupUndoByChangeKind, type ComposerChangeKind } from "./composer-undo-grouping";
@@ -50,7 +50,11 @@ function composer(lines: string[] = ["hello world"], enabled = true) {
       ),
       plugins: [history()],
     }),
-    attributes: { "data-composer-emacs": String(enabled), "aria-multiline": "true" },
+    attributes: (state) => ({
+      "data-composer-emacs": String(enabled),
+      "data-composer-empty": String(isComposerEmacsDocumentEmpty(state.doc)),
+      "aria-multiline": "true",
+    }),
     handleKeyDown: (view, event) =>
       (enabled || isCtrlNewlineShortcut(event)) && handle(view, event),
     handleScrollToSelection: () => true,
@@ -103,8 +107,7 @@ describe("Emacs composer editing", () => {
     expect(editor.view.state.selection.head).toBe(7);
     editor.press("b");
     expect(editor.view.state.selection.head).toBe(2);
-    editor.press("f");
-    editor.press("h");
+    editor.press("d");
     expect(editor.text()).toBe("aéz");
     editor.at(4);
     editor.press("h");
@@ -204,10 +207,10 @@ describe("Emacs composer editing", () => {
     expect(editor.view.state.selection.head).toBe(1);
   });
 
-  it("joins hard lines with Control-H", () => {
+  it("joins hard lines with Control-D and Control-H", () => {
     const editor = composer(["first", "second"]);
-    editor.at(8);
-    editor.press("h");
+    editor.at(6);
+    editor.press("d");
     expect(editor.text()).toBe("firstsecond");
     editor.press("j");
     editor.press("h");
@@ -308,19 +311,54 @@ describe("Emacs composer editing", () => {
     expect(editor.view.state.selection.head).toBe(4);
   });
 
-  it("leaves Ctrl-D to app shortcuts without deleting composer text", () => {
+  it("deletes forwards with Ctrl-D and leaves the deletion undoable", () => {
     const editor = composer();
     editor.at(4);
-    expect(editor.press("d").defaultPrevented).toBe(false);
-    expect(editor.text()).toBe("hello world");
+    expect(editor.press("d").defaultPrevented).toBe(true);
+    expect(editor.text()).toBe("helo world");
     expect(editor.view.state.selection.head).toBe(4);
+    expect(undo(editor.view.state, editor.view.dispatch)).toBe(true);
+    expect(editor.text()).toBe("hello world");
+  });
+
+  it("leaves a fresh Ctrl-D on an empty prompt to app shortcuts", () => {
+    const editor = composer([""]);
+    expect(editor.press("d").defaultPrevented).toBe(false);
+    expect(editor.text()).toBe("");
+  });
+
+  it("claims Ctrl-D at the end of a nonempty prompt without deleting or exiting", () => {
+    const editor = composer();
+    editor.at(12);
+    expect(editor.press("d").defaultPrevented).toBe(true);
+    expect(editor.text()).toBe("hello world");
+    expect(editor.view.state.selection.head).toBe(12);
+  });
+
+  it.each([{ lines: [" "] }, { lines: ["", ""] }])(
+    "deletes whitespace and newlines before treating the prompt as empty: $lines",
+    ({ lines }) => {
+      const editor = composer(lines);
+      expect(editor.press("d").defaultPrevented).toBe(true);
+      expect(editor.text()).toBe("");
+      expect(editor.press("d").defaultPrevented).toBe(false);
+    },
+  );
+
+  it("deletes an inline chip before treating the prompt as empty", () => {
+    const editor = composer([""]);
+    editor.view.dispatch(editor.view.state.tr.insert(1, schema.node("composer-mention")));
+    editor.at(1);
+    expect(editor.press("d").defaultPrevented).toBe(true);
+    expect(editor.text()).toBe("");
+    expect(editor.press("d").defaultPrevented).toBe(false);
   });
 
   it.each([
     { platform: "Linux", key: "mod+d" },
     { platform: "Win32", key: "ctrl+d" },
     { platform: "MacIntel", key: "ctrl+d" },
-  ])("lets $key settle a thread from the enabled composer on $platform", ({ platform, key }) => {
+  ])("lets $key settle an empty composer after deleting on $platform", ({ platform, key }) => {
     const editor = composer();
     editor.at(4);
     const keybindings = mergeWithDefaultKeybindings(
@@ -339,9 +377,24 @@ describe("Emacs composer editing", () => {
     cleanups.push(() => window.removeEventListener("keydown", listener, true));
 
     expect(editor.press("d").defaultPrevented).toBe(true);
+    expect(commands).toEqual([]);
+    expect(editor.text()).toBe("helo world");
+    editor.at(11);
+    editor.press("d");
+    expect(commands).toEqual([]);
+    expect(editor.text()).toBe("helo world");
+
+    editor.at(1, 11);
+    editor.press("d");
+    expect(commands).toEqual([]);
+    expect(editor.text()).toBe("");
+    editor.press("d", { ctrlKey: true, repeat: true });
+    expect(commands).toEqual([]);
+
+    expect(editor.press("d").defaultPrevented).toBe(true);
     expect(commands).toEqual(["thread.settle"]);
-    expect(editor.text()).toBe("hello world");
-    expect(editor.view.state.selection.head).toBe(4);
+    expect(editor.text()).toBe("");
+    expect(editor.view.state.selection.head).toBe(1);
     expect(
       resolveShortcutCommand(
         new KeyboardEvent("keydown", { key: "d", ctrlKey: true }),
@@ -384,7 +437,7 @@ describe("Emacs composer editing", () => {
     };
     window.addEventListener("keydown", listener, true);
     cleanups.push(() => window.removeEventListener("keydown", listener, true));
-    for (const key of ["k", "b", "j", "n", "p", "u", "o", "w", "y"]) editor.press(key);
+    for (const key of ["d", "k", "b", "j", "n", "p", "u", "o", "w", "y"]) editor.press(key);
     expect(commands).toEqual([]);
     editor.view.dom.setAttribute("data-composer-emacs", "false");
     editor.press("k");
