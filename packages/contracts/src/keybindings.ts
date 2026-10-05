@@ -159,6 +159,13 @@ export const KeybindingShortcut = Schema.Struct({
 });
 export type KeybindingShortcut = typeof KeybindingShortcut.Type;
 
+/** A leader stroke has its own wire shape so older clients drop it safely. */
+export const AppKeybindingShortcut = Schema.Union([
+  KeybindingShortcut,
+  Schema.Struct({ leader: KeybindingShortcut }),
+]);
+export type AppKeybindingShortcut = typeof AppKeybindingShortcut.Type;
+
 export const PreviewForwardedShortcut = Schema.Struct({
   command: KeybindingCommand,
   shortcut: KeybindingShortcut,
@@ -196,7 +203,7 @@ export type KeybindingWhenNode =
 
 export const ResolvedKeybindingRule = Schema.Struct({
   command: KeybindingCommand,
-  shortcut: KeybindingShortcut,
+  shortcut: AppKeybindingShortcut,
   whenAst: Schema.optional(KeybindingWhenNode),
 }).annotate({ parseOptions: { onExcessProperty: "ignore" } });
 export type ResolvedKeybindingRule = typeof ResolvedKeybindingRule.Type;
