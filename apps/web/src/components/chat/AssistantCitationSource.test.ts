@@ -339,7 +339,7 @@ describe("assistant citation source lifecycle", () => {
     source.setRangeHeight(20);
     source.layoutChanged();
     source.flushFrame();
-    expect(source.scrollToOffset).toHaveBeenCalledExactlyOnceWith({ offset: 80, animated: true });
+    expect(source.scrollToOffset).toHaveBeenCalledExactlyOnceWith({ offset: 80, animated: false });
     expect(source.highlight()).toBeUndefined();
     expect(source.root.animations).toHaveLength(0);
 
@@ -353,7 +353,7 @@ describe("assistant citation source lifecycle", () => {
     expect(source.target.onComplete).not.toHaveBeenCalled();
     await source.finishScroll();
     expect(source.target.onComplete).not.toHaveBeenCalled();
-    expect(source.scrollToOffset).toHaveBeenLastCalledWith({ offset: 140, animated: true });
+    expect(source.scrollToOffset).toHaveBeenLastCalledWith({ offset: 140, animated: false });
     await source.finishScroll();
     expect(source.target.onComplete).toHaveBeenCalledOnce();
     expect(source.highlight()?.getBoundingClientRect().top).toBe(120);
@@ -501,7 +501,7 @@ describe("assistant citation source lifecycle", () => {
     const source = createSource();
     source.mount();
     source.flushFrame();
-    expect(source.scrollToOffset).toHaveBeenCalledWith({ offset: 80, animated: true });
+    expect(source.scrollToOffset).toHaveBeenCalledWith({ offset: 80, animated: false });
     source.target.activationRef.current.dismissed = true;
     source.target.activationRef.current.cancelScroll?.();
     source.scrollNode.scrollTop = 4300;
