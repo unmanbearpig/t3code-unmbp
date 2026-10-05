@@ -85,6 +85,19 @@ function threadRunStatusIsActive(status: ThreadRuntimeSummary["status"]): boolea
   );
 }
 
+/** Settle files a thread until its work finishes when a run is live or
+    background work will wake the agent. A dev server left running does not
+    count. Mirrors the server's decision so the optimistic row lands right. */
+export function settleWaitsForWork(
+  runStatus: ThreadRuntimeSummary["status"] | null | undefined,
+  pendingBackgroundTasks: EnvironmentThreadShell["pendingBackgroundTasks"] | null | undefined,
+): boolean {
+  return (
+    (runStatus != null && threadRunStatusIsActive(runStatus)) ||
+    backgroundWorkHoldsCompletion(pendingBackgroundTasks ?? [])
+  );
+}
+
 export interface EnvironmentThreadShell {
   readonly environmentId: EnvironmentId;
   readonly id: ThreadId;
@@ -117,6 +130,7 @@ export interface EnvironmentThreadShell {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly archivedAt: string | null;
+  readonly settleWhenIdleAt: string | null;
   readonly settledOverride: "settled" | "active" | null;
   readonly settledAt: string | null;
   readonly unsettledAt: string | null;
@@ -259,6 +273,7 @@ export function presentThreadShell(
     createdAt: iso(thread.createdAt),
     updatedAt,
     archivedAt: nullableIso(thread.archivedAt),
+    settleWhenIdleAt: nullableIso(thread.settleWhenIdleAt ?? null),
     settledOverride: thread.settledOverride,
     settledAt: nullableIso(thread.settledAt),
     unsettledAt: nullableIso(thread.unsettledAt ?? null),

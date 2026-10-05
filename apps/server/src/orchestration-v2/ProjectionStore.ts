@@ -175,6 +175,7 @@ export type ProjectionSettlementCandidate = Pick<
   | "createdAt"
   | "updatedAt"
   | "archivedAt"
+  | "settleWhenIdleAt"
   | "settledOverride"
   | "pinnedAt"
   | "autoSettleDisabledAt"
@@ -351,9 +352,11 @@ export interface ProjectionStoreV2Shape {
     readonly autoResume: boolean;
     readonly snooze: boolean;
   }) => Effect.Effect<ReadonlyArray<ProjectionLimitRecoveryCandidate>, ProjectionStoreV2Error>;
-  /** Every candidate, or only `threadId` when a sweep checks one thread. */
+  /** Every candidate, or only `threadId` when a sweep checks one thread.
+      `filedOnly` keeps just threads filed to settle once idle. */
   readonly getSettlementCandidates: (
     threadId?: ThreadId,
+    filedOnly?: boolean,
   ) => Effect.Effect<ReadonlyArray<ProjectionSettlementCandidate>, ProjectionStoreV2Error>;
   /**
    * Active (not deleted, not archived) threads with at least one pull request
@@ -652,6 +655,7 @@ export function applyToProjection(
     case "thread.archived":
     case "thread.unarchived":
     case "thread.deleted":
+    case "thread.settle-when-idle-set":
     case "thread.settled":
     case "thread.unsettled":
     case "thread.snoozed":
@@ -1415,6 +1419,7 @@ export function threadShellFromProjection(
     createdAt: projection.thread.createdAt,
     updatedAt: projection.updatedAt,
     archivedAt: projection.thread.archivedAt,
+    settleWhenIdleAt: projection.thread.settleWhenIdleAt ?? null,
     settledOverride: projection.thread.settledOverride,
     settledAt: projection.thread.settledAt,
     unsettledAt: projection.thread.unsettledAt ?? null,
@@ -1641,6 +1646,7 @@ function shellFromState(input: {
     createdAt: input.state.thread.createdAt,
     updatedAt: input.state.updatedAt,
     archivedAt: input.state.thread.archivedAt,
+    settleWhenIdleAt: input.state.thread.settleWhenIdleAt ?? null,
     settledOverride: input.state.thread.settledOverride,
     settledAt: input.state.thread.settledAt,
     unsettledAt: input.state.thread.unsettledAt ?? null,
@@ -1683,6 +1689,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           case "thread.archived":
           case "thread.unarchived":
           case "thread.deleted":
+          case "thread.settle-when-idle-set":
           case "thread.settled":
           case "thread.unsettled":
           case "thread.snoozed":
@@ -2515,6 +2522,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           event.type !== "thread.archived" &&
           event.type !== "thread.unarchived" &&
           event.type !== "thread.deleted" &&
+          event.type !== "thread.settle-when-idle-set" &&
           event.type !== "thread.settled" &&
           event.type !== "thread.unsettled" &&
           event.type !== "thread.snoozed" &&
@@ -5100,7 +5108,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         return { providerThreadsByThreadId, pendingTurnItemsByThreadId };
       });
 
-    const getSettlementCandidates: ProjectionStoreV2Shape["getSettlementCandidates"] = (threadId) =>
+    const getSettlementCandidates: ProjectionStoreV2Shape["getSettlementCandidates"] = (
+      threadId,
+      filedOnly = false,
+    ) =>
       sql
         .withTransaction(
           Effect.gen(function* () {
@@ -5138,9 +5149,14 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             )
             WHERE t.deleted_at IS NULL${threadId === undefined ? sql`` : sql` AND t.thread_id = ${threadId}`}
               AND json_extract(t.payload_json, '$.archivedAt') IS NULL
-              AND json_extract(t.payload_json, '$.settledOverride') IS NULL
-              AND json_extract(t.payload_json, '$.pinnedAt') IS NULL
-              AND json_extract(t.payload_json, '$.autoSettleDisabledAt') IS NULL
+              AND (json_extract(t.payload_json, '$.settleWhenIdleAt') IS NOT NULL${
+                filedOnly
+                  ? sql``
+                  : sql`
+                OR (json_extract(t.payload_json, '$.settledOverride') IS NULL
+                  AND json_extract(t.payload_json, '$.pinnedAt') IS NULL
+                  AND json_extract(t.payload_json, '$.autoSettleDisabledAt') IS NULL)`
+              })
               AND NOT EXISTS (
                 SELECT 1 FROM orchestration_v2_projection_runs active
                 WHERE active.thread_id = t.thread_id
@@ -5649,7 +5665,7 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
           }
           return projection.thread;
         }),
-      getSettlementCandidates: (threadId) =>
+      getSettlementCandidates: (threadId, filedOnly = false) =>
         Effect.gen(function* () {
           const projections = (yield* Ref.get(replayState)).projections;
           return [...projections.values()]
@@ -5658,9 +5674,11 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 (threadId === undefined || thread.id === threadId) &&
                 thread.deletedAt === null &&
                 thread.archivedAt === null &&
-                thread.settledOverride === null &&
-                thread.pinnedAt == null &&
-                thread.autoSettleDisabledAt == null &&
+                (thread.settleWhenIdleAt != null ||
+                  (!filedOnly &&
+                    thread.settledOverride === null &&
+                    thread.pinnedAt == null &&
+                    thread.autoSettleDisabledAt == null)) &&
                 !runs.some(isActivityRunForShell) &&
                 !runtimeRequests.some((request) => request.status === "pending"),
             )

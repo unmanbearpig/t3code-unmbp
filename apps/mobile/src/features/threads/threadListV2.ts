@@ -1,3 +1,4 @@
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import {
   canSnooze,
@@ -242,7 +243,7 @@ export function getThreadListV2OrderedSection(input: {
       return false;
     if (
       (input.settlementEnvironmentIds?.has(thread.environmentId) ?? true) &&
-      thread.settledOverride === "settled" &&
+      isFiledAsSettled(thread) &&
       input.queuedThreadKeys?.has(`${thread.environmentId}:${thread.id}`) !== true
     ) {
       return false;
@@ -452,15 +453,17 @@ export function threadListV2ListItemsAreEqual(
 }
 
 /** The timestamp a row renders when it shows no status label: the settle
-    stamp on settled slim rows, otherwise the latest activity. Blank for
-    status-labelled cards and snoozed rows with a wake countdown — those
-    never draw a time, so their minute tick must not invalidate the cell. */
+    stamp on settled slim rows, otherwise the latest activity. A filed row
+    reads Working until it settles. Blank for status-labelled cards and
+    snoozed rows with a wake countdown — those never draw a time, so their
+    minute tick must not invalidate the cell. */
 function resolveThreadListV2ItemTimeLabel(
   item: ThreadListV2Item,
   showSnoozeWakeLabel: boolean,
 ): string {
   const { thread, variant, snoozed } = item;
   if (showSnoozeWakeLabel) return "";
+  if (thread.settleWhenIdleAt != null) return "Working";
   if (
     variant === "card" &&
     (resolveThreadListV2Status(thread) !== "ready" || threadHasUnseenCompletion(thread))
@@ -713,7 +716,7 @@ export function buildThreadListV2Items(input: {
     }
     const hasQueuedMessages =
       input.queuedThreadKeys?.has(`${thread.environmentId}:${thread.id}`) === true;
-    if (supportsSettlement && thread.settledOverride === "settled" && !hasQueuedMessages) {
+    if (supportsSettlement && isFiledAsSettled(thread) && !hasQueuedMessages) {
       settled.push(thread);
     } else if (thread.pinnedAt != null) {
       pinned.push(thread);

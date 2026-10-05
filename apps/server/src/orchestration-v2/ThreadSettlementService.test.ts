@@ -486,6 +486,7 @@ interface HarnessOptions {
   readonly pullRequestSummary?: PullRequestService.PullRequestService["Service"]["summary"];
   readonly existingWorktreePaths?: ReadonlyArray<string>;
   readonly onDispatch?: (command: AutoSettleCommand) => Effect.Effect<void>;
+  readonly onDeferredDispatch?: Effect.Effect<void>;
   /** Threads `getThread` returns when a `thread.settled` event is handled. */
   readonly currentThreads?: ReadonlyArray<OrchestrationV2AppThread>;
 }
@@ -500,6 +501,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const settingsChanges = yield* PubSub.unbounded<ContractServerSettings>();
   const mergedPullRequests = yield* PubSub.unbounded<PullRequestService.PullRequestMergeEvent>();
   const commands = yield* Ref.make<ReadonlyArray<AutoSettleCommand>>([]);
+  const deferredCommands = yield* Ref.make<ReadonlyArray<ThreadId>>([]);
   const branchCalls = yield* Ref.make<
     ReadonlyArray<{ readonly cwd: string; readonly branch: string }>
   >([]);
@@ -549,6 +551,12 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     });
 
   const dispatch: Orchestrator.OrchestratorV2Shape["dispatch"] = (command) => {
+    if (command.type === "thread.settle-when-idle") {
+      return Ref.update(deferredCommands, (recorded) => [...recorded, command.threadId]).pipe(
+        Effect.andThen(options.onDeferredDispatch ?? Effect.void),
+        Effect.as({ sequence: 1, storedEvents: [] }),
+      );
+    }
     if (command.type !== "thread.auto-settle") {
       return Effect.die(new Error(`Unexpected command: ${command.type}`));
     }
@@ -626,6 +634,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     snapshotReads,
     candidateReads,
     commands,
+    deferredCommands,
     branchCalls,
     summaryCalls,
     summaryRecovery,
@@ -1117,6 +1126,103 @@ describe("ThreadSettlementServiceV2 single-thread sweeps", () => {
           yield* Queue.take(fixture.snapshotReads);
           yield* service.drain;
           assert.deepStrictEqual(yield* Ref.get(fixture.candidateReads), [finished.id]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+});
+
+describe("filed thread settlement", () => {
+  const noAutomaticRules = {
+    ...DEFAULT_SERVER_SETTINGS,
+    sidebarAutoSettleAfterDays: null,
+    sidebarAutoSettleOnMerge: false,
+  };
+
+  it.effect("fulfills explicit intent without looking up the branch pull request", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const thread = makeThread("filed-private-remote", {
+          settleWhenIdleAt: DateTime.makeUnsafe(NOW),
+          branch: "feature/private",
+        });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([thread]),
+          settings: {
+            ...DEFAULT_SERVER_SETTINGS,
+            sidebarAutoSettleAfterDays: null,
+            sidebarAutoSettleOnMerge: true,
+          },
+          branchPullRequest: () => Effect.die("No source control provider registered"),
+        });
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          expect(yield* Ref.get(fixture.deferredCommands)).toEqual([thread.id]);
+          expect(yield* Ref.get(fixture.commands)).toHaveLength(0);
+          expect(yield* Ref.get(fixture.branchCalls)).toHaveLength(0);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("recovers and retries a filed thread with every automatic rule disabled", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const filedAt = DateTime.makeUnsafe(NOW);
+        const attempts = yield* Ref.make(0);
+        const thread = makeThread("recover-filed", {
+          settleWhenIdleAt: filedAt,
+          settledOverride: "active",
+          autoSettleDisabledAt: filedAt,
+        });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([thread]),
+          settings: noAutomaticRules,
+          onDeferredDispatch: Ref.updateAndGet(attempts, (n) => n + 1).pipe(
+            Effect.flatMap((n) =>
+              n === 1 ? Effect.die("transient dispatch failure") : Effect.void,
+            ),
+          ),
+        });
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          expect(yield* Ref.get(fixture.deferredCommands)).toEqual([thread.id]);
+          yield* TestClock.adjust("1 minute");
+          yield* Queue.take(fixture.snapshotReads);
+          yield* service.drain;
+          expect(yield* Ref.get(fixture.deferredCommands)).toEqual([thread.id, thread.id]);
+          expect(yield* Ref.get(fixture.commands)).toHaveLength(0);
+          expect(yield* Ref.get(fixture.branchCalls)).toHaveLength(0);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("waits for work that wakes the agent but not for a dev server", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const filed = { settleWhenIdleAt: DateTime.makeUnsafe(NOW) };
+        const devServer = makeThread("dev-server", {
+          ...filed,
+          pendingBackgroundTasks: [{ taskId: "dev", kind: "command" }],
+        });
+        const subagent = makeThread("subagent", {
+          ...filed,
+          pendingBackgroundTasks: [{ taskId: "agent", kind: "subagent" }],
+        });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([devServer, subagent]),
+          settings: noAutomaticRules,
+        });
+        yield* Effect.gen(function* () {
+          const service = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(service, fixture.activation, fixture.snapshotReads);
+          expect(yield* Ref.get(fixture.deferredCommands)).toEqual([devServer.id]);
         }).pipe(Effect.provide(fixture.layer));
       }),
     ),

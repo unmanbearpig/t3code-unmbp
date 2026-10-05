@@ -1,3 +1,4 @@
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { ChatCanvas } from "./chat/ChatCanvas";
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
 import {
@@ -6879,7 +6880,7 @@ export default function ChatView(props: ChatViewProps) {
   );
   const activeThreadWokeVisible = useMemo(() => {
     if (activeThreadWokeAt === null) return false;
-    if (activeThreadShell?.settledOverride === "settled") return false;
+    if (isFiledAsSettled(activeThreadShell)) return false;
     const wokeAtMs = Date.parse(activeThreadWokeAt);
     if (Number.isNaN(wokeAtMs)) return false;
     // Having the thread open counts as a visit at completedAt (the effect
@@ -6902,8 +6903,8 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadShell,
     activeThreadWokeAt,
   ]);
-  const activeThreadSettled =
-    supportsSettlement && activeThreadShell?.settledOverride === "settled";
+  const activeThreadSettled = supportsSettlement && isFiledAsSettled(activeThreadShell);
+  const activeThreadFiled = activeThreadSettled && activeThreadShell?.settledOverride !== "settled";
   const unsettleThreadMutation = useAtomCommand(threadEnvironment.unsettle, {
     reportFailure: false,
   });
@@ -7206,7 +7207,11 @@ export default function ChatView(props: ChatViewProps) {
       id: `thread-${isSnoozed ? "snoozed" : "settled"}:${activeThread?.id ?? "unknown"}`,
       variant: "info",
       icon: isSnoozed ? <AlarmClockIcon /> : <CheckCircle2Icon />,
-      title: `This thread is ${isSnoozed ? "snoozed" : "settled"}`,
+      title: isSnoozed
+        ? "This thread is snoozed"
+        : activeThreadFiled
+          ? "This thread settles when its work finishes"
+          : "This thread is settled",
       description: `Send a message to ${isSnoozed ? "wake" : "unsettle"}`,
       actions: (
         <Button
@@ -7229,6 +7234,7 @@ export default function ChatView(props: ChatViewProps) {
     };
   }, [
     activeThread?.id,
+    activeThreadFiled,
     activeThreadSettled,
     activeThreadSnoozed,
     handleUnsnoozeActiveThread,
