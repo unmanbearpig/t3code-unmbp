@@ -105,6 +105,16 @@ describe("ClientSettings rich text composer", () => {
   });
 });
 
+describe("ClientSettings Emacs editing", () => {
+  it("keeps existing keyboard behavior until enabled and persists the preference", () => {
+    expect(decodeClientSettings({}).composerEmacsEditingEnabled).toBe(false);
+    const preference = { composerEmacsEditingEnabled: true };
+    expect(decodeClientSettingsPatch(preference)).toEqual(preference);
+    expect(encodeClientSettings(decodeClientSettings(preference))).toMatchObject(preference);
+    expect(() => decodeClientSettingsPatch({ composerEmacsEditingEnabled: "yes" })).toThrow();
+  });
+});
+
 describe("ServerSettings default permissions", () => {
   it("keeps full access for settings saved before a default was configured", () => {
     expect(decodeServerSettings({}).defaultRuntimeMode).toBe("full-access");

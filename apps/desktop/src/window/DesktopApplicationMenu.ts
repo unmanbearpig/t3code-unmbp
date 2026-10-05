@@ -215,7 +215,9 @@ export const make = Effect.gen(function* () {
           },
           { role: "delete" },
           { type: "separator" },
-          { role: "selectAll" },
+          // On Linux let Chromium dispatch Ctrl-A to the focused editor first.
+          // Native text fields still select all; Emacs composers can move instead.
+          { role: "selectAll", registerAccelerator: environment.platform !== "linux" },
           ...(environment.platform === "darwin"
             ? [
                 { type: "separator" as const },

@@ -397,6 +397,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["composer rest resting scroll wheel conversation timeline shrink minimize"],
   },
   {
+    id: "composer-emacs-editing",
+    title: "Emacs / readline editing",
+    to: "/settings/general",
+    searchTerms: ["keyboard shortcuts ctrl control alt option movement kill yank composer"],
+  },
+  {
     id: "send-shortcut",
     title: "Send shortcut",
     to: "/settings/general",

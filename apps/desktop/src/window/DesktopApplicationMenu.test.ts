@@ -167,6 +167,9 @@ describe("DesktopApplicationMenu", () => {
       }
       const pasteAsTextItem = editMenu.submenu.find((item) => item.label === "Paste as Text");
       assert.isDefined(pasteAsTextItem);
+      const selectAllItem = editMenu.submenu.find((item) => item.role === "selectAll");
+      assert.isDefined(selectAllItem);
+      assert.isFalse(selectAllItem.registerAccelerator);
       assert.equal(pasteAsTextItem.accelerator, "CmdOrCtrl+Shift+V");
       if (typeof pasteAsTextItem.click !== "function") {
         throw new Error("Expected Paste as Text menu item to have a click handler.");
