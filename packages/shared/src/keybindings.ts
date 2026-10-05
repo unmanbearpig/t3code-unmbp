@@ -171,6 +171,11 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+  {
+    key: "ctrl+shift+n",
+    command: "terminal.openExternal",
+    when: "!terminalFocus && externalTerminalAvailable",
+  },
   { key: "mod+alt+n", command: "chat.newWithoutProject", when: "!terminalFocus" },
   { key: "mod+f", command: "chat.find", when: "!terminalFocus && !previewFocus" },
   { key: "mod+shift+m", command: "modelPicker.toggle", when: "!terminalFocus" },

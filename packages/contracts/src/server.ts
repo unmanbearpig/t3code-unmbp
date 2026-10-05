@@ -676,6 +676,8 @@ export const ServerConfig = Schema.Struct({
   /** Whether shell.openInEditor honors `LaunchEditorInput.reveal` for the
       file-manager editor. */
   shellRevealInFileManager: Schema.optionalKey(Schema.Boolean),
+  /** Whether this server implements shell.openInTerminal. */
+  shellOpenInTerminal: Schema.optionalKey(Schema.Boolean),
   /** File-manager wording clients should use for reveal actions. */
   shellRevealInFileManagerKind: Schema.optionalKey(FileManagerRevealKind),
   /** Whether thread subscriptions can emit an opt-in catch-up completion marker. */

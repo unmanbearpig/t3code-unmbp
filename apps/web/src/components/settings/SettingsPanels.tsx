@@ -11,6 +11,7 @@ import {
   type BackgroundActivityProfile,
   type DesktopUpdateChannel,
   ProviderDriverKind,
+  EXTERNAL_TERMINALS,
   type ProviderInstanceId,
   type ScopedThreadRef,
   type SidebarProjectGroupingMode,
@@ -2865,6 +2866,36 @@ export function GeneralSettingsPanel() {
                       {option.label}
                       {settings.sendShortcut === option.value && <CheckIcon aria-hidden="true" />}
                     </span>
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("external-terminal")}
+          description="Open a separate terminal window in the current project or worktree. Available for local environments."
+          control={
+            <Select
+              value={settings.externalTerminal}
+              onValueChange={(value) => {
+                const terminal = EXTERNAL_TERMINALS.find((terminal) => terminal.id === value);
+                if (terminal) updateSettings({ externalTerminal: terminal.id });
+              }}
+            >
+              <SelectTrigger size="sm" aria-label="External terminal">
+                <SelectValue>
+                  {
+                    EXTERNAL_TERMINALS.find((terminal) => terminal.id === settings.externalTerminal)
+                      ?.label
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {EXTERNAL_TERMINALS.map((terminal) => (
+                  <SelectItem key={terminal.id} value={terminal.id}>
+                    {terminal.label}
                   </SelectItem>
                 ))}
               </SelectPopup>

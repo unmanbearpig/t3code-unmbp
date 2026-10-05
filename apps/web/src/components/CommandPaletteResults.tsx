@@ -195,7 +195,11 @@ function CommandPaletteResultRow(props: {
   onExecuteItem: (item: CommandPaletteActionItem | CommandPaletteSubmenuItem) => void;
 }) {
   const shortcutLabel = props.item.shortcutCommand
-    ? shortcutLabelForCommand(props.keybindings, props.item.shortcutCommand)
+    ? shortcutLabelForCommand(props.keybindings, props.item.shortcutCommand, {
+        context: {
+          externalTerminalAvailable: props.item.shortcutCommand === "terminal.openExternal",
+        },
+      })
     : null;
 
   return (

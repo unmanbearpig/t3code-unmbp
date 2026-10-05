@@ -18,6 +18,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { EXTERNAL_TERMINALS } from "@t3tools/contracts";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import * as ExternalLauncher from "./externalLauncher.ts";
 
@@ -121,6 +122,120 @@ it.effect("launches the default browser through the platform command", () => {
     ),
   );
 });
+
+for (const terminal of EXTERNAL_TERMINALS) {
+  it.effect.skipIf(windowsHost)(
+    `opens each ${terminal.id} window independently in the requested directory`,
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fileSystem.makeTempDirectoryScoped({
+          directory: NodePath.join(NodeOS.homedir(), "codex-tmp"),
+          prefix: "t3-external-terminal-",
+        });
+        const cwd = path.join(root, "checkout with spaces; literal $name");
+        yield* fileSystem.makeDirectory(cwd);
+        const executable = path.join(root, terminal.command);
+        yield* fileSystem.writeFileString(executable, "#!/bin/sh\n");
+        yield* fileSystem.chmod(executable, 0o755);
+        const spawned: ChildProcess.StandardCommand[] = [];
+        let unrefs = 0;
+        yield* Effect.gen(function* () {
+          const launcher = yield* ExternalLauncher.ExternalLauncher;
+          yield* launcher.launchTerminal({ terminal: terminal.id, cwd });
+          yield* launcher.launchTerminal({ terminal: terminal.id, cwd });
+        }).pipe(
+          Effect.provide(
+            testLayer({
+              platform: "linux",
+              env: { PATH: root, WAYLAND_DISPLAY: "wayland-test" },
+              onSpawn: (command) => spawned.push(command),
+              onUnref: () => {
+                unrefs += 1;
+              },
+            }),
+          ),
+        );
+        assert.equal(spawned.length, 2);
+        assert.equal(unrefs, 2);
+        for (const command of spawned) {
+          assert.equal(command.command, terminal.command);
+          assert.deepEqual(command.args, [terminal.directoryFlag, cwd]);
+          assert.equal(command.options.cwd, cwd);
+          assert.equal(command.options.detached, true);
+          assert.notEqual(command.options.shell, true);
+          assert.equal(command.options.stdin, "ignore");
+        }
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+}
+
+it.effect("refuses to launch foot without a Wayland session", () =>
+  Effect.gen(function* () {
+    const launcher = yield* ExternalLauncher.ExternalLauncher;
+    const error = yield* launcher
+      .launchTerminal({ terminal: "foot", cwd: "/workspace" })
+      .pipe(Effect.flip);
+    assert.equal(error.reason, "display-unavailable");
+  }).pipe(
+    Effect.provide(
+      testLayer({
+        platform: "linux",
+        env: { DISPLAY: ":0" },
+        onSpawn: () => assert.fail("must not spawn"),
+      }),
+    ),
+  ),
+);
+
+it.effect("refuses foot on macOS", () =>
+  Effect.gen(function* () {
+    const launcher = yield* ExternalLauncher.ExternalLauncher;
+    const error = yield* launcher
+      .launchTerminal({ terminal: "foot", cwd: "/workspace" })
+      .pipe(Effect.flip);
+    assert.equal(error.reason, "unsupported-platform");
+  }).pipe(
+    Effect.provide(testLayer({ platform: "darwin", onSpawn: () => assert.fail("must not spawn") })),
+  ),
+);
+
+it.effect.skipIf(windowsHost)(
+  "reports missing terminals and invalid directories before spawning",
+  () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        directory: NodePath.join(NodeOS.homedir(), "codex-tmp"),
+        prefix: "t3-external-terminal-",
+      });
+      const file = path.join(root, "file");
+      yield* fileSystem.writeFileString(file, "");
+      yield* Effect.gen(function* () {
+        const launcher = yield* ExternalLauncher.ExternalLauncher;
+        const unavailable = yield* launcher
+          .launchTerminal({ terminal: "foot", cwd: root })
+          .pipe(Effect.flip);
+        assert.equal(unavailable.reason, "command-not-found");
+        for (const cwd of [file, path.join(root, "missing"), "relative-path"]) {
+          const invalid = yield* launcher
+            .launchTerminal({ terminal: "foot", cwd })
+            .pipe(Effect.flip);
+          assert.equal(invalid.reason, "invalid-directory");
+        }
+      }).pipe(
+        Effect.provide(
+          testLayer({
+            platform: "linux",
+            env: { PATH: root, WAYLAND_DISPLAY: "wayland-test" },
+            onSpawn: () => assert.fail("must not spawn"),
+          }),
+        ),
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
 
 it.effect("launches an installed editor with platform-safe arguments", () =>
   Effect.gen(function* () {
