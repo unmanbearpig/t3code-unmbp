@@ -12,6 +12,7 @@ import { isElectron } from "./env";
 import { isMacPlatform } from "./lib/utils";
 import { isEditableFocused } from "./lib/editableFocus";
 import { composerEmacsAction, isComposerEmacsFocused } from "./lib/composerEmacsShortcuts";
+import { isTextboxNewlineShortcut } from "./lib/textboxNewline";
 
 export interface ShortcutEventLike {
   getModifierState?: (key: "AltGraph") => boolean;
@@ -252,7 +253,11 @@ export function resolveShortcutCommand(
       ...options?.context,
     },
   });
-  if (!context.terminalFocus && isComposerEmacsFocused(target) && composerEmacsAction(event)) {
+  if (
+    !context.terminalFocus &&
+    (isTextboxNewlineShortcut(event, target) ||
+      (isComposerEmacsFocused(target) && composerEmacsAction(event)))
+  ) {
     return null;
   }
 
