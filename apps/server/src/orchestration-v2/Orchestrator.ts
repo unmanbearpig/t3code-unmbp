@@ -63,6 +63,7 @@ import {
 } from "@t3tools/contracts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import {
+  backgroundWorkHoldsCompletion,
   derivePendingBackgroundWork,
   pendingBackgroundTurnItems,
 } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
@@ -431,6 +432,10 @@ function isGoalCommand(message: {
 
 const threadPullRequestLinksEqual = Schema.toEquivalence(Schema.NullOr(ThreadLinkedPullRequest));
 
+/** Who asked to settle: a manual settle files working threads, automatic
+    settlement skips them, and "when-idle" fulfills a filed thread. */
+type SettleMode = "manual" | "automatic" | "when-idle";
+
 function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
   switch (command.type) {
     case "thread.create":
@@ -438,6 +443,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.unarchive":
     case "thread.delete":
     case "thread.settle":
+    case "thread.settle-when-idle":
     case "thread.auto-settle":
     case "thread.unsettle":
     case "thread.snooze":
@@ -2437,6 +2443,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     >,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+    settleMode: SettleMode = "manual",
   ) {
     const thread = yield* projectionStore.getThread(command.threadId).pipe(
       Effect.mapError(
@@ -2625,12 +2632,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (command.type === "thread.settle") {
       const projection = yield* loadProjectionForCommand(
         command,
-        ["runs", "runtimeRequests", "messages"],
-        { turnItemTypes: [], messageRoles: ["user"] },
+        ["runs", "runtimeRequests", "messages", "providerThreads", "turnItems"],
+        {
+          turnItemTypes: ["command_execution", "dynamic_tool", "subagent"],
+          turnItemStatuses: ["pending", "running", "waiting"],
+          messageRoles: ["user"],
+        },
       );
       // Queued notification and delegated-completion runs only wake the agent.
-      // They are not user messages and are hidden from the queue UI, so they
-      // must not block settling; they are cancelled below instead.
+      // They are not user messages and are hidden from the queue UI, so a
+      // manual or automatic settle cancels them below. Fulfilling a filed
+      // thread waits for them instead.
       const automaticMessageIds = new Set(
         projection.messages
           .filter(
@@ -2645,9 +2657,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const runningRunExists = projection.runs.some((run) =>
         ["preparing", "starting", "running", "waiting"].includes(run.status),
       );
-      // Includes a queue held after a Stop, which otherwise shows no activity.
-      const queuedMessageExists = projection.runs.some(
-        (run) => run.status === "queued" && !automaticQueuedRuns.includes(run),
+      const runActive = projection.runs.some(
+        (run) =>
+          ["preparing", "queued", "starting", "running", "waiting"].includes(run.status) &&
+          (settleMode === "when-idle" || !automaticQueuedRuns.includes(run)),
       );
       const pendingRequests = projection.runtimeRequests.filter(
         (request) => request.status === "pending",
@@ -2655,20 +2668,65 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const blockingRequestExists = pendingRequests.some(
         (request) => request.kind !== "user_input" || request.responseCapability.type !== "message",
       );
-      // The reason is shown to the user, so it names what to clear first.
-      const blocker = blockingRequestExists
+      // Work that finishes on its own files the thread instead of settling it:
+      // a live run, or background work that wakes the agent. A dev server the
+      // agent left running does not count, the same as for completion alerts.
+      const working =
+        runActive ||
+        (settleMode !== "automatic" &&
+          backgroundWorkHoldsCompletion(
+            derivePendingBackgroundWork({
+              latestRun: projection.runs.at(-1),
+              providerThreads: projection.providerThreads,
+              turnItems: projection.turnItems,
+              activeProviderThreadId: thread.activeProviderThreadId,
+              runs: projection.runs,
+            }),
+          ));
+      const rejected =
+        settleMode === "when-idle"
+          ? thread.settleWhenIdleAt == null || working || pendingRequests.length > 0
+          : blockingRequestExists ||
+            (working && (settleMode === "automatic" || pendingRequests.length > 0));
+      const blocker = blockingRequestExists || pendingRequests.length > 0
         ? "is waiting on an approval or question. Answer it before settling."
         : runningRunExists
           ? "is still running. Stop it before settling."
-          : queuedMessageExists
+          : runActive
             ? "has a queued message. Send it or remove it from the queue before settling."
-            : null;
-      if (blocker !== null) {
+            : settleMode === "when-idle" && thread.settleWhenIdleAt == null
+              ? "has no pending request to settle when idle."
+              : "has background work. Wait for it to finish before settling.";
+      if (rejected) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
           cause: `Thread ${command.threadId} ${blocker}`,
         });
+      }
+
+      if (working) {
+        const now = yield* DateTime.now;
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "thread.settle-when-idle-set",
+          threadId: thread.id,
+          providerInstanceId: thread.providerInstanceId,
+          occurredAt: now,
+          payload: {
+            ...thread,
+            settleWhenIdleAt: thread.settleWhenIdleAt ?? now,
+            pinnedAt: null,
+            pinOrderKey: null,
+            activeOrderKey: null,
+            snoozedAt: null,
+            snoozedUntil: null,
+            updatedAt: now,
+          },
+        });
+        return;
       }
 
       // Message-capable async questions do not keep provider callbacks alive.
@@ -2827,6 +2885,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return {
             ...thread,
             archivedAt: now,
+            settleWhenIdleAt: null,
             titleRegeneration: null,
             pullRequests: thread.pullRequests?.map((link) => withPullRequestWatch(link, undefined)),
             updatedAt: now,
@@ -2842,7 +2901,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return {
             ...thread,
             settledOverride: "settled",
-            settledAt: alreadySettled ? thread.settledAt : (command.settledAt ?? now),
+            // A filed thread keeps its place on the shelf when it finally settles.
+            settledAt: alreadySettled
+              ? thread.settledAt
+              : (command.settledAt ?? thread.settleWhenIdleAt ?? now),
+            settleWhenIdleAt: null,
             pullRequests: thread.pullRequests?.map((link) => withPullRequestWatch(link, undefined)),
             unsettledAt: null,
             pinnedAt: null,
@@ -2857,6 +2920,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...thread,
             settledOverride: "active",
             settledAt: null,
+            settleWhenIdleAt: null,
             unsettledAt: alreadyPinnedActive ? (thread.unsettledAt ?? null) : now,
             updatedAt: alreadyPinnedActive ? thread.updatedAt : now,
           };
@@ -2870,6 +2934,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return {
             ...thread,
             snoozedUntil,
+            settleWhenIdleAt: null,
             limitRecovery: thread.limitRecovery ? { ...thread.limitRecovery, snooze: false } : null,
             snoozedAt: existingSnoozedAt ?? now,
             updatedAt: existingSnoozedAt === null ? now : thread.updatedAt,
@@ -2911,6 +2976,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             settledOverride:
               thread.settledOverride === "settled" ? "active" : thread.settledOverride,
             settledAt: thread.settledOverride === "settled" ? null : thread.settledAt,
+            settleWhenIdleAt: null,
             snoozedUntil: null,
             snoozedAt: null,
             lastSnoozeWakeAt: thread.snoozedUntil == null ? thread.lastSnoozeWakeAt : now,
@@ -2943,6 +3009,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return {
             ...thread,
             activeOrderKey: command.orderKey,
+            settleWhenIdleAt: null,
             // Arranging the active list is not thread activity.
             updatedAt: thread.updatedAt,
           };
@@ -4615,11 +4682,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         (run) => run.id === command.restartContinuationOfRunId,
       )?.delegatedTaskId;
 
-      if (projection.thread.settledOverride !== null) {
+      if (
+        projection.thread.settledOverride !== null ||
+        (projection.thread.settleWhenIdleAt != null && command.createdBy !== "agent")
+      ) {
         const now = yield* DateTime.now;
         const thread: OrchestrationV2AppThread = {
           ...projection.thread,
           settledOverride: null,
+          settleWhenIdleAt:
+            command.createdBy === "agent" ? projection.thread.settleWhenIdleAt : null,
           settledAt: null,
           unsettledAt:
             projection.thread.settledOverride === "active"
@@ -10618,6 +10690,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.visit":
         yield* dispatchThreadVisit(command, events);
         break;
+      case "thread.settle-when-idle": {
+        yield* dispatchThreadMutation(
+          { type: "thread.settle", commandId: command.commandId, threadId: command.threadId },
+          events,
+          effects,
+          "when-idle",
+        );
+        break;
+      }
       case "thread.auto-settle": {
         // Automatic settlement (#8600): the sweep evaluated a shell snapshot,
         // so re-check against the live thread before settling. Any change
@@ -10631,6 +10712,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ),
           );
         if (
+          thread.settleWhenIdleAt != null ||
           thread.settledOverride !== null ||
           DateTime.toEpochMillis(thread.updatedAt) > DateTime.toEpochMillis(command.snapshotAt)
         ) {
@@ -10649,6 +10731,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           },
           events,
           effects,
+          "automatic",
         );
         break;
       }

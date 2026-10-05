@@ -1,4 +1,5 @@
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
 import {
@@ -1284,7 +1285,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const isWoke =
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
-    thread.settledOverride !== "settled";
+    !isFiledAsSettled(thread);
   // Background work always recedes when it is not selected: an unread parent
   // completion must not pull a still-working thread back into the foreground.
   // Ready and action-required rows keep their unread and wake prominence.
@@ -1888,9 +1889,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     </Tooltip>
                   ) : (
                     <span className="text-xs">
-                      {variantAction === "unsettle"
-                        ? settledTimeLabel(thread)
-                        : threadTimeLabel(thread)}
+                      {thread.settleWhenIdleAt != null
+                        ? "Working"
+                        : variantAction === "unsettle"
+                          ? settledTimeLabel(thread)
+                          : threadTimeLabel(thread)}
                     </span>
                   )}
                 </span>
@@ -2894,7 +2897,7 @@ export default function Sidebar() {
       } else {
         const section = resolveSidebarThreadSection({
           snoozed: supportsSnooze && effectiveSnoozed(thread, { now: preciseNow }),
-          settled: supportsSettlement && thread.settledOverride === "settled",
+          settled: supportsSettlement && isFiledAsSettled(thread),
           pinned: thread.pinnedAt != null,
         });
         (section === "snoozed"
@@ -3464,7 +3467,7 @@ export default function Sidebar() {
       const coSettlingKeys = new Set(threadKeys);
       for (const threadKey of threadKeys) {
         const thread = threadByKeyRef.current.get(threadKey);
-        if (!thread || thread.settledOverride === "settled") continue;
+        if (!thread || isFiledAsSettled(thread)) continue;
         attemptSettle(scopeThreadRef(thread.environmentId, thread.id), { coSettlingKeys });
       }
     },
@@ -3717,7 +3720,7 @@ export default function Sidebar() {
     }
     const canonicalSection = effectiveSnoozed(thread, { now: new Date().toISOString() })
       ? "snoozed"
-      : thread.settledOverride === "settled"
+      : isFiledAsSettled(thread)
         ? "settled"
         : thread.pinnedAt != null
           ? "pinned"
@@ -4027,7 +4030,7 @@ export default function Sidebar() {
             activeKey: draggedThreadKey,
             activeSection: draggedFromSection,
             activePinned: source.pinnedAt != null,
-            activeSettled: source.settledOverride === "settled",
+            activeSettled: isFiledAsSettled(source),
             supportsSettlement:
               serverConfigs.get(source.environmentId)?.environment.capabilities.threadSettlement ===
               true,
@@ -4077,7 +4080,7 @@ export default function Sidebar() {
         activeKey,
         activeSection,
         activePinned: activeThread.pinnedAt != null,
-        activeSettled: activeThread.settledOverride === "settled",
+        activeSettled: isFiledAsSettled(activeThread),
         supportsSettlement:
           serverConfigs.get(activeThread.environmentId)?.environment.capabilities
             .threadSettlement === true,

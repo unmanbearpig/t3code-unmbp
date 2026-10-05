@@ -352,3 +352,13 @@ export function localSnoozeDate(date: Date): string {
 export function localSnoozeTime(date: Date): string {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
+
+/** Settled threads and threads filed to settle once their work ends share the settled shelf. */
+export function isFiledAsSettled(
+  thread:
+    | { readonly settledOverride?: string | null; readonly settleWhenIdleAt?: string | null }
+    | null
+    | undefined,
+): boolean {
+  return thread?.settledOverride === "settled" || thread?.settleWhenIdleAt != null;
+}
