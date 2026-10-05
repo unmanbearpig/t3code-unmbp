@@ -7,6 +7,7 @@ import {
   type DesktopUpdateCheckResult,
   type DesktopUpdateState,
 } from "@t3tools/contracts";
+import { CLI_RELEASE_REPOSITORY } from "@t3tools/shared/cliRelease";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -346,7 +347,14 @@ export const make = Effect.gen(function* () {
       : false;
 
   const hasUpdateFeedConfig = Ref.get(appUpdateYmlConfigRef).pipe(
-    Effect.map((appUpdateYmlConfig) => Option.isSome(appUpdateYmlConfig) || config.mockUpdates),
+    Effect.map(
+      (appUpdateYmlConfig) =>
+        config.mockUpdates ||
+        (Option.isSome(appUpdateYmlConfig) &&
+          appUpdateYmlConfig.value.provider === "github" &&
+          `${appUpdateYmlConfig.value.owner}/${appUpdateYmlConfig.value.repo}` ===
+            CLI_RELEASE_REPOSITORY),
+    ),
   );
 
   const resolveDisabledReason = Effect.gen(function* () {
