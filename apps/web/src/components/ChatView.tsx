@@ -5392,7 +5392,7 @@ export default function ChatView(props: ChatViewProps) {
   }, []);
   // Live-follow stays active after send/thread-open until an actual list scroll
   // gesture opts out.
-  const scrollToEnd = useCallback((animated = false) => {
+  const scrollToEnd = useCallback(() => {
     cancelPositionRestoreRef.current?.();
     isAtEndRef.current = true;
     timelineScrollModeRef.current = "following-end";
@@ -5406,7 +5406,7 @@ export default function ChatView(props: ChatViewProps) {
     setShowScrollToBottom(false);
     setTimelineAnchor(releaseChatTimelineAnchor);
     requestAnimationFrame(() => {
-      void legendListRef.current?.scrollToEnd?.({ animated });
+      void legendListRef.current?.scrollToEnd?.({ animated: false });
     });
   }, []);
   useLayoutEffect(() => {
@@ -5619,7 +5619,7 @@ export default function ChatView(props: ChatViewProps) {
         void list
           .scrollToIndex({
             index: anchorIndex,
-            animated: true,
+            animated: false,
             viewPosition: 0,
             viewOffset: CHAT_TIMELINE_ANCHOR_OFFSET,
           })
@@ -9923,7 +9923,7 @@ export default function ChatView(props: ChatViewProps) {
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={() => {
                       composerRef.current?.restoreAfterTimelineReachedEnd();
-                      scrollToEnd(true);
+                      scrollToEnd();
                     }}
                     className="pointer-events-auto"
                     size="xs"

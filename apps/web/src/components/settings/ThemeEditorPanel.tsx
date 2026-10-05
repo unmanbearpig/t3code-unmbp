@@ -520,7 +520,7 @@ export function ThemeEditorPanel({
     requestAnimationFrame(() => {
       panelRef.current
         ?.querySelector(`[data-theme-color-role="${visibleRole}"]`)
-        ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        ?.scrollIntoView({ behavior: "instant", block: "nearest" });
     });
   }, []);
 

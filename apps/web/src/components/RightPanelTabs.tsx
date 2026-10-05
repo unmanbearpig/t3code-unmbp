@@ -861,10 +861,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
   const scrollTabs = useCallback((direction: -1 | 1) => {
     const viewport = tabScrollViewport(tabListRef.current);
     if (!viewport) return;
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     viewport.scrollBy({
       left: direction * Math.max(120, viewport.clientWidth * 0.75),
-      behavior: reduceMotion ? "auto" : "smooth",
+      behavior: "instant",
     });
   }, []);
 

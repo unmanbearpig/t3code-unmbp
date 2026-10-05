@@ -89,7 +89,7 @@ function scrollAndFocusSettingsTarget(target: HTMLElement, highlight = true): vo
       : target);
 
   scrollTarget.scrollIntoView({
-    behavior: prefersReducedMotion ? "auto" : "smooth",
+    behavior: "instant",
     block: "center",
   });
   target.focus({ preventScroll: true });
