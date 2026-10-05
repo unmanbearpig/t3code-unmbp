@@ -16,7 +16,6 @@ const CONTROL_ACTIONS = {
   p: "previousLine",
   n: "nextLine",
   h: "backspace",
-  d: "delete",
   k: "killEnd",
   u: "killStart",
   w: "killWordBackward",

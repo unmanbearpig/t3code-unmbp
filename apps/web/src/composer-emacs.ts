@@ -2,9 +2,7 @@ import {
   chainCommands,
   deleteSelection,
   joinBackward,
-  joinForward,
   selectNodeBackward,
-  selectNodeForward,
   splitBlockKeepMarks,
 } from "@tiptap/pm/commands";
 import { Slice, type Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -15,7 +13,6 @@ import { composerEmacsAction } from "./lib/composerEmacsShortcuts";
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const backspace = chainCommands(deleteSelection, joinBackward, selectNodeBackward);
-const forwardDelete = chainCommands(deleteSelection, joinForward, selectNodeForward);
 
 function characterPosition(view: EditorView, direction: -1 | 1, extend = false) {
   const { selection, doc } = view.state;
@@ -162,24 +159,16 @@ export function createComposerEmacsHandler() {
       case "transpose":
         transpose(view);
         break;
-      case "backspace":
-      case "delete": {
+      case "backspace": {
         if (!selection.empty) {
           deleteSelection(state, dispatch);
         } else {
-          const direction = action === "backspace" ? -1 : 1;
-          const adjacent =
-            direction === -1 ? selection.$head.nodeBefore : selection.$head.nodeAfter;
+          const adjacent = selection.$head.nodeBefore;
           if (adjacent?.isInline) {
-            const position = characterPosition(view, direction);
-            dispatch(
-              state.tr.delete(
-                Math.min(position, selection.head),
-                Math.max(position, selection.head),
-              ),
-            );
+            const position = characterPosition(view, -1);
+            dispatch(state.tr.delete(position, selection.head));
           } else {
-            (direction === -1 ? backspace : forwardDelete)(state, dispatch);
+            backspace(state, dispatch);
           }
         }
         break;

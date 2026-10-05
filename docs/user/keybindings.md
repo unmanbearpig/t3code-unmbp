@@ -79,6 +79,8 @@ Enable **Settings → General → Emacs / readline editing** to use these keys i
 the web and desktop message composer, in both rich text and plain Markdown modes.
 The composer takes priority over conflicting app shortcuts while it has focus.
 Turn the setting off to restore the default behavior. Super/Command is unchanged.
+Ctrl+D follows your app keybinding, so you can assign it to **Thread: Settle**
+without disabling Emacs editing. Use `ctrl+d` for Control on every platform.
 
 | Keys                                                        | Action                                                            |
 | ----------------------------------------------------------- | ----------------------------------------------------------------- |
@@ -88,7 +90,7 @@ Turn the setting off to restore the default behavior. Super/Command is unchanged
 | Alt+B / Alt+F, Alt+Left / Alt+Right, Ctrl+Left / Ctrl+Right | Previous / next word                                              |
 | Alt+Up / Alt+Down                                           | Beginning / end of the hard line                                  |
 | Alt+< / Alt+>                                               | Beginning / end of the prompt                                     |
-| Ctrl+H / Ctrl+D                                             | Delete the preceding / following character                        |
+| Ctrl+H                                                      | Delete the preceding character                                    |
 | Ctrl+K / Ctrl+U                                             | Kill to the end / beginning of the hard line                      |
 | Ctrl+W, Alt+Backspace, Ctrl+Backspace                       | Kill the preceding word                                           |
 | Alt+D, Alt+Delete, Ctrl+Delete                              | Kill the following word                                           |
