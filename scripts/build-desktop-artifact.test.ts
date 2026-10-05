@@ -296,8 +296,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     assert.equal(resolveDesktopWebAssetBrand("0.0.17-nightly.20260413.42"), "nightly");
   });
 
-  it.effect("resolves GitHub desktop publish config from Effect config", () =>
+  it.effect("pins desktop update feeds to the fork despite upstream build configuration", () =>
     Effect.gen(function* () {
+      const defaultConfig = yield* resolveGitHubPublishConfig("latest");
       const latestConfig = yield* resolveGitHubPublishConfig("latest").pipe(
         Effect.provide(
           ConfigProvider.layer(
@@ -323,14 +324,15 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.deepStrictEqual(latestConfig, {
         provider: "github",
-        owner: "pingdotgg",
-        repo: "t3code",
+        owner: "unmanbearpig",
+        repo: "t3code-unmbp",
         releaseType: "release",
       });
+      assert.deepStrictEqual(defaultConfig, latestConfig);
       assert.deepStrictEqual(nightlyConfig, {
         provider: "github",
-        owner: "pingdotgg",
-        repo: "t3code",
+        owner: "unmanbearpig",
+        repo: "t3code-unmbp",
         releaseType: "prerelease",
         channel: "nightly",
       });
@@ -373,8 +375,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
-          owner: "pingdotgg",
-          repo: "t3code",
+          owner: "unmanbearpig",
+          repo: "t3code-unmbp",
           releaseType: "release",
         },
       ]);
