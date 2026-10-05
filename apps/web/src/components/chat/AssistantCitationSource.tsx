@@ -185,7 +185,7 @@ export function observeAssistantCitationSource({
       );
       if (Math.abs(offset - state.scroll) > 1) {
         scrolling = true;
-        void list.scrollToOffset({ offset, animated: !reducedMotion }).then(
+        void list.scrollToOffset({ offset, animated: false }).then(
           () => {
             scrolling = false;
             if (!stopped && !activation.dismissed) schedule();
