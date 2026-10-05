@@ -64,6 +64,7 @@ import {
 } from "~/composer-undo-grouping";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
 import { createComposerEmacsHandler } from "~/composer-emacs";
+import { isCtrlNewlineShortcut } from "~/lib/textboxNewline";
 import { composerEmacsAction } from "~/lib/composerEmacsShortcuts";
 import { useClientSettings } from "~/hooks/useSettings";
 import { cn, isMacPlatform } from "~/lib/utils";
@@ -894,7 +895,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
       editorProps: {
         attributes: editorAttributes,
         handleKeyDown: (view, event) => {
-          if (emacsEditingEnabledRef.current) {
+          if (emacsEditingEnabledRef.current || isCtrlNewlineShortcut(event)) {
             const action = composerEmacsAction(event);
             if (
               (action === "previousLine" || action === "nextLine") &&

@@ -12,6 +12,7 @@ import {
 } from "@t3tools/shared/keybindings";
 
 import { createComposerEmacsHandler } from "./composer-emacs";
+import { isCtrlNewlineShortcut } from "./lib/textboxNewline";
 import { resolveShortcutCommand } from "./keybindings";
 import { groupUndoByChangeKind, type ComposerChangeKind } from "./composer-undo-grouping";
 
@@ -49,8 +50,9 @@ function composer(lines: string[] = ["hello world"], enabled = true) {
       ),
       plugins: [history()],
     }),
-    attributes: { "data-composer-emacs": String(enabled) },
-    handleKeyDown: (view, event) => enabled && handle(view, event),
+    attributes: { "data-composer-emacs": String(enabled), "aria-multiline": "true" },
+    handleKeyDown: (view, event) =>
+      (enabled || isCtrlNewlineShortcut(event)) && handle(view, event),
     handleScrollToSelection: () => true,
     dispatchTransaction: (tr: Transaction) => {
       previous = groupUndoByChangeKind(tr, previous);
@@ -303,6 +305,25 @@ describe("Emacs composer editing", () => {
     editor.at(4);
     expect(editor.press("a").defaultPrevented).toBe(false);
     expect(editor.view.state.selection.head).toBe(4);
+  });
+
+  it("inserts and undoes Ctrl-J with Emacs editing off without toggling the terminal", () => {
+    const editor = composer(["hello"], false);
+    editor.at(3);
+    const commands: string[] = [];
+    const listener = (event: KeyboardEvent) => {
+      const command = resolveShortcutCommand(event, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+      });
+      if (command) commands.push(command);
+    };
+    window.addEventListener("keydown", listener, true);
+    cleanups.push(() => window.removeEventListener("keydown", listener, true));
+    expect(editor.press("j").defaultPrevented).toBe(true);
+    expect(editor.text()).toBe("he\nllo");
+    expect(commands).toEqual([]);
+    expect(undo(editor.view.state, editor.view.dispatch)).toBe(true);
+    expect(editor.text()).toBe("hello");
   });
 
   it("lets editing win over capture-phase app shortcuts only in an enabled composer", () => {
