@@ -24,6 +24,7 @@ export type { ShortcutEventLike, ShortcutModifierStateLike } from "@t3tools/shar
 export { shortcutKeyFromEvent } from "@t3tools/shared/keybindings";
 import { isEditableFocused } from "./lib/editableFocus";
 import { composerEmacsAction, isComposerEmacsFocused } from "./lib/composerEmacsShortcuts";
+import { isTextboxNewlineShortcut } from "./lib/textboxNewline";
 
 export interface ShortcutMatchContext {
   terminalFocus: boolean;
@@ -168,7 +169,11 @@ export function resolveShortcutCommand(
       ...options?.context,
     },
   });
-  if (!context.terminalFocus && isComposerEmacsFocused(target) && composerEmacsAction(event)) {
+  if (
+    !context.terminalFocus &&
+    (isTextboxNewlineShortcut(event, target) ||
+      (isComposerEmacsFocused(target) && composerEmacsAction(event)))
+  ) {
     return null;
   }
 

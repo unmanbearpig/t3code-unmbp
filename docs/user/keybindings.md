@@ -72,6 +72,9 @@ behavior in Settings → Keyboard.
 
 ## Emacs / readline editing
 
+Ctrl+J inserts a newline in the web and desktop composer and other multiline
+text boxes, even when Emacs / readline editing is off.
+
 Enable **Settings → General → Emacs / readline editing** to use these keys in
 the web and desktop message composer, in both rich text and plain Markdown modes.
 The composer takes priority over conflicting app shortcuts while it has focus.
