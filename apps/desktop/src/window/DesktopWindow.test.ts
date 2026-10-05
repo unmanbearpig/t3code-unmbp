@@ -143,6 +143,7 @@ function makeFakeBrowserWindow() {
     setWindowButtonPosition: window.setWindowButtonPosition,
     setBackgroundThrottling: webContents.setBackgroundThrottling,
     setAutoHideCursor: window.setAutoHideCursor,
+    setTitleBarOverlay: window.setTitleBarOverlay,
     setFullScreen: window.setFullScreen,
     setOpacity: window.setOpacity,
     webContentsListeners,
@@ -195,23 +196,27 @@ const electronThemeLayer = Layer.succeed(ElectronTheme.ElectronTheme, {
   onUpdated: () => Effect.void,
 } satisfies ElectronTheme.ElectronTheme["Service"]);
 
-const desktopEnvironmentLayer = DesktopEnvironment.layer(environmentInput).pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      NodeServices.layer,
-      DesktopConfig.layerTest({
-        T3CODE_PORT: "3773",
-        VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
-      }),
+const makeDesktopEnvironmentLayer = (platform: NodeJS.Platform = environmentInput.platform) =>
+  DesktopEnvironment.layer({ ...environmentInput, platform }).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        DesktopConfig.layerTest({
+          T3CODE_PORT: "3773",
+          VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
+        }),
+      ),
     ),
-  ),
-);
+  );
+
+const desktopEnvironmentLayer = makeDesktopEnvironmentLayer();
 
 const desktopWindowBoundsEquivalence = Schema.toEquivalence(
   DesktopAppSettings.DesktopWindowBoundsSchema,
 );
 
 function makeTestLayer(input: {
+  readonly platform?: NodeJS.Platform;
   readonly window: Electron.BrowserWindow;
   readonly createCount: Ref.Ref<number>;
   readonly mainWindow: Ref.Ref<Option.Option<Electron.BrowserWindow>>;
@@ -287,7 +292,7 @@ function makeTestLayer(input: {
     Layer.provide(
       Layer.mergeAll(
         desktopAssetsLayer,
-        desktopEnvironmentLayer,
+        makeDesktopEnvironmentLayer(input.platform),
         desktopAppSettingsLayer,
         desktopClientSettingsLayer,
         desktopServerExposureLayer,
@@ -432,6 +437,44 @@ const captureOne = DesktopSnapShotId.make("11111111-1111-4111-8111-111111111111"
 const captureTwo = DesktopSnapShotId.make("22222222-2222-4222-8222-222222222222");
 
 describe("DesktopWindow", () => {
+  it.effect.each(["linux", "win32", "darwin"] satisfies ReadonlyArray<NodeJS.Platform>)(
+    "keeps platform window decorations through appearance updates on %s",
+    (platform) =>
+      Effect.gen(function* () {
+        const fakeWindow = makeFakeBrowserWindow();
+        const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+        const layer = makeTestLayer({
+          platform,
+          window: fakeWindow.window,
+          createCount: yield* Ref.make(0),
+          mainWindow: yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none()),
+          createdWindowOptions,
+        });
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+          yield* desktopWindow.syncAppearance;
+
+          const options = createdWindowOptions[0]!;
+          assert.isUndefined(options.frame);
+          if (platform === "linux") {
+            assert.equal(options.titleBarStyle, "default");
+            assert.isUndefined(options.titleBarOverlay);
+            assert.equal(fakeWindow.setTitleBarOverlay.mock.calls.length, 0);
+          } else if (platform === "win32") {
+            assert.equal(options.titleBarStyle, "hidden");
+            assert.deepEqual(fakeWindow.setTitleBarOverlay.mock.calls, [[options.titleBarOverlay]]);
+          } else {
+            assert.equal(options.titleBarStyle, "hiddenInset");
+            assert.deepEqual(options.trafficLightPosition, { x: 16, y: 19 });
+            assert.isUndefined(options.titleBarOverlay);
+            assert.equal(fakeWindow.setTitleBarOverlay.mock.calls.length, 0);
+          }
+        }).pipe(Effect.provide(layer));
+      }),
+  );
+
   it.effect("shows native context menus for browser guests and sign-in popups", () =>
     Effect.gen(function* () {
       const host = makeFakeBrowserWindow();

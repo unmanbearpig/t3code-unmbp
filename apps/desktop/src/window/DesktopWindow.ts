@@ -265,6 +265,12 @@ function getWindowTitleBarOptions(
     };
   }
 
+  if (platform === "linux") {
+    // Electron's hidden titlebar adds a client-side resize border on Linux.
+    // Let the window manager supply decorations, as it does for other apps.
+    return { titleBarStyle: "default" };
+  }
+
   return {
     titleBarStyle: "hidden",
     titleBarOverlay: {
