@@ -12,7 +12,6 @@ import {
 import { createServerEnvironmentAtoms } from "@t3tools/client-runtime/state/server";
 import { createOutdatedServerUpdateCommand } from "@t3tools/client-runtime/state/outdatedServerUpdate";
 import { createEnvironmentServerConfigsAtom } from "@t3tools/client-runtime/state/shell";
-import { mergeWithDefaultKeybindings } from "@t3tools/shared/keybindings";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 
@@ -20,6 +19,7 @@ import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
 import { environmentSession } from "./session";
+import { createAppKeybindingsAtom } from "./keybindings";
 
 // Opted in for every environment, not just the primary one. Only the primary
 // environment's themes are rendered, but which environment is primary changes
@@ -106,9 +106,11 @@ export const primaryServerProvidersAtom = Atom.make(
     get(primaryServerConfigAtom)?.providers ?? EMPTY_SERVER_PROVIDERS,
 ).pipe(Atom.withLabel("web-primary-server-providers"));
 
-export const primaryServerKeybindingsAtom = Atom.make((get): ServerConfig["keybindings"] =>
-  mergeWithDefaultKeybindings(get(primaryServerConfigAtom)?.keybindings ?? []),
-).pipe(Atom.withLabel("web-primary-server-keybindings"));
+export const primaryServerKeybindingsAtom = createAppKeybindingsAtom({
+  primaryEnvironmentIdAtom,
+  primaryConfigAtom: primaryServerConfigAtom,
+  environmentServerConfigsAtom,
+});
 
 export const primaryServerAvailableEditorsAtom = Atom.make(
   (get): ReadonlyArray<EditorId> =>
