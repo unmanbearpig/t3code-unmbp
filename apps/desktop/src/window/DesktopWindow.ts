@@ -678,7 +678,10 @@ export const make = Effect.gen(function* () {
       }
     });
     window.webContents.on("input-event", (_event, input) => {
-      if (input.type === "gestureScrollEnd") window.webContents.send(TRACKPAD_SCROLL_END_CHANNEL);
+      // A final gesture can arrive while Electron is tearing down the window.
+      if (input.type !== "gestureScrollEnd" || window.isDestroyed()) return;
+      const webContents = window.webContents;
+      if (!webContents.isDestroyed()) webContents.send(TRACKPAD_SCROLL_END_CHANNEL);
     });
 
     window.on("page-title-updated", (event) => {

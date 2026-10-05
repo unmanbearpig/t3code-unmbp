@@ -133,6 +133,7 @@ function makeFakeBrowserWindow() {
     getBounds: window.getBounds,
     getNormalBounds: window.getNormalBounds,
     isDestroyed: window.isDestroyed,
+    isWebContentsDestroyed: webContents.isDestroyed,
     isFullScreen: window.isFullScreen,
     isMaximized: window.isMaximized,
     isMinimized: window.isMinimized,
@@ -753,6 +754,41 @@ describe("DesktopWindow", () => {
       }).pipe(Effect.provide(layer));
     }),
   );
+
+  for (const destroyed of ["window", "webContents"] as const) {
+    it.effect(`ignores native trackpad release after ${destroyed} destruction`, () =>
+      Effect.gen(function* () {
+        const fakeWindow = makeFakeBrowserWindow();
+        const createCount = yield* Ref.make(0);
+        const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+        const layer = makeTestLayer({ window: fakeWindow.window, createCount, mainWindow });
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+          const onInput = fakeWindow.webContentsListeners.get("input-event");
+          if (!onInput) return yield* Effect.die("input-event listener was not registered");
+          fakeWindow.send.mockClear();
+          if (destroyed === "window") {
+            fakeWindow.isDestroyed.mockReturnValue(true);
+            Object.defineProperty(fakeWindow.window, "webContents", {
+              get: () => {
+                throw new TypeError("Object has been destroyed");
+              },
+            });
+          } else {
+            fakeWindow.isWebContentsDestroyed.mockReturnValue(true);
+            fakeWindow.send.mockImplementation(() => {
+              throw new TypeError("Object has been destroyed");
+            });
+          }
+
+          onInput({}, { type: "gestureScrollEnd" });
+          assert.equal(fakeWindow.send.mock.calls.length, 0);
+        }).pipe(Effect.provide(layer));
+      }),
+    );
+  }
 
   // Chromium hands the main window's zoom level down to embedded preview
   // guests, so every app zoom has to put the preview browser back at its own
