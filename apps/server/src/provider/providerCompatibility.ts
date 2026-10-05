@@ -75,11 +75,14 @@ export function resolveProviderCompatibility(
       : driver === "antigravity"
         ? unprefixed?.replace(/^agy_acp_server_(\d+\.\d+\.\d+)$/, "$1")
         : unprefixed;
+  // Codex source builds use 0.0.0, which says nothing about their protocol version.
   const status =
-    stable && /^\d+\.\d+\.\d+$/.test(stable)
-      ? (policy.ranges.find((entry) => satisfiesSemverRange(stable, entry.range))?.status ??
-        "unknown")
-      : "unknown";
+    driver === "codex" && stable === "0.0.0"
+      ? "unknown"
+      : stable && /^\d+\.\d+\.\d+$/.test(stable)
+        ? (policy.ranges.find((entry) => satisfiesSemverRange(stable, entry.range))?.status ??
+          "unknown")
+        : "unknown";
   const message =
     status === "broken"
       ? "This provider version is known to be incompatible with this T3 Code release."
