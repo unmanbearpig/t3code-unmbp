@@ -1,3 +1,4 @@
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   type ProviderInstanceId,
@@ -794,11 +795,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
       handleModelSelect(model.slug, model.instanceId);
     };
 
-    window.addEventListener("keydown", onWindowKeyDown, true);
-
-    return () => {
-      window.removeEventListener("keydown", onWindowKeyDown, true);
-    };
+    return addAppShortcutListener(window, onWindowKeyDown, true);
   }, [
     handleModelSelect,
     handleSelectInstance,

@@ -3,6 +3,26 @@
 Customize shortcuts in **Settings → Keybindings** on web and desktop. That page
 also lists the command IDs and defaults available in your version.
 
+## Leader shortcuts
+
+Press and release **Ctrl+.**, then press **N** for the next thread, **P** for the
+previous thread, or **1–9** to jump to a displayed thread. The numbers choose
+results in the command palette and models in the model picker. **B** toggles the
+sidebar, **J** toggles the terminal, **K** opens commands, **M** opens the model
+picker, and **Shift+N** starts a thread. Existing shortcuts remain available.
+
+Change or disable the trigger in **Settings → Keybindings → Leader key**. The
+trigger belongs to this device. Leader shortcuts work throughout web and desktop,
+including Settings, the composer, terminals, and the embedded browser. Escape,
+two seconds without a successor, or losing focus cancels the sequence. An unbound
+successor keeps its normal behavior. Keys use your keyboard layout.
+
+Use `leader+n`, `leader+1`, or `leader+shift+n` in a binding. When recording a
+shortcut in Settings, press the trigger followed by the successor. Additional
+modifiers apply to the successor; release Ctrl before pressing a plain leader key.
+On mobile, set the trigger in **Settings → Keyboard**; hardware keyboards support
+leader bindings for the available native navigation commands.
+
 ## Composer controls
 
 In **Settings → General → Send shortcut**, choose whether Enter sends, requires
@@ -126,7 +146,8 @@ Project scripts use `script.{id}.run`, such as `script.test.run`.
 
 Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 `mod` means Command on macOS and Control elsewhere. Other modifiers are
-`cmd` / `meta`, `ctrl` / `control`, `alt` / `option`, and `shift`.
+`cmd` / `meta`, `ctrl` / `control`, `alt` / `option`, `shift`, and `leader`.
+`leader` starts a two-stroke sequence using this device’s configured trigger.
 
 ## When conditions
 

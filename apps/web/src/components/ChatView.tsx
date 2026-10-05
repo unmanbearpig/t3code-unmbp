@@ -1,3 +1,4 @@
+import { addAppShortcutListener, isLeaderShortcutEvent } from "~/appShortcutEvents";
 import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { ChatCanvas } from "./chat/ChatCanvas";
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
@@ -7596,6 +7597,7 @@ export default function ChatView(props: ChatViewProps) {
       if (
         !shortcutContext.terminalFocus &&
         !shortcutContext.modelPickerOpen &&
+        !isLeaderShortcutEvent(event) &&
         shouldTypeToFocusComposer(event)
       ) {
         if (composerRef.current?.insertTextAtEnd(event.key)) {
@@ -7838,8 +7840,7 @@ export default function ChatView(props: ChatViewProps) {
       event.stopPropagation();
       void runProjectScript(script);
     };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
+    return addAppShortcutListener(window, handler, true);
   }, [
     activeProject,
     activeRightPanelSurface,

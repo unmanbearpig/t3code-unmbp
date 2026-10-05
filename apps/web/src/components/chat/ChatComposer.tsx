@@ -1,3 +1,4 @@
+import { addAppShortcutListener, registerLeaderShortcutHandler } from "~/appShortcutEvents";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
@@ -4463,6 +4464,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return false;
   };
 
+  useEffect(() =>
+    registerLeaderShortcutHandler((event) => {
+      const target = event.target ?? document.activeElement;
+      if (!(target instanceof Node) || !composerFormRef.current?.contains(target)) return;
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          composerFocus: true,
+          draftThreadRoute: routeKind === "draft",
+          turnRunning: phase === "running",
+        },
+      });
+      if (!command?.startsWith("composer.send")) return;
+      if (onComposerCommandKey(event.key, event)) event.preventDefault();
+    }, true),
+  );
+
   // ------------------------------------------------------------------
   // Prompt stash (⌘S)
   // ------------------------------------------------------------------
@@ -5637,8 +5654,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
       void stashCurrentPrompt();
     };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
+    return addAppShortcutListener(window, handler, true);
   }, [
     activePendingProgress,
     isComposerApprovalState,

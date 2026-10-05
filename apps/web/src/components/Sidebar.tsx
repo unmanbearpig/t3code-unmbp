@@ -1,3 +1,5 @@
+import { updateThreadShortcutTargets } from "~/threadShortcutTargets";
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "./ThreadHoverCard";
 import { CollapsibleSectionHeader } from "./ui/collapsible-section-header";
@@ -4718,6 +4720,16 @@ export default function Sidebar() {
       : false,
   );
   useEffect(() => {
+    updateThreadShortcutTargets(
+      orderedThreadKeys.flatMap((key) => {
+        const thread = threadByKey.get(key);
+        return thread ? [scopeThreadRef(thread.environmentId, thread.id)] : [];
+      }),
+      routeThreadRef,
+    );
+  }, [orderedThreadKeys, threadByKey, routeThreadRef]);
+
+  useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || isCommandPaletteOpen() || isModelPickerOpen()) {
         return;
@@ -4756,8 +4768,7 @@ export default function Sidebar() {
       if (jumpIndex === null) return;
       navigateToThreadKey(orderedThreadKeys[jumpIndex] ?? null);
     };
-    window.addEventListener("keydown", onWindowKeyDown);
-    return () => window.removeEventListener("keydown", onWindowKeyDown);
+    return addAppShortcutListener(window, onWindowKeyDown);
   }, [
     keybindings,
     navigateToThread,

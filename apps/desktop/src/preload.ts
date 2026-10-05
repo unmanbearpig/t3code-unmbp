@@ -1,4 +1,5 @@
 import type {
+  DesktopLeaderInput,
   DesktopBridge,
   DesktopPreviewPointerEvent,
   DesktopPreviewRecordingInputEvent,
@@ -383,6 +384,17 @@ contextBridge.exposeInMainWorld("desktopBridge", {
         ipcRenderer.invoke(IpcChannels.PREVIEW_AUTOMATION_EVALUATE_CHANNEL, { tabId, input }),
       waitFor: (tabId, input) =>
         ipcRenderer.invoke(IpcChannels.PREVIEW_AUTOMATION_WAIT_FOR_CHANNEL, { tabId, input }),
+    },
+    configureLeader: (config) =>
+      ipcRenderer.invoke(IpcChannels.PREVIEW_LEADER_CONFIG_CHANNEL, config),
+    onLeaderInput: (listener) => {
+      const handler = (_event: Electron.IpcRendererEvent, input: DesktopLeaderInput) => {
+        listener(input);
+      };
+      ipcRenderer.on(IpcChannels.PREVIEW_LEADER_INPUT_CHANNEL, handler);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.PREVIEW_LEADER_INPUT_CHANNEL, handler);
+      };
     },
     onStateChange: (listener) => {
       const wrappedListener = (

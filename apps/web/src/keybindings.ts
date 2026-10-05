@@ -1,6 +1,10 @@
+import { shortcutStroke } from "@t3tools/shared/keybindings";
+import { matchesLeaderStroke } from "@t3tools/shared/leaderKey";
+import { isLeaderShortcutEvent } from "./appShortcutEvents";
 import {
   type KeybindingCommand,
   type KeybindingShortcut,
+  type AppKeybindingShortcut,
   type KeybindingWhenNode,
   MODEL_PICKER_JUMP_KEYBINDING_COMMANDS,
   type ResolvedKeybindingsConfig,
@@ -20,6 +24,7 @@ export interface ShortcutEventLike {
   code?: string;
   key: string;
   repeat?: boolean;
+  leaderKey?: boolean;
   target?: EventTarget | null;
   isComposing?: boolean;
   metaKey: boolean;
@@ -29,6 +34,7 @@ export interface ShortcutEventLike {
 }
 
 export interface ShortcutModifierStateLike {
+  leaderKey?: boolean;
   metaKey: boolean;
   ctrlKey: boolean;
   shiftKey: boolean;
@@ -131,9 +137,9 @@ function matchesShortcutModifiers(
   );
 }
 
-function matchesShortcut(
+export function matchesShortcut(
   event: ShortcutEventLike,
-  shortcut: KeybindingShortcut,
+  shortcut: AppKeybindingShortcut,
   platform = navigator.platform,
 ): boolean {
   if (
@@ -142,8 +148,11 @@ function matchesShortcut(
     !/^[a-z0-9]$/i.test(event.key)
   )
     return false;
-  if (!matchesShortcutModifiers(event, shortcut, platform)) return false;
-  return resolveEventKeys(event).has(shortcut.key);
+  if ("leader" in shortcut !== isLeaderShortcutEvent(event)) return false;
+  const stroke = shortcutStroke(shortcut);
+  if ("leader" in shortcut) return matchesLeaderStroke(event, stroke, isMacPlatform(platform));
+  if (!matchesShortcutModifiers(event, stroke, platform)) return false;
+  return resolveEventKeys(event).has(stroke.key);
 }
 
 function resolvePlatform(options: ShortcutMatchOptions | undefined): string {
@@ -187,18 +196,21 @@ function matchesWhenClause(
 }
 
 export function shortcutConflictKey(
-  shortcut: KeybindingShortcut,
+  shortcut: AppKeybindingShortcut,
   platform = navigator.platform,
 ): string {
+  const leader = "leader" in shortcut;
+  const stroke = shortcutStroke(shortcut);
   const useMetaForMod = isMacPlatform(platform);
-  const metaKey = shortcut.metaKey || (shortcut.modKey && useMetaForMod);
-  const ctrlKey = shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod);
+  const metaKey = stroke.metaKey || (stroke.modKey && useMetaForMod);
+  const ctrlKey = stroke.ctrlKey || (stroke.modKey && !useMetaForMod);
   return [
-    shortcut.key,
+    leader ? "leader" : "",
+    stroke.key,
     metaKey ? "meta" : "",
     ctrlKey ? "ctrl" : "",
-    shortcut.shiftKey ? "shift" : "",
-    shortcut.altKey ? "alt" : "",
+    stroke.shiftKey ? "shift" : "",
+    stroke.altKey ? "alt" : "",
   ].join("|");
 }
 
@@ -206,7 +218,7 @@ function findEffectiveShortcutForCommand(
   keybindings: ResolvedKeybindingsConfig,
   command: KeybindingCommand,
   options?: ShortcutMatchOptions,
-): KeybindingShortcut | null {
+): AppKeybindingShortcut | null {
   const platform = resolvePlatform(options);
   const context = resolveContext(options);
   const claimedShortcuts = new Set<string>();
@@ -254,6 +266,7 @@ export function resolveShortcutCommand(
     },
   });
   if (
+    !isLeaderShortcutEvent(event) &&
     !context.terminalFocus &&
     (isTextboxNewlineShortcut(event, target) || isComposerEmacsEditingShortcut(event, target))
   ) {
@@ -282,9 +295,10 @@ export function formatShortcutKeyLabel(key: string): string {
 }
 
 export function formatShortcutLabel(
-  shortcut: KeybindingShortcut,
+  shortcut: AppKeybindingShortcut,
   platform = navigator.platform,
 ): string {
+  if ("leader" in shortcut) return `Leader → ${formatShortcutLabel(shortcut.leader, platform)}`;
   const keyLabel = formatShortcutKeyLabel(shortcut.key);
   const useMetaForMod = isMacPlatform(platform);
   const showMeta = shortcut.metaKey || (shortcut.modKey && useMetaForMod);
@@ -348,16 +362,25 @@ export function shouldShowThreadJumpHintsForModifiers(
   // configured `when` clause on the jump command. Advertising jump hints
   // here would promise a shortcut that instead types into the terminal, so
   // never show them while the terminal is focused.
-  if (resolveContext(options).terminalFocus) {
+  if (resolveContext(options).terminalFocus && !modifiers.leaderKey) {
     return false;
   }
 
   const platform = resolvePlatform(options);
 
-  for (const command of THREAD_JUMP_KEYBINDING_COMMANDS) {
-    const shortcut = findEffectiveShortcutForCommand(keybindings, command, options);
-    if (!shortcut) continue;
-    if (matchesShortcutModifiers(modifiers, shortcut, platform)) {
+  for (const binding of keybindings) {
+    if (!THREAD_JUMP_KEYBINDING_COMMANDS.includes(binding.command as ThreadJumpKeybindingCommand))
+      continue;
+    const shortcut = binding.shortcut;
+    if ("leader" in shortcut !== (modifiers.leaderKey === true)) continue;
+    if (
+      matchesShortcutModifiers(modifiers, shortcutStroke(shortcut), platform) &&
+      resolveShortcutCommand(
+        { ...modifiers, key: shortcutStroke(shortcut).key },
+        keybindings,
+        options,
+      ) === binding.command
+    ) {
       return true;
     }
   }
@@ -447,6 +470,7 @@ export function isRichTextBoldShortcut(event: ShortcutEventLike): boolean {
     return false;
   }
   return (
+    !isLeaderShortcutEvent(event) &&
     resolveEventKeys(event).has("b") &&
     (event.metaKey || event.ctrlKey) &&
     !event.altKey &&

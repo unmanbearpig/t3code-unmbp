@@ -1514,3 +1514,86 @@ describe("Usage shortcuts", () => {
     );
   });
 });
+
+describe("leader modifier", () => {
+  it("keeps plain, Ctrl and leader strokes distinct", () => {
+    const bindings = compileResolvedKeybindingsConfig([
+      { key: "ctrl+n", command: "chat.new" },
+      { key: "leader+n", command: "thread.next" },
+      { key: "leader+shift+n", command: "thread.previous" },
+    ]);
+    assert.equal(
+      resolveShortcutCommand(event({ key: "n" }), bindings, { platform: "Linux" }),
+      null,
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "n", ctrlKey: true }), bindings, { platform: "Linux" }),
+      "chat.new",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "n", leaderKey: true }), bindings, { platform: "Linux" }),
+      "thread.next",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "N", leaderKey: true, shiftKey: true }), bindings, {
+        platform: "Linux",
+      }),
+      "thread.previous",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "n", leaderKey: true, ctrlKey: true }), bindings, {
+        platform: "Linux",
+      }),
+      null,
+    );
+  });
+
+  it("uses contextual number selection and preserves physical jump hints", () => {
+    assert.equal(
+      resolveShortcutCommand(event({ key: "1", leaderKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { isWeb: true, isDesktop: false },
+      }),
+      "thread.jump.1",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "1", leaderKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { modelPickerOpen: true },
+      }),
+      "modelPicker.jump.1",
+    );
+    assert.isTrue(
+      shouldShowThreadJumpHintsForModifiers(
+        event({ ctrlKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Linux", context: { isDesktop: true } },
+      ),
+    );
+    assert.isTrue(
+      shouldShowThreadJumpHintsForModifiers(
+        event({ leaderKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Linux" },
+      ),
+    );
+  });
+
+  it("uses Dvorak logical punctuation for leader successors", () => {
+    const bindings = compileResolvedKeybindingsConfig([
+      { key: "leader+.", command: "thread.next" },
+    ]);
+    assert.equal(
+      resolveShortcutCommand(event({ key: ".", code: "KeyE", leaderKey: true }), bindings, {
+        platform: "Linux",
+      }),
+      "thread.next",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "v", code: "Period", leaderKey: true }), bindings, {
+        platform: "Linux",
+      }),
+      null,
+    );
+  });
+});

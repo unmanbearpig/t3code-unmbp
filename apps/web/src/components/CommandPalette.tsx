@@ -1,5 +1,7 @@
 "use client";
 
+import { addAppShortcutListener, registerLeaderShortcutHandler } from "~/appShortcutEvents";
+
 import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
@@ -576,8 +578,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
       event.stopPropagation();
       toggleMode(mode);
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return addAppShortcutListener(window, onKeyDown);
   }, [
     appearanceMode,
     keybindings,
@@ -3036,6 +3037,27 @@ function OpenCommandPaletteDialog(props: {
     currentProjectCwdForBrowse,
     query,
   ]);
+
+  useEffect(() =>
+    registerLeaderShortcutHandler((event) => {
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: { modelPickerOpen: false },
+      });
+      if (command === "thread.copyReference") {
+        event.preventDefault();
+        if (activeThreadReferenceCopyTarget === null) return;
+        setOpen(false);
+        void copyActiveThreadReference();
+        return;
+      }
+      if (threadJumpIndexFromCommand(command ?? "") === null) return;
+      event.preventDefault();
+      const matchingItem = displayedGroups
+        .flatMap((group) => group.items)
+        .find((item) => item.shortcutCommand === command);
+      if (matchingItem) executeItem(matchingItem);
+    }, true),
+  );
 
   function isPrimaryModifierPressed(event: KeyboardEvent<HTMLInputElement>): boolean {
     return useMetaForMod ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;

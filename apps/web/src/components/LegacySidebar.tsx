@@ -1,3 +1,5 @@
+import { updateThreadShortcutTargets } from "~/threadShortcutTargets";
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { Spinner } from "~/components/ui/spinner";
@@ -3564,6 +3566,16 @@ export default function LegacySidebar() {
   }, [shouldShowThreadJumpHintsNow, updateThreadJumpHintsVisibility]);
 
   useEffect(() => {
+    updateThreadShortcutTargets(
+      visibleSidebarThreadKeys.flatMap((key) => {
+        const thread = sidebarThreadByKey.get(key);
+        return thread ? [scopeThreadRef(thread.environmentId, thread.id)] : [];
+      }),
+      routeThreadRef,
+    );
+  }, [visibleSidebarThreadKeys, sidebarThreadByKey, routeThreadRef]);
+
+  useEffect(() => {
     const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
       const shortcutContext = getCurrentSidebarShortcutContext();
 
@@ -3615,11 +3627,7 @@ export default function LegacySidebar() {
       navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id));
     };
 
-    window.addEventListener("keydown", onWindowKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", onWindowKeyDown);
-    };
+    return addAppShortcutListener(window, onWindowKeyDown);
   }, [
     getCurrentSidebarShortcutContext,
     keybindings,

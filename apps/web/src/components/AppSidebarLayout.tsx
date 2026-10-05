@@ -1,3 +1,4 @@
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
@@ -123,8 +124,7 @@ function SidebarControl() {
     };
 
     // Capture before focused editors consume commands such as Mod+B for rich-text formatting.
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    return addAppShortcutListener(window, onKeyDown, true);
   }, [keybindings, toggleSidebar, usagePageOpen]);
 
   return (
@@ -201,8 +201,7 @@ function NavigationHistoryShortcuts() {
       else window.history.forward();
     };
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return addAppShortcutListener(window, onKeyDown);
   }, [keybindings, routeThreadRef]);
 
   return null;

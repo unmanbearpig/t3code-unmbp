@@ -1,3 +1,4 @@
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
   buildRemoteOpenUrl,
@@ -294,8 +295,7 @@ export const OpenInPicker = memo(function OpenInPicker({
       e.preventDefault();
       void openInEditor(preferredEditor);
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    return addAppShortcutListener(window, handler);
   }, [enableShortcut, keybindings, openInCwd, openInEditor, preferredEditor]);
   const primaryLabel = isPanel ? `Open in ${primaryOption?.label ?? "editor"}` : "Open";
 
