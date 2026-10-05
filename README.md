@@ -7,6 +7,7 @@ Personal fork of [T3 Code](https://github.com/pingdotgg/t3code).
 - Adds opt-in Emacs / readline editing in the composer, including character, line, and word navigation, kill/yank, transpose, and Option-style shortcuts in rich text and plain Markdown. On Linux, Ctrl+A reaches the composer instead of being intercepted by the desktop menu. See [keyboard shortcuts](./docs/user/keybindings.md#emacs--readline-editing).
 - Makes Ctrl+J insert a newline in the composer and other multiline text boxes, even when Emacs editing is off.
 - Gives Ctrl+D terminal-style behavior with Emacs editing enabled: delete forwards in a nonempty prompt, or follow the settle binding on a fresh press in an empty prompt.
+- Uses a connected server's keyboard shortcuts when the desktop's local backend is disabled.
 - Completes directory paths with Tab in the Add project dialog, using the highlighted folder or the first matching folder.
 - Disables animated scrolling in chat, citation, settings, and tab navigation. PageUp/PageDown move immediately and use native keyboard repeat. Chromium smooth scrolling is disabled on Linux.
 - Uses native window decorations on Linux to remove Electron's extra window border. macOS and Windows keep their existing window styling.
