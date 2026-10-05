@@ -22,6 +22,23 @@ import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } fr
 import { AdvertisedEndpoint } from "./remoteAccess.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
+import { KeybindingShortcut, ResolvedKeybindingsConfig } from "./keybindings.ts";
+
+export const DesktopLeaderConfig = Schema.Struct({
+  trigger: Schema.NullOr(KeybindingShortcut),
+  bindings: ResolvedKeybindingsConfig,
+});
+export type DesktopLeaderConfig = typeof DesktopLeaderConfig.Type;
+export const DesktopLeaderInput = Schema.Struct({
+  type: Schema.Literals(["prefix", "stroke", "cancel"]),
+  key: Schema.String,
+  code: Schema.String,
+  ctrlKey: Schema.Boolean,
+  metaKey: Schema.Boolean,
+  shiftKey: Schema.Boolean,
+  altKey: Schema.Boolean,
+});
+export type DesktopLeaderInput = typeof DesktopLeaderInput.Type;
 import type { EditorId } from "./editor.ts";
 
 import type {
@@ -1262,6 +1279,8 @@ export interface DesktopBridge {
 export const DESKTOP_PREVIEW_RECORDING_CAPTURE_TRIGGER = "__t3DesktopPreviewRecordingCapture";
 
 export interface DesktopPreviewBridge {
+  configureLeader?: (config: DesktopLeaderConfig) => Promise<void>;
+  onLeaderInput?: (listener: (input: DesktopLeaderInput) => void) => () => void;
   createTab: (tabId: string, defaults?: DesktopPreviewTabDefaults) => Promise<void>;
   closeTab: (tabId: string) => Promise<void>;
   registerWebview: (tabId: string, webContentsId: number) => Promise<void>;

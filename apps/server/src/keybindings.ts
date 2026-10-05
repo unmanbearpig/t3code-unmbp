@@ -10,7 +10,7 @@ import {
   KeybindingRule,
   KeybindingsConfig,
   KeybindingsConfigError,
-  KeybindingShortcut,
+  type AppKeybindingShortcut,
   KeybindingWhenNode,
   MAX_KEYBINDINGS_COUNT,
   ResolvedKeybindingRule,
@@ -49,6 +49,8 @@ import {
   compileResolvedKeybindingRule,
   compileResolvedKeybindingsConfig,
   parseKeybindingShortcut,
+  parseAppKeybindingShortcut,
+  keybindingShortcutInput,
 } from "@t3tools/shared/keybindings";
 
 export {
@@ -114,6 +116,12 @@ const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
   readonly alongside: KeybindingRule;
   readonly rule: KeybindingRule;
 }> = [
+  ...DEFAULT_KEYBINDINGS.filter((rule) => rule.key.startsWith("leader+")).flatMap((rule) => {
+    const alongside = DEFAULT_KEYBINDINGS.find(
+      (entry) => entry.command === rule.command && !entry.key.startsWith("leader+"),
+    );
+    return alongside ? [{ id: `leader:${rule.command}`, alongside, rule }] : [];
+  }),
   {
     id: "composer.sendBackground:mod+enter",
     alongside: {
@@ -130,7 +138,7 @@ const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
 ];
 
 function keybindingShortcutContext(rule: KeybindingRule): string | null {
-  const parsed = parseKeybindingShortcut(rule.key);
+  const parsed = parseAppKeybindingShortcut(rule.key);
   if (!parsed) return null;
   const encoded = encodeShortcut(parsed);
   if (!encoded) return null;
@@ -163,17 +171,9 @@ function keybindingRuleFromRemoveInput(input: ServerRemoveKeybindingInput): Keyb
     : { key: input.key, command: input.command, when: input.when };
 }
 
-function encodeShortcut(shortcut: KeybindingShortcut): string | null {
-  const modifiers: string[] = [];
-  if (shortcut.modKey) modifiers.push("mod");
-  if (shortcut.metaKey) modifiers.push("meta");
-  if (shortcut.ctrlKey) modifiers.push("ctrl");
-  if (shortcut.altKey) modifiers.push("alt");
-  if (shortcut.shiftKey) modifiers.push("shift");
-  if (!shortcut.key) return null;
-  if (shortcut.key !== "+" && shortcut.key.includes("+")) return null;
-  const key = shortcut.key === " " ? "space" : shortcut.key;
-  return [...modifiers, key].join("+");
+function encodeShortcut(shortcut: AppKeybindingShortcut): string | null {
+  const key = keybindingShortcutInput(shortcut);
+  return parseAppKeybindingShortcut(key) ? key : null;
 }
 
 function encodeWhenAst(node: KeybindingWhenNode): string {

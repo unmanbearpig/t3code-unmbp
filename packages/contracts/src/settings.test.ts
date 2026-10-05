@@ -1115,3 +1115,24 @@ describe("branch naming settings", () => {
     },
   );
 });
+
+describe("leader trigger preferences", () => {
+  it("preserves disable and modified triggers while rejecting bare keys", () => {
+    const trigger = {
+      key: ".",
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      modKey: false,
+    };
+    expect(decodeClientSettingsPatch({ leaderShortcut: trigger })).toEqual({
+      leaderShortcut: trigger,
+    });
+    expect(decodeClientSettingsPatch({ leaderShortcut: null })).toEqual({ leaderShortcut: null });
+    expect(() =>
+      decodeClientSettingsPatch({ leaderShortcut: { ...trigger, ctrlKey: false } }),
+    ).toThrow();
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("leaderShortcut");
+  });
+});

@@ -172,6 +172,40 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }),
   );
 
+  it.effect("persists leader modifiers and migrates untouched defaults only once", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+shift+]", command: "thread.next" },
+        { key: "alt+p", command: "thread.previous" },
+      ]);
+      const service = yield* Keybindings.Keybindings;
+      yield* service.syncDefaultKeybindingsOnStartup;
+      const migrated = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(migrated.some((rule) => rule.key === "leader+n"));
+      assert.isFalse(migrated.some((rule) => rule.key === "leader+p"));
+      yield* service.removeKeybindingRule({ key: "leader+n", command: "thread.next" });
+      yield* service.syncDefaultKeybindingsOnStartup;
+      assert.isFalse(
+        (yield* readKeybindingsConfig(keybindingsConfigPath)).some(
+          (rule) => rule.key === "leader+n",
+        ),
+      );
+      const result = yield* service.upsertKeybindingRule({
+        key: "leader+shift+n",
+        command: "thread.next",
+      });
+      assert.isTrue(
+        result.some(
+          (rule) =>
+            rule.command === "thread.next" &&
+            "leader" in rule.shortcut &&
+            rule.shortcut.leader.shiftKey,
+        ),
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
   it.effect("bootstraps default keybindings when config file is missing", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -371,7 +405,9 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       });
 
       const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
-      assert.isFalse(persisted.some((entry) => entry.command === "terminal.toggle"));
+      assert.isFalse(
+        persisted.some((entry) => entry.command === "terminal.toggle" && entry.key === "mod+j"),
+      );
       assert.isTrue(persisted.some((entry) => entry.command === "script.custom-action.run"));
 
       assert.isTrue(
