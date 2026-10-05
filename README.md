@@ -1,6 +1,6 @@
 # t3code-unmbp
 
-Personal fork of [T3 Code](https://github.com/pingdotgg/t3code).
+This is `unmbp`'s personal fork of [T3 Code](https://github.com/pingdotgg/t3code). I maintain it for my own use. The main changes make T3 Code work more like the CLI, especially keyboard shortcuts and prompt editing.
 
 ## Changes from upstream
 
