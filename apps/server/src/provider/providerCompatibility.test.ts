@@ -54,6 +54,51 @@ const provider: ServerProvider = {
 const V2_RELEASE = "0.0.46";
 
 describe("provider compatibility", () => {
+  it("leaves Codex source builds unclassified without relaxing checks for released versions", () => {
+    for (const version of ["0.0.0", "v0.0.0"]) {
+      const advisory = resolveProviderCompatibility([policy], driver, version);
+      assert.strictEqual(advisory?.status, "unknown");
+      assert.isNull(advisory?.message);
+    }
+    for (const [version, expected] of [
+      ["0.148.0", "broken"],
+      ["0.155.0", "unsupported"],
+      ["0.156.0", "supported"],
+      ["0.159.0", "supported"],
+    ] as const) {
+      assert.strictEqual(
+        resolveProviderCompatibility(
+          ModelManifest.BUNDLED_MODEL_MANIFEST.compatibility,
+          driver,
+          version,
+          V2_RELEASE,
+        )?.status,
+        expected,
+      );
+    }
+    assert.strictEqual(
+      resolveProviderCompatibility(
+        [{ ...policy, driver: "claudeAgent" }],
+        ProviderDriverKind.make("claudeAgent"),
+        "0.0.0",
+      )?.status,
+      "broken",
+    );
+  });
+
+  it("preserves source-build health and authentication failures when applying remote policies", () => {
+    const snapshot = applyProviderCompatibility(
+      { ...provider, version: "0.0.0" },
+      [policy],
+      [policy],
+    );
+    assert.strictEqual(snapshot.compatibilityAdvisory?.status, "unknown");
+    assert.isNull(snapshot.compatibilityAdvisory?.message);
+    assert.strictEqual(snapshot.status, "error");
+    assert.strictEqual(snapshot.message, "Authentication failed");
+    assert.strictEqual(snapshot.auth.status, "unauthenticated");
+  });
+
   it("bundles a compatibility policy for every built-in harness", () => {
     for (const builtIn of BUILT_IN_DRIVERS) {
       // Registry entries are arbitrary external ACP agents, not one versioned harness.
