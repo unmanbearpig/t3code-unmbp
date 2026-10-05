@@ -1,7 +1,14 @@
-import { EnvironmentId, ThreadId, type ThreadJumpKeybindingCommand } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ThreadId,
+  type KeybindingCommand,
+  type ThreadJumpKeybindingCommand,
+} from "@t3tools/contracts";
 import { useEffect } from "react";
 
 export type HardwareKeyboardCommand =
+  | "thread.previous"
+  | "thread.next"
   | ThreadJumpKeybindingCommand
   | "commandPalette"
   | "paletteNext"
@@ -104,4 +111,32 @@ export function nextEnvironmentId<T extends { readonly environmentId: string }>(
   if (environments.length < 2) return null;
   const index = environments.findIndex((environment) => environment.environmentId === currentId);
   return environments[(index + 1) % environments.length]?.environmentId ?? null;
+}
+
+export function mobileLeaderCommand(command: KeybindingCommand): HardwareKeyboardCommand | null {
+  if (command.startsWith("thread.jump.")) return command as HardwareKeyboardCommand;
+  switch (command) {
+    case "thread.previous":
+    case "thread.next":
+      return command;
+    case "chat.new":
+    case "chat.newLocal":
+      return "newTask";
+    case "commandPalette.toggle":
+      return "commandPalette";
+    case "sidebar.toggle":
+      return "toggleSidebar";
+    case "terminal.toggle":
+      return "terminal";
+    case "diff.toggle":
+      return "review";
+    case "thread.copyReference":
+      return "copyThreadReference";
+    case "navigation.back":
+      return "back";
+    case "composer.cycleHost":
+      return "cycleHost";
+    default:
+      return null;
+  }
 }
