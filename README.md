@@ -1,4 +1,19 @@
-# T3 Code
+# t3code-unmbp
+
+Personal fork of [T3 Code](https://github.com/pingdotgg/t3code).
+
+## Changes from upstream
+
+- Adds opt-in Emacs / readline editing in the composer, including character, line, and word navigation, kill/yank, transpose, and Option-style shortcuts in rich text and plain Markdown. On Linux, Ctrl+A reaches the composer instead of being intercepted by the desktop menu. See [keyboard shortcuts](./docs/user/keybindings.md#emacs--readline-editing).
+- Makes Ctrl+J insert a newline in the composer and other multiline text boxes, even when Emacs editing is off.
+- Disables animated scrolling in chat, citation, settings, and tab navigation. PageUp/PageDown move immediately and use native keyboard repeat. Chromium smooth scrolling is disabled on Linux.
+- Ignores late trackpad events after the window or its web contents have been destroyed, preventing an uncaught exception during desktop teardown.
+- Treats Codex version `0.0.0` as an unknown source build rather than a known incompatible release.
+- Removes a duplicate Effect `Option` import that blocked server typechecking.
+
+Build this fork from source using the [development guide](./docs/operations/development.md). The installation commands and release links below point to upstream T3 Code.
+
+## Upstream project
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
 
