@@ -89,6 +89,9 @@ import {
 } from "~/composer-undo-grouping";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
+import { createComposerEmacsHandler } from "~/composer-emacs";
+import { composerEmacsAction } from "~/lib/composerEmacsShortcuts";
+import { useClientSettings } from "~/hooks/useSettings";
 import { cn, isMacPlatform } from "~/lib/utils";
 import { basenameOfPath } from "~/pierre-icons";
 import { WorkspaceEntryTooltip } from "./chat/WorkspaceEntryIcon";
@@ -864,6 +867,12 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
       literalText ? position : expandCollapsedComposerCursor(text, position),
     [literalText],
   );
+  const emacsEditingEnabled = useClientSettings((settings) => settings.composerEmacsEditingEnabled);
+  const emacsEditingEnabledRef = useRef(emacsEditingEnabled);
+  useLayoutEffect(() => {
+    emacsEditingEnabledRef.current = emacsEditingEnabled;
+  }, [emacsEditingEnabled]);
+  const [handleEmacsKeyDown] = useState(createComposerEmacsHandler);
 
   const onChangeRef = useRef(onChange);
   const onVisibleSelectionChangeRef = useRef(onVisibleSelectionChange);
@@ -1018,6 +1027,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
       ),
       "data-testid": "composer-editor",
       "data-composer-rich-text": richText ? "true" : "false",
+      "data-composer-emacs": emacsEditingEnabled ? "true" : "false",
       role: "textbox",
       "aria-multiline": "true",
       ...(ariaLabel ? { "aria-label": ariaLabel } : {}),
@@ -1036,7 +1046,16 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
         : {}),
       "aria-placeholder": placeholder,
     }),
-    [activeSuggestionId, ariaLabel, className, disabled, placeholder, richText, suggestionListId],
+    [
+      activeSuggestionId,
+      ariaLabel,
+      className,
+      disabled,
+      placeholder,
+      richText,
+      suggestionListId,
+      emacsEditingEnabled,
+    ],
   );
 
   const editor = useEditor(
@@ -1171,6 +1190,18 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
       editorProps: {
         attributes: editorAttributes,
         handleKeyDown: (view, event) => {
+          if (emacsEditingEnabledRef.current) {
+            const action = composerEmacsAction(event);
+            if (
+              (action === "previousLine" || action === "nextLine") &&
+              onCommandKeyDownRef.current?.(event.key, event)
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              return true;
+            }
+            if (handleEmacsKeyDown(view, event)) return true;
+          }
           if (
             isMacPlatform(navigator.platform) &&
             (event.key === "Home" || event.key === "End") &&

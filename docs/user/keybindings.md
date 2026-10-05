@@ -70,6 +70,35 @@ In the composer, Return sends and `Shift+Return` inserts a new line. `Cmd+Return
 also sends. To make Return insert a new line instead, change the Return key
 behavior in Settings → Keyboard.
 
+## Emacs / readline editing
+
+Enable **Settings → General → Emacs / readline editing** to use these keys in
+the web and desktop message composer, in both rich text and plain Markdown modes.
+The composer takes priority over conflicting app shortcuts while it has focus.
+Turn the setting off to restore the default behavior. Super/Command is unchanged.
+
+| Keys                                                        | Action                                                            |
+| ----------------------------------------------------------- | ----------------------------------------------------------------- |
+| Ctrl+A / Ctrl+E                                             | Beginning / end of the hard line                                  |
+| Ctrl+B / Ctrl+F                                             | Previous / next character                                         |
+| Ctrl+P / Ctrl+N                                             | Previous / next visual line, or suggestion while its menu is open |
+| Alt+B / Alt+F, Alt+Left / Alt+Right, Ctrl+Left / Ctrl+Right | Previous / next word                                              |
+| Alt+Up / Alt+Down                                           | Beginning / end of the hard line                                  |
+| Alt+< / Alt+>                                               | Beginning / end of the prompt                                     |
+| Ctrl+H / Ctrl+D                                             | Delete the preceding / following character                        |
+| Ctrl+K / Ctrl+U                                             | Kill to the end / beginning of the hard line                      |
+| Ctrl+W, Alt+Backspace, Ctrl+Backspace                       | Kill the preceding word                                           |
+| Alt+D, Alt+Delete, Ctrl+Delete                              | Kill the following word                                           |
+| Ctrl+Y                                                      | Yank the killed text                                              |
+| Ctrl+T                                                      | Transpose adjacent characters                                     |
+| Ctrl+J / Ctrl+O                                             | Insert a newline / open a line without moving past it             |
+
+Add Shift to movement keys to select text. Alt+< and Alt+> move to prompt
+boundaries without extending the selection. Ctrl+K at line end kills the newline.
+Consecutive kills combine; yank retains formatting and embedded references.
+The kill buffer belongs to the mounted composer, so switching threads or toggling
+rich text can clear it. Terminal key handling is unchanged.
+
 ## Edit the configuration file
 
 Keybindings live on the environment's machine, in
