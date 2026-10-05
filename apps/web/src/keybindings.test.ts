@@ -48,6 +48,31 @@ function event(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   };
 }
 
+it("opens an external terminal with Ctrl+Shift+N only when a local workspace is available", () => {
+  const chord = event({ key: "N", code: "KeyN", ctrlKey: true, shiftKey: true });
+  assert.equal(
+    resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+      platform: "Linux x86_64",
+      context: { externalTerminalAvailable: true },
+    }),
+    "terminal.openExternal",
+  );
+  assert.equal(
+    resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+      platform: "Linux x86_64",
+      context: { externalTerminalAvailable: false },
+    }),
+    "chat.newLocal",
+  );
+  assert.equal(
+    resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+      platform: "Linux x86_64",
+      context: { externalTerminalAvailable: true, terminalFocus: true },
+    }),
+    null,
+  );
+});
+
 function modShortcut(
   key: string,
   overrides: Partial<Omit<KeybindingShortcut, "key">> = {},

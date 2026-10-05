@@ -1,3 +1,4 @@
+import { useExternalTerminal } from "../hooks/useExternalTerminal";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { Spinner } from "~/components/ui/spinner";
@@ -3228,6 +3229,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 
 export default function LegacySidebar() {
   const projects = useProjects();
+  const { available: externalTerminalAvailable } = useExternalTerminal();
   const sidebarThreads = useThreadShells();
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
@@ -3417,9 +3419,10 @@ export default function LegacySidebar() {
       context: {
         terminalFocus: false,
         terminalOpen: false,
+        externalTerminalAvailable,
       },
     }),
-    [platform],
+    [platform, externalTerminalAvailable],
   );
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.newLocal", newThreadShortcutLabelOptions) ??
