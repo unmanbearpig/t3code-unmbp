@@ -4463,6 +4463,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     const { trigger } = resolveActiveComposerTrigger();
     const menuIsActive =
       !isLiteralPendingAnswer && (composerMenuOpenRef.current || trigger !== null);
+    if (
+      menuIsActive &&
+      settings.composerEmacsEditingEnabled &&
+      event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.shiftKey &&
+      !event.isComposing
+    ) {
+      if (key.toLowerCase() === "n" || key.toLowerCase() === "p") {
+        if (composerMenuItemsRef.current.length > 0) {
+          nudgeComposerMenuHighlight(key.toLowerCase() === "n" ? "ArrowDown" : "ArrowUp");
+        }
+        return true;
+      }
+    }
     if (key === "Escape") {
       if (!menuIsActive || event.isComposing || event.keyCode === 229) return false;
       dismissComposerTrigger(trigger);

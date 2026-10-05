@@ -22,6 +22,8 @@ import { projectScriptIdFromCommand } from "./projectScripts";
 
 export type { ShortcutEventLike, ShortcutModifierStateLike } from "@t3tools/shared/keybindings";
 export { shortcutKeyFromEvent } from "@t3tools/shared/keybindings";
+import { isEditableFocused } from "./lib/editableFocus";
+import { composerEmacsAction, isComposerEmacsFocused } from "./lib/composerEmacsShortcuts";
 
 export interface ShortcutMatchContext {
   terminalFocus: boolean;
@@ -158,7 +160,17 @@ export function resolveShortcutCommand(
   options?: ShortcutMatchOptions,
 ): KeybindingCommand | null {
   const platform = resolvePlatform(options);
-  const context = resolveContext(options);
+  const target = event.target ?? (typeof document !== "undefined" ? document.activeElement : null);
+  const context = resolveContext({
+    ...options,
+    context: {
+      editableFocus: typeof Element !== "undefined" && isEditableFocused(target),
+      ...options?.context,
+    },
+  });
+  if (!context.terminalFocus && isComposerEmacsFocused(target) && composerEmacsAction(event)) {
+    return null;
+  }
 
   for (let index = keybindings.length - 1; index >= 0; index -= 1) {
     const binding = keybindings[index];
