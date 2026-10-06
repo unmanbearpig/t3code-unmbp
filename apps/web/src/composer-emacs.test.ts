@@ -158,6 +158,40 @@ describe("Emacs composer editing", () => {
     expect(editor.view.state.selection.head).toBe(3);
   });
 
+  it.each([
+    { enabled: true, available: true },
+    { enabled: false, available: true },
+    { enabled: true, available: false },
+    { enabled: false, available: false },
+  ])(
+    "leaves Ctrl-Shift-N to the terminal shortcut with Emacs editing $enabled and terminal availability $available",
+    ({ enabled, available }) => {
+      const editor = composer(["first", "second"], enabled);
+      editor.at(3);
+      const commands: string[] = [];
+      const listener = (event: KeyboardEvent) => {
+        if (event.defaultPrevented) return;
+        const command = resolveShortcutCommand(event, DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform: "Linux",
+          context: { externalTerminalAvailable: available },
+        });
+        if (command) {
+          commands.push(command);
+          event.preventDefault();
+        }
+      };
+      window.addEventListener("keydown", listener);
+      cleanups.push(() => window.removeEventListener("keydown", listener));
+
+      const event = editor.press("N", { ctrlKey: true, shiftKey: true });
+      expect(commands).toEqual(available ? ["terminal.openExternal"] : []);
+      expect(event.defaultPrevented).toBe(available);
+      expect(editor.text()).toBe("first\nsecond");
+      expect(editor.view.state.selection.head).toBe(3);
+      expect(editor.view.state.selection.empty).toBe(true);
+    },
+  );
+
   it("moves to document boundaries with Alt-< and Alt->", () => {
     const editor = composer(["first", "second"]);
     editor.press(">", { altKey: true, shiftKey: true });
