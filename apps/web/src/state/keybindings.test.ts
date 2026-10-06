@@ -50,11 +50,47 @@ function harness() {
     primaryEnvironmentIdAtom,
     primaryConfigAtom,
     environmentServerConfigsAtom,
+    keybindings,
     command,
   };
 }
 
 describe("app keybindings without a local backend", () => {
+  it("reserves Ctrl-Shift-N for terminals with an older connected server", () => {
+    const h = harness();
+    h.registry.set(
+      h.environmentServerConfigsAtom,
+      new Map([
+        [
+          REMOTE,
+          {
+            keybindings: compileResolvedKeybindingsConfig([
+              { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+            ]),
+          },
+        ],
+      ]),
+    );
+    const bindings = h.registry.get(h.keybindings);
+    const chord = { key: "N", ctrlKey: true, shiftKey: true, metaKey: false, altKey: false };
+    expect(
+      resolveShortcutCommand(chord, bindings, {
+        platform: "Linux",
+        context: { externalTerminalAvailable: true },
+      }),
+    ).toBe("terminal.openExternal");
+    expect(resolveShortcutCommand(chord, bindings, { platform: "Linux" })).toBeNull();
+    expect(
+      resolveShortcutCommand(
+        { ...chord, key: "c", ctrlKey: false, shiftKey: false, leaderKey: true },
+        bindings,
+        {
+          platform: "Linux",
+        },
+      ),
+    ).toBe("chat.newLocal");
+  });
+
   it("uses a connected server's settle and split bindings", () => {
     const h = harness();
     h.registry.set(h.environmentServerConfigsAtom, new Map([[REMOTE, config()]]));

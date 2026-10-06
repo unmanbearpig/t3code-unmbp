@@ -58,6 +58,8 @@ function parseHostname(url: string): string | null {
 
 export function resolveRemoteOpenState(input: {
   readonly target: ConnectionTarget | null;
+  /** Actual endpoint for a saved direct connection. */
+  readonly httpBaseUrl?: string | null;
   /** Real ssh alias for desktop-SSH environments; null elsewhere. */
   readonly sshAlias: string | null;
   /** Server-advertised hosts; undefined on servers that predate the feature. */
@@ -82,8 +84,17 @@ export function resolveRemoteOpenState(input: {
     if (hostname !== null && isLoopbackHostname(hostname)) {
       return LOCAL_EXEC;
     }
-  } else if (isDesktopLocalConnectionTarget(target)) {
-    return LOCAL_EXEC;
+  } else if (target._tag === "BearerConnectionTarget") {
+    if (isDesktopLocalConnectionTarget(target)) {
+      return LOCAL_EXEC;
+    }
+    // A separately managed server on localhost is local even when the
+    // desktop app's bundled backend is disabled.
+    const hostname =
+      input.sshAlias === null && input.httpBaseUrl ? parseHostname(input.httpBaseUrl) : null;
+    if (hostname !== null && isLoopbackHostname(hostname)) {
+      return LOCAL_EXEC;
+    }
   }
 
   if (input.sshAlias !== null && input.sshAlias.length > 0) {
@@ -109,6 +120,7 @@ export function useRemoteOpenResolution(environmentId: EnvironmentId | null): Re
     return {
       state: resolveRemoteOpenState({
         target: presentation.entry.target,
+        httpBaseUrl: profile?._tag === "BearerConnectionProfile" ? profile.httpBaseUrl : null,
         sshAlias,
         remoteOpenTargets: presentation.serverConfig?.remoteOpenTargets,
         isDesktopRenderer: window.desktopBridge !== undefined,

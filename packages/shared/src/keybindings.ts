@@ -396,9 +396,29 @@ export function compileResolvedKeybindingsConfig(
 export const DEFAULT_RESOLVED_KEYBINDINGS = compileResolvedKeybindingsConfig(DEFAULT_KEYBINDINGS);
 
 export function mergeWithDefaultKeybindings(
-  custom: ResolvedKeybindingsConfig,
+  customInput: ResolvedKeybindingsConfig,
   options?: { readonly leaderBindingsSupported?: boolean },
 ): ResolvedKeybindingsConfig {
+  // Older servers still return the physical project-thread default because
+  // they cannot persist its replacement. Apply that move in the client too.
+  const projectThreadDefault = DEFAULT_RESOLVED_KEYBINDINGS.find(
+    (rule) => rule.command === "chat.newLocal",
+  );
+  const custom =
+    options?.leaderBindingsSupported === false &&
+    projectThreadDefault &&
+    !customInput.some((rule) => keybindingShortcutInput(rule.shortcut) === "leader+c")
+      ? customInput.map((rule) =>
+          rule.command === "chat.newLocal" &&
+          keybindingShortcutInput(rule.shortcut) === "mod+shift+n" &&
+          sameWhenNode(rule.whenAst, {
+            type: "not",
+            node: { type: "identifier", name: "terminalFocus" },
+          })
+            ? projectThreadDefault
+            : rule,
+        )
+      : customInput;
   if (custom.length === 0) {
     return [...DEFAULT_RESOLVED_KEYBINDINGS];
   }
