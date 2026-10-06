@@ -93,6 +93,52 @@ describe("resolveRemoteOpenState", () => {
     ).toEqual({ mode: "remote-links", host: { kind: "ssh-alias", host: "sol" } });
   });
 
+  it.each(["http://127.0.0.1:3773", "http://localhost:3773", "http://[::1]:3773"])(
+    "keeps saved loopback connections local at %s",
+    (httpBaseUrl) => {
+      for (const isDesktopRenderer of [true, false]) {
+        expect(
+          resolveRemoteOpenState({
+            target: new BearerConnectionTarget({
+              environmentId,
+              label: "Local service",
+              connectionId: "saved-local-service",
+            }),
+            httpBaseUrl,
+            sshAlias: null,
+            isDesktopRenderer,
+            remoteOpenTargets: TAILSCALE_TARGETS,
+          }),
+        ).toEqual({ mode: "local-exec" });
+      }
+    },
+  );
+
+  it("keeps saved network connections and SSH tunnels remote", () => {
+    expect(
+      resolveRemoteOpenState({
+        target: new BearerConnectionTarget({
+          environmentId,
+          label: "Remote service",
+          connectionId: "saved-remote-service",
+        }),
+        httpBaseUrl: "http://192.168.1.2:3773",
+        sshAlias: null,
+        isDesktopRenderer: true,
+        remoteOpenTargets: TAILSCALE_TARGETS,
+      }),
+    ).toEqual({ mode: "remote-links", host: TAILSCALE_TARGETS[0] });
+    expect(
+      resolveRemoteOpenState({
+        target: new SshConnectionTarget({ environmentId, label: "sol", connectionId: "ssh-1" }),
+        httpBaseUrl: "http://127.0.0.1:3773",
+        sshAlias: "sol",
+        isDesktopRenderer: true,
+        remoteOpenTargets: TAILSCALE_TARGETS,
+      }),
+    ).toEqual({ mode: "remote-links", host: { kind: "ssh-alias", host: "sol" } });
+  });
+
   it("reports unavailable when a remote environment advertises no hosts", () => {
     for (const remoteOpenTargets of [[], undefined] as const) {
       expect(
