@@ -58,6 +58,8 @@ export function composerEmacsAction(event: EditingKeyEvent) {
     | (typeof ALT_ACTIONS)[keyof typeof ALT_ACTIONS]
     | null = null;
   if (event.ctrlKey && !event.altKey) {
+    // Ctrl-Shift-N opens an external terminal; Ctrl-N still moves down a line.
+    if (key === "n" && event.shiftKey) return null;
     action = CONTROL_ACTIONS[key as keyof typeof CONTROL_ACTIONS] ?? null;
   }
   if (event.altKey && !event.ctrlKey) {
