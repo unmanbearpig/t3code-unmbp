@@ -125,6 +125,41 @@ describe("leader syntax", () => {
 });
 
 describe("older environment defaults", () => {
+  it("moves the untouched project-thread default to leader+c on older servers", () => {
+    const stock = compileResolvedKeybindingsConfig([
+      { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+    ]);
+    const merged = mergeWithDefaultKeybindings(stock, { leaderBindingsSupported: false });
+    expect(
+      merged
+        .filter((rule) => rule.command === "chat.newLocal")
+        .map((rule) => keybindingShortcutInput(rule.shortcut)),
+    ).toEqual(["leader+c"]);
+    expect(
+      mergeWithDefaultKeybindings(stock, { leaderBindingsSupported: true }).filter(
+        (rule) => rule.command === "chat.newLocal",
+      ),
+    ).toEqual(stock);
+  });
+
+  it("preserves customized project-thread bindings and occupied leader+c on older servers", () => {
+    for (const input of [
+      [{ key: "alt+n", command: "chat.newLocal", when: "!terminalFocus" }],
+      [{ key: "mod+shift+n", command: "chat.newLocal", when: "!editableFocus" }],
+      [
+        { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+        { key: "leader+c", command: "thread.next" },
+      ],
+    ] as const) {
+      const custom = compileResolvedKeybindingsConfig(input);
+      expect(
+        mergeWithDefaultKeybindings(custom, { leaderBindingsSupported: false }).filter(
+          (rule) => rule.command === "chat.newLocal",
+        ),
+      ).toEqual(custom.filter((rule) => rule.command === "chat.newLocal"));
+    }
+  });
+
   it("adds leader defaults beside stock shortcuts, honors customization and removals on new servers", () => {
     const stock = compileResolvedKeybindingsConfig([
       { key: "mod+shift+]", command: "thread.next" },
