@@ -9,7 +9,8 @@ Press and release **Ctrl+.**, then press **N** for the next thread, **P** for th
 previous thread, or **1–9** to jump to a displayed thread. The numbers choose
 results in the command palette and models in the model picker. **B** toggles the
 sidebar, **J** toggles the terminal, **K** opens commands, **M** opens the model
-picker, and **Shift+N** starts a thread. Existing shortcuts remain available.
+picker, **C** starts a thread in the current project, and **Shift+N** opens the
+new-thread project chooser when there is more than one project.
 
 Change or disable the trigger in **Settings → Keybindings → Leader key**. The
 trigger belongs to this device. Leader shortcuts work throughout web and desktop,
@@ -208,7 +209,7 @@ terminals so native undo keeps working there.
 through the pages you have visited, like a browser's back and forward buttons.
 
 `chat.new` may ask you to choose a project when there is more than one.
-`chat.newLocal` skips that chooser. Both use your
+`chat.newLocal` (`leader+c`) skips that chooser. Both use your
 [new-thread defaults](./thread-sidebar.md#start-a-thread). `chat.newWithoutProject`
 (`mod+alt+n`) starts a thread [without a project](./thread-sidebar.md#start-without-a-project).
 
@@ -219,8 +220,7 @@ project. It uses the thread's worktree when one is selected. Choose foot, kitty,
 or Alacritty in **Settings → General → External terminal** and change the shortcut
 under **Terminal: Open External Window** in Keybindings. Install the terminal on
 the environment's machine first. Browsers may reserve this shortcut, so choose
-another binding when using the web client. When external terminals are unavailable,
-the existing new-thread shortcut still applies.
+another binding when using the web client.
 
 The `externalTerminalAvailable` condition is true when the current project belongs
 to a local environment that supports opening external terminals.
