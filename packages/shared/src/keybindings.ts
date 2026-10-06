@@ -66,7 +66,6 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   },
   { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
-  { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
   {
     key: "ctrl+shift+n",
     command: "terminal.openExternal",
@@ -92,6 +91,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "leader+j", command: "terminal.toggle" },
   { key: "leader+k", command: "commandPalette.toggle" },
   { key: "leader+shift+n", command: "chat.new" },
+  { key: "leader+c", command: "chat.newLocal" },
   { key: "leader+m", command: "modelPicker.toggle" },
   ...THREAD_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
     key: `leader+${index + 1}`,

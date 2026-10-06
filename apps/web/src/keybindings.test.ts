@@ -46,30 +46,33 @@ function event(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   };
 }
 
-it("opens an external terminal with Ctrl+Shift+N only when a local workspace is available", () => {
-  const chord = event({ key: "N", code: "KeyN", ctrlKey: true, shiftKey: true });
-  assert.equal(
-    resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
-      platform: "Linux x86_64",
-      context: { externalTerminalAvailable: true },
-    }),
-    "terminal.openExternal",
-  );
-  assert.equal(
-    resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
-      platform: "Linux x86_64",
-      context: { externalTerminalAvailable: false },
-    }),
-    "chat.newLocal",
-  );
-  assert.equal(
-    resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
-      platform: "Linux x86_64",
-      context: { externalTerminalAvailable: true, terminalFocus: true },
-    }),
-    null,
-  );
-});
+it.each(["Linux x86_64", "Win32", "MacIntel"])(
+  "opens an external terminal with Ctrl+Shift+N only when a local workspace is available on %s",
+  (platform) => {
+    const chord = event({ key: "N", code: "KeyN", ctrlKey: true, shiftKey: true });
+    assert.equal(
+      resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform,
+        context: { externalTerminalAvailable: true },
+      }),
+      "terminal.openExternal",
+    );
+    assert.equal(
+      resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform,
+        context: { externalTerminalAvailable: false },
+      }),
+      null,
+    );
+    assert.equal(
+      resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform,
+        context: { externalTerminalAvailable: true, terminalFocus: true },
+      }),
+      null,
+    );
+  },
+);
 
 function modShortcut(
   key: string,
@@ -171,7 +174,6 @@ const DEFAULT_BINDINGS = compile([
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
-  { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
   { shortcut: modShortcut("[", { shiftKey: true }), command: "thread.previous" },
   { shortcut: modShortcut("]", { shiftKey: true }), command: "thread.next" },
@@ -677,20 +679,38 @@ describe("chat/editor shortcuts", () => {
     );
   });
 
-  it("matches chat.newLocal shortcut", () => {
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "n", metaKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
-        platform: "MacIntel",
-      }),
-      "chat.newLocal",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "n", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
-        platform: "Linux",
-      }),
-      "chat.newLocal",
-    );
-  });
+  it.each(["Linux x86_64", "Win32", "MacIntel"])(
+    "starts a project thread with leader+c on %s",
+    (platform) => {
+      assert.strictEqual(
+        resolveShortcutCommand(event({ key: "c", leaderKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform,
+        }),
+        "chat.newLocal",
+      );
+      assert.strictEqual(
+        resolveShortcutCommand(event({ key: "c", leaderKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform,
+          context: { terminalFocus: true },
+        }),
+        "chat.newLocal",
+      );
+      assert.isNull(
+        resolveShortcutCommand(event({ key: "c" }), DEFAULT_RESOLVED_KEYBINDINGS, { platform }),
+      );
+      assert.isNull(
+        resolveShortcutCommand(
+          event({
+            key: "N",
+            shiftKey: true,
+            ...(platform === "MacIntel" ? { metaKey: true } : { ctrlKey: true }),
+          }),
+          DEFAULT_RESOLVED_KEYBINDINGS,
+          { platform },
+        ),
+      );
+    },
+  );
 
   it("matches editor.openFavorite shortcut", () => {
     assert.isTrue(
