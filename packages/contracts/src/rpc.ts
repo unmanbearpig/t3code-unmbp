@@ -66,7 +66,6 @@ import {
   AcpRegistrySetProviderResult,
 } from "./acpRegistry.ts";
 import { ExternalLauncherError, LaunchEditorInput } from "./editor.ts";
-import { ExternalTerminalLaunchError, LaunchTerminalInput } from "./externalTerminal.ts";
 import {
   AuthAccessStreamError,
   AuthAccessStreamEvent,
@@ -374,7 +373,6 @@ export const WS_METHODS = {
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
-  shellOpenInTerminal: "shell.openInTerminal",
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
@@ -1211,11 +1209,6 @@ const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
 });
 
-const WsShellOpenInTerminalRpc = Rpc.make(WS_METHODS.shellOpenInTerminal, {
-  payload: LaunchTerminalInput,
-  error: Schema.Union([ExternalTerminalLaunchError, EnvironmentAuthorizationError]),
-});
-
 const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   payload: FilesystemBrowseInput,
   success: FilesystemBrowseResult,
@@ -1923,7 +1916,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
-  WsShellOpenInTerminalRpc,
   WsFilesystemBrowseRpc,
   WsAgentSessionsScanRpc,
   WsAgentSessionsImportRpc,

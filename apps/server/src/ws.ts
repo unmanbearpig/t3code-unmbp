@@ -1726,7 +1726,6 @@ const layerWsRpc = (
             },
             settings,
             shellResumeCompletionMarker: true,
-            shellOpenInTerminal: true,
             threadResumeCompletionMarker: true,
             threadSnapshotPagination: true,
             threadFind: true,
@@ -2681,7 +2680,6 @@ const layerWsRpc = (
             ),
           ),
         [WS_METHODS.shellOpenInEditor]: (input) => externalLauncher.launchEditor(input),
-        [WS_METHODS.shellOpenInTerminal]: (input) => externalLauncher.launchTerminal(input),
         [WS_METHODS.filesystemBrowse]: (input) =>
           workspaceEntries.browse(input).pipe(
             Effect.mapError(

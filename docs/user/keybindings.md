@@ -215,15 +215,17 @@ through the pages you have visited, like a browser's back and forward buttons.
 
 ## Reserved shortcuts
 
-`Ctrl+Shift+N` opens your selected external terminal in its own window for a local
-project. It uses the thread's worktree when one is selected. Choose foot, kitty,
+In the desktop app, `Ctrl+Shift+N` opens your selected external terminal in its own
+window for a project on the same computer. It uses the thread's worktree when one
+is selected. Connections through LAN, Tailscale, or T3 Connect also work when the
+environment runs on this computer. Choose foot, kitty,
 or Alacritty in **Settings → General → External terminal** and change the shortcut
 under **Terminal: Open External Window** in Keybindings. Install the terminal on
-the environment's machine first. Browsers may reserve this shortcut, so choose
-another binding when using the web client.
+the desktop app's computer first. The shortcut does nothing for environments on
+other computers or in the web and mobile clients.
 
-The `externalTerminalAvailable` condition is true when the current project belongs
-to a local environment that supports opening external terminals.
+The `externalTerminalAvailable` condition is true when the desktop app has verified
+that the current project's environment runs on this computer.
 
 In the desktop app, `mod+w` closes the focused terminal or the active right-panel
 tab. When nothing remains to close, it closes the window. In a browser, `mod+w`

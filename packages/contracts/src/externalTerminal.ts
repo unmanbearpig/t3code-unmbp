@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { EnvironmentId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 export const EXTERNAL_TERMINALS = [
   { id: "foot", label: "foot", command: "foot", directoryFlag: "--working-directory" },
@@ -22,6 +22,24 @@ export const LaunchTerminalInput = Schema.Struct({
   terminal: ExternalTerminalId,
 });
 export type LaunchTerminalInput = typeof LaunchTerminalInput.Type;
+
+export const DesktopTerminalTarget = Schema.Struct({
+  environmentId: EnvironmentId,
+  candidateUrls: Schema.Array(TrimmedNonEmptyString),
+});
+export type DesktopTerminalTarget = typeof DesktopTerminalTarget.Type;
+
+export const DesktopTerminalLaunchInput = Schema.Struct({
+  ...DesktopTerminalTarget.fields,
+  ...LaunchTerminalInput.fields,
+});
+export type DesktopTerminalLaunchInput = typeof DesktopTerminalLaunchInput.Type;
+
+export const DesktopTerminalLaunchResult = Schema.Struct({
+  opened: Schema.Boolean,
+  error: Schema.optionalKey(Schema.String),
+});
+export type DesktopTerminalLaunchResult = typeof DesktopTerminalLaunchResult.Type;
 
 export class ExternalTerminalLaunchError extends Schema.TaggedError<ExternalTerminalLaunchError>()(
   "ExternalTerminalLaunchError",
