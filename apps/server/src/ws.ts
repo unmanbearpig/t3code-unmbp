@@ -1708,7 +1708,6 @@ const makeWsRpcLayer = (
             },
             settings,
             shellResumeCompletionMarker: true,
-            shellOpenInTerminal: true,
             threadResumeCompletionMarker: true,
             threadSnapshotPagination: true,
             ...Option.match(scratchWorkspaceRoot, {
@@ -3130,10 +3129,6 @@ const makeWsRpcLayer = (
           ),
         [WS_METHODS.shellOpenInEditor]: (input) =>
           observeRpcEffect(WS_METHODS.shellOpenInEditor, externalLauncher.launchEditor(input), {
-            "rpc.aggregate": "workspace",
-          }),
-        [WS_METHODS.shellOpenInTerminal]: (input) =>
-          observeRpcEffect(WS_METHODS.shellOpenInTerminal, externalLauncher.launchTerminal(input), {
             "rpc.aggregate": "workspace",
           }),
         [WS_METHODS.filesystemBrowse]: (input) =>

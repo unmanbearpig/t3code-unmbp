@@ -1,4 +1,9 @@
 import * as Schema from "effect/Schema";
+import type {
+  DesktopTerminalLaunchInput,
+  DesktopTerminalLaunchResult,
+  DesktopTerminalTarget,
+} from "./externalTerminal.ts";
 
 import {
   PreviewAutomationClickInput,
@@ -1234,6 +1239,9 @@ export interface DesktopBridge {
   receiveProviderAuthCallback?: (authorizationUrl: string) => Promise<string>;
   cancelProviderAuthCallback?: (authorizationUrl: string) => Promise<void>;
   openExternal: (url: string) => Promise<boolean>;
+  /** Present when the desktop can verify and open a terminal for a local environment. */
+  isLocalTerminalEnvironment?: (target: DesktopTerminalTarget) => Promise<boolean>;
+  openInTerminal?: (input: DesktopTerminalLaunchInput) => Promise<DesktopTerminalLaunchResult>;
   /**
    * Open a System Settings pane by identifier. Optional: older desktop builds
    * lack it, and callers no-op when it is missing.

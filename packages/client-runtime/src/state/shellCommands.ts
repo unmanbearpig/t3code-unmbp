@@ -12,9 +12,5 @@ export function createShellEnvironmentAtoms<R, E>(
       label: "environment-data:shell:open-in-editor",
       tag: WS_METHODS.shellOpenInEditor,
     }),
-    openInTerminal: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:shell:open-in-terminal",
-      tag: WS_METHODS.shellOpenInTerminal,
-    }),
   };
 }

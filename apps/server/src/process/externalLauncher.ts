@@ -8,8 +8,6 @@
  */
 import {
   EDITORS,
-  EXTERNAL_TERMINALS,
-  ExternalTerminalLaunchError,
   ExternalLauncherError,
   ExternalLauncherBrowserSpawnError,
   ExternalLauncherCommandNotFoundError,
@@ -19,7 +17,6 @@ import {
   type EditorId,
   type FileManagerRevealKind,
   type LaunchEditorInput,
-  type LaunchTerminalInput,
 } from "@t3tools/contracts";
 import { resolveEditorCommand } from "@t3tools/shared/editor";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -508,9 +505,6 @@ export class ExternalLauncher extends Context.Service<
      * Launches the editor as a detached process so server startup is not blocked.
      */
     readonly launchEditor: (input: LaunchEditorInput) => Effect.Effect<void, ExternalLauncherError>;
-    readonly launchTerminal: (
-      input: LaunchTerminalInput,
-    ) => Effect.Effect<void, ExternalTerminalLaunchError>;
   }
 >()("t3/process/externalLauncher") {}
 
@@ -761,62 +755,6 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
-  const launchTerminal = Effect.fn("externalLauncher.launchTerminal")(function* (
-    input: LaunchTerminalInput,
-  ) {
-    const platform = yield* HostProcessPlatform;
-    if (platform !== "linux" && (platform !== "darwin" || input.terminal === "foot")) {
-      return yield* new ExternalTerminalLaunchError({ ...input, reason: "unsupported-platform" });
-    }
-    const env = { ...(yield* readBrowserLaunchEnv), ...(yield* readCommandLookupEnv) };
-    if (
-      platform === "linux" &&
-      (input.terminal === "foot" ? !env.WAYLAND_DISPLAY?.trim() : !hasGraphicalLinuxSession(env))
-    ) {
-      return yield* new ExternalTerminalLaunchError({ ...input, reason: "display-unavailable" });
-    }
-    const info = yield* fileSystem
-      .stat(input.cwd)
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new ExternalTerminalLaunchError({ ...input, reason: "invalid-directory", cause }),
-        ),
-      );
-    if (!path.isAbsolute(input.cwd) || info.type !== "Directory") {
-      return yield* new ExternalTerminalLaunchError({ ...input, reason: "invalid-directory" });
-    }
-    const terminal = EXTERNAL_TERMINALS.find((candidate) => candidate.id === input.terminal);
-    if (!terminal) {
-      return yield* new ExternalTerminalLaunchError({ ...input, reason: "unsupported-platform" });
-    }
-    const available = yield* isCommandAvailable(terminal.command, { env }).pipe(
-      Effect.provideService(FileSystem.FileSystem, fileSystem),
-      Effect.provideService(Path.Path, path),
-    );
-    if (!available) {
-      return yield* new ExternalTerminalLaunchError({ ...input, reason: "command-not-found" });
-    }
-    yield* spawner
-      .spawn(
-        ChildProcess.make(terminal.command, [terminal.directoryFlag, input.cwd], {
-          cwd: input.cwd,
-          detached: true,
-          stdin: "ignore",
-          stdout: "ignore",
-          stderr: "ignore",
-        }),
-      )
-      .pipe(
-        Effect.flatMap((handle) => handle.unref),
-        Effect.asVoid,
-        Effect.scoped,
-        Effect.mapError(
-          (cause) => new ExternalTerminalLaunchError({ ...input, reason: "spawn-failed", cause }),
-        ),
-      );
-  });
-
   const provideCommandResolutionServices = <A, E, R>(
     effect: Effect.Effect<A, E, R | FileSystem.FileSystem | Path.Path>,
   ) =>
@@ -878,7 +816,6 @@ export const make = Effect.gen(function* () {
   const cachedAvailableEditors = Effect.flatMap(acquireEditorDiscovery, Deferred.await);
 
   return ExternalLauncher.of({
-    launchTerminal,
     resolveAvailableEditors: () => cachedAvailableEditors,
     resolveFileManagerRevealKind: () =>
       provideCommandResolutionServices(resolveFileManagerRevealKind()).pipe(

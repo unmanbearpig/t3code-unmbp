@@ -2864,35 +2864,38 @@ export function GeneralSettingsPanel() {
           }
         />
 
-        <SettingsRow
-          {...searchableSetting("external-terminal")}
-          description="Open a separate terminal window in the current project or worktree. Available for local environments."
-          control={
-            <Select
-              value={settings.externalTerminal}
-              onValueChange={(value) => {
-                const terminal = EXTERNAL_TERMINALS.find((terminal) => terminal.id === value);
-                if (terminal) updateSettings({ externalTerminal: terminal.id });
-              }}
-            >
-              <SelectTrigger size="sm" aria-label="External terminal">
-                <SelectValue>
-                  {
-                    EXTERNAL_TERMINALS.find((terminal) => terminal.id === settings.externalTerminal)
-                      ?.label
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup align="end" alignItemWithTrigger={false}>
-                {EXTERNAL_TERMINALS.map((terminal) => (
-                  <SelectItem key={terminal.id} value={terminal.id}>
-                    {terminal.label}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          }
-        />
+        {isElectron ? (
+          <SettingsRow
+            {...searchableSetting("external-terminal")}
+            description="Open a separate terminal window in the current project or worktree on this computer."
+            control={
+              <Select
+                value={settings.externalTerminal}
+                onValueChange={(value) => {
+                  const terminal = EXTERNAL_TERMINALS.find((terminal) => terminal.id === value);
+                  if (terminal) updateSettings({ externalTerminal: terminal.id });
+                }}
+              >
+                <SelectTrigger size="sm" aria-label="External terminal">
+                  <SelectValue>
+                    {
+                      EXTERNAL_TERMINALS.find(
+                        (terminal) => terminal.id === settings.externalTerminal,
+                      )?.label
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {EXTERNAL_TERMINALS.map((terminal) => (
+                    <SelectItem key={terminal.id} value={terminal.id}>
+                      {terminal.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            }
+          />
+        ) : null}
 
         <SettingsRow
           {...searchableSetting("follow-up-behavior")}

@@ -169,6 +169,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "external-terminal",
+    desktopOnly: true,
     title: "External terminal",
     to: "/settings/general",
     searchTerms: ["foot kitty alacritty shell window project worktree"],
