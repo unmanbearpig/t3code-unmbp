@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { observeVisibleAnimation } from "./visibleAnimation";
+import { setAnimationsDisabled } from "./animationPreference";
 
 let page = Object.assign(new EventTarget(), { visibilityState: "visible" });
 let motion = Object.assign(new EventTarget(), { matches: false });
@@ -54,11 +55,26 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const cleanup of cleanups) cleanup();
+  setAnimationsDisabled(false);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 describe("observeVisibleAnimation", () => {
+  it("pauses visible indicators immediately and resumes them when animations are enabled", () => {
+    const animation = animationElement();
+    attach(animation.element);
+    observers[0]!.report(animation.element, true);
+    expect(animation.state()).toBe("running");
+
+    setAnimationsDisabled(true);
+    expect(animation.state()).toBe("paused");
+    expect(animation.willChange()).toBe("auto");
+
+    setAnimationsDisabled(false);
+    expect(animation.state()).toBe("running");
+  });
+
   it("runs only intersecting animations in a visible document with motion enabled", () => {
     const first = animationElement();
     const second = animationElement();

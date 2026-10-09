@@ -813,8 +813,9 @@ describe("DesktopWindow", () => {
     }),
   );
 
-  for (const destroyed of ["window", "webContents"] as const) {
-    it.effect(`ignores native trackpad release after ${destroyed} destruction`, () =>
+  it.effect.each(["window", "webContents"] as const)(
+    "ignores native trackpad release after %s destruction",
+    (destroyed) =>
       Effect.gen(function* () {
         const fakeWindow = makeFakeBrowserWindow();
         const createCount = yield* Ref.make(0);
@@ -845,8 +846,7 @@ describe("DesktopWindow", () => {
           assert.equal(fakeWindow.send.mock.calls.length, 0);
         }).pipe(Effect.provide(layer));
       }),
-    );
-  }
+  );
 
   // Chromium hands the main window's zoom level down to embedded preview
   // guests, so every app zoom has to put the preview browser back at its own

@@ -3,7 +3,7 @@ import type { KeybindingShortcut } from "@t3tools/contracts";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import { mergeWithDefaultKeybindings, parseKeybindingShortcut } from "@t3tools/shared/keybindings";
 import { matchesLeaderWhen } from "@t3tools/shared/leaderKey";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useMemo } from "react";
 import { Platform } from "react-native";
 import { mobilePreferencesAtom } from "../../state/preferences";

@@ -1,3 +1,4 @@
+import { prefersReducedMotion, subscribeAnimationPreference } from "./animationPreference";
 interface ObservedAnimation {
   element: HTMLElement | SVGElement;
   intersecting: boolean;
@@ -6,10 +7,14 @@ interface ObservedAnimation {
 const animations = new Map<Element, ObservedAnimation>();
 let observer: IntersectionObserver | null = null;
 let reducedMotion: MediaQueryList | null = null;
+let unsubscribePreference: (() => void) | null = null;
 
 function updateAnimation(animation: ObservedAnimation) {
   const running =
-    animation.intersecting && document.visibilityState === "visible" && !reducedMotion?.matches;
+    animation.intersecting &&
+    document.visibilityState === "visible" &&
+    !reducedMotion?.matches &&
+    !prefersReducedMotion();
   animation.element.style.setProperty("--visible-animation-state", running ? "running" : "paused");
   animation.element.style.setProperty(
     "--visible-animation-will-change",
@@ -29,6 +34,7 @@ export function observeVisibleAnimation(element: HTMLElement | SVGElement | null
   if (typeof IntersectionObserver === "undefined") return;
 
   if (observer === null) {
+    unsubscribePreference = subscribeAnimationPreference(updateAnimations);
     reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     reducedMotion.addEventListener("change", updateAnimations);
     document.addEventListener("visibilitychange", updateAnimations);
@@ -58,6 +64,8 @@ export function observeVisibleAnimation(element: HTMLElement | SVGElement | null
       observer = null;
       reducedMotion?.removeEventListener("change", updateAnimations);
       reducedMotion = null;
+      unsubscribePreference?.();
+      unsubscribePreference = null;
       document.removeEventListener("visibilitychange", updateAnimations);
     }
   };

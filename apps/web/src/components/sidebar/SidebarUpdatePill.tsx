@@ -1,4 +1,5 @@
 import type { DesktopBridge, DesktopUpdateState } from "@t3tools/contracts";
+import { useReducedMotion } from "~/hooks/useReducedMotion";
 import { TriangleAlertIcon } from "lucide-react";
 import { type ComponentProps, useCallback, useEffect, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
@@ -206,7 +207,7 @@ function SidebarUpdateControl() {
   const suppressReleaseNotesFocusOpen = useRef(false);
   const releaseNotesPopupRef = useRef<HTMLDivElement>(null);
   const releaseNotesTriggerId = useId();
-  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const prefersReducedMotion = useReducedMotion();
 
   useEffect(() => {
     if (prefersReducedMotion) {

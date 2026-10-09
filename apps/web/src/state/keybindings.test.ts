@@ -1,6 +1,6 @@
 import { EnvironmentId, type ServerConfig } from "@t3tools/contracts";
 import { compileResolvedKeybindingsConfig } from "@t3tools/shared/keybindings";
-import { Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { Atom, AtomRegistry } from "effect/reactivity";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { resolveShortcutCommand, type ShortcutEventLike } from "../keybindings";

@@ -19,8 +19,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import { HttpClient } from "effect/unstable/http";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { HttpClient } from "effect/http";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 export class DesktopExternalTerminal extends Context.Service<
   DesktopExternalTerminal,

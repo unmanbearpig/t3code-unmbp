@@ -3,6 +3,8 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { observeResize } from "../lib/observeResize";
 
+import { useReducedMotion } from "~/hooks/useReducedMotion";
+
 const HEIGHT_TRANSITION_FALLBACK_MS = 250;
 
 export function AnimatedHeight({
@@ -13,6 +15,7 @@ export function AnimatedHeight({
   /** Retain the previous content height while a replacement is loading. */
   readonly holdHeight?: boolean;
 }) {
+  const reducedMotion = useReducedMotion();
   const contentRef = useRef<HTMLDivElement>(null);
   const [heightState, setHeightState] = useState<{
     readonly height: number | null;
@@ -20,14 +23,14 @@ export function AnimatedHeight({
   }>({ height: null, isClipping: false });
 
   useEffect(() => {
-    if (!heightState.isClipping) return;
+    if (reducedMotion || !heightState.isClipping) return;
     const timeoutId = window.setTimeout(() => {
       setHeightState((currentState) =>
         currentState.isClipping ? { ...currentState, isClipping: false } : currentState,
       );
     }, HEIGHT_TRANSITION_FALLBACK_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [heightState.height, heightState.isClipping]);
+  }, [heightState.height, heightState.isClipping, reducedMotion]);
 
   useLayoutEffect(() => {
     if (holdHeight) return;
@@ -42,7 +45,7 @@ export function AnimatedHeight({
         if (currentState.height === nextHeight) return currentState;
         return {
           height: nextHeight,
-          isClipping: currentState.height !== null,
+          isClipping: !reducedMotion && currentState.height !== null,
         };
       });
     };
@@ -75,7 +78,7 @@ export function AnimatedHeight({
       stopObserving();
       cancelPendingFrames();
     };
-  }, [holdHeight]);
+  }, [holdHeight, reducedMotion]);
 
   return (
     <div
@@ -84,7 +87,10 @@ export function AnimatedHeight({
       style={
         heightState.height === null
           ? undefined
-          : { height: heightState.height, overflow: heightState.isClipping ? "clip" : "visible" }
+          : {
+              height: heightState.height,
+              overflow: !reducedMotion && heightState.isClipping ? "clip" : "visible",
+            }
       }
       onTransitionEnd={(event) => {
         if (event.target !== event.currentTarget || event.propertyName !== "height") return;
