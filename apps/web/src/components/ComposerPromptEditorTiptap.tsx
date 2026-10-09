@@ -1192,7 +1192,9 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
       editorProps: {
         attributes: editorAttributes,
         handleKeyDown: (view, event) => {
-          if (emacsEditingEnabledRef.current || isCtrlNewlineShortcut(event)) {
+          const ctrlNewline = isCtrlNewlineShortcut(event);
+          // Ctrl+J uses the same list, quote and fence handling as Shift+Enter.
+          if (emacsEditingEnabledRef.current && !ctrlNewline) {
             const action = composerEmacsAction(event);
             if (
               (action === "previousLine" || action === "nextLine") &&
@@ -1307,7 +1309,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
           }
           // Enter on a focused task checkbox must not send the prompt (or
           // split anything): Space toggles it, Enter does nothing.
-          if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
+          if ((event.key === "Enter" || ctrlNewline) && event.target instanceof HTMLInputElement) {
             event.preventDefault();
             return true;
           }
@@ -1332,11 +1334,9 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
           // block. Sending from inside a fence is still Cmd/Ctrl+Enter, which
           // falls through.
           if (
-            event.key === "Enter" &&
             richText &&
-            !event.metaKey &&
-            !event.ctrlKey &&
-            !event.isComposing
+            (ctrlNewline ||
+              (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.isComposing))
           ) {
             if (selectionInOneCodeBlock(view.state)) {
               event.preventDefault();
@@ -1356,7 +1356,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
             }
           }
           const handler = onCommandKeyDownRef.current;
-          if (event.key === "Enter") {
+          if (event.key === "Enter" || ctrlNewline) {
             const instance = editorHolder.current;
             const isTaskItem = richText && (instance?.isActive("taskItem") ?? false);
             const isListItem = richText && (instance?.isActive("listItem") ?? false);
