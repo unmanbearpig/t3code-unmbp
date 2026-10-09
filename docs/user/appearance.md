@@ -35,10 +35,13 @@ applies to the web and desktop clients.
 
 ## Motion
 
-The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the
-**Panel animations** slider above 0 ms to add motion, up to 400 ms, unless reduced motion is enabled
-in your operating system. Moving between threads always snaps to the selected thread's panel state
-without replaying its transitions.
+On web and desktop, animations are off by default. Use **Settings → Appearance → Motion →
+Animations** to turn them on or off. The change applies immediately and is saved for that client.
+Turning animations off also stops animated indicators and makes navigation and scrolling instant.
+
+With animations enabled, move the **Panel animations** slider above 0 ms to animate the sidebar,
+right panel, and terminal drawer, up to 400 ms. Your operating system's reduced-motion preference
+still applies. Moving between threads always snaps to the selected thread's panel state.
 
 ## Custom themes
 

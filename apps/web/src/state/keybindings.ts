@@ -1,6 +1,6 @@
 import type { EnvironmentId, ServerConfig } from "@t3tools/contracts";
 import { mergeWithDefaultKeybindings } from "@t3tools/shared/keybindings";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 
 type KeybindingsConfig = Pick<ServerConfig, "keybindings"> &
   Partial<Pick<ServerConfig, "environment">>;

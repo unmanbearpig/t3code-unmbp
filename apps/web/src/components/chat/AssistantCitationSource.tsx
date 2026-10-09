@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/animationPreference";
 import type { LegendListRef } from "@legendapp/list/react";
 import type { AssistantCitation, MessageId, ScopedThreadRef } from "@t3tools/contracts";
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
@@ -117,7 +118,7 @@ export function observeAssistantCitationSource({
   if (activation.dismissed) return;
   const scrollNode = list.getScrollableNode();
   if (!(scrollNode instanceof HTMLElement)) return;
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reducedMotion = prefersReducedMotion();
   let highlighted: Highlight | null = null;
   let ownedRange: Range | null = null;
   let selected: { range: Range; snapshot: Range } | null = null;
@@ -144,6 +145,7 @@ export function observeAssistantCitationSource({
     if (selected && ownsSelection(selection)) selection?.removeRange(selected.range);
     selected = null;
     delete root.dataset.citationHighlighted;
+    root.style.removeProperty(CITATION_HIGHLIGHT_OPACITY);
   };
   const finishHighlight = () => {
     if (stopped) return;
@@ -240,6 +242,10 @@ export function observeAssistantCitationSource({
         finishHighlight();
         return;
       }
+    }
+    if (prefersReducedMotion()) {
+      root.style.setProperty(CITATION_HIGHLIGHT_OPACITY, String(CITATION_HIGHLIGHT_PEAK));
+      return;
     }
     if (!pulseAnimation) {
       // Preserve the original deadline through virtual remounts and range repairs.

@@ -628,7 +628,7 @@ const VISIT_DISPATCH_THROTTLE_MS = 10_000;
 const EMPTY_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 // Question answers outlive ChatView remounts (New thread, Settings) until their request resolves.
-const usePendingUserInputAnswers = create<
+const pendingUserInputAnswersStore = create<
   Record<string, Record<string, PendingUserInputDraftAnswer>>
 >(() => ({}));
 const usePendingUserInputQuestionIndex = create<Record<string, number>>(() => ({}));
@@ -1941,7 +1941,7 @@ export default function ChatView(props: ChatViewProps) {
   const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
     RuntimeRequestId[]
   >([]);
-  const pendingUserInputAnswersByRequestId = usePendingUserInputAnswers();
+  const pendingUserInputAnswersByRequestId = pendingUserInputAnswersStore();
   const pendingUserInputQuestionIndexByRequestId = usePendingUserInputQuestionIndex();
   const shouldUsePlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const isMobileViewport = useMediaQuery("max-sm");
@@ -3327,7 +3327,7 @@ export default function ChatView(props: ChatViewProps) {
     seedUserInputDraftAnswers(activePendingUserInput.questions, activePendingAnswerDrafts) !==
       activePendingAnswerDrafts
   ) {
-    usePendingUserInputAnswers.setState((existing) => {
+    pendingUserInputAnswersStore.setState((existing) => {
       const drafts = existing[activePendingRequestKey] ?? EMPTY_PENDING_USER_INPUT_ANSWERS;
       const seeded = seedUserInputDraftAnswers(activePendingUserInput.questions, drafts);
       return seeded === drafts ? existing : { ...existing, [activePendingRequestKey]: seeded };
@@ -3383,7 +3383,7 @@ export default function ChatView(props: ChatViewProps) {
     const questionThread = activeThread;
     const currentRequests = pendingUserInputs;
     const pendingRequestIds = currentRequests.map((request) => request.requestId);
-    usePendingUserInputAnswers.setState(
+    pendingUserInputAnswersStore.setState(
       (existing) =>
         pruneResolvedUserInputDrafts(existing, environmentId, questionThread.id, pendingRequestIds),
       true,
@@ -7636,8 +7636,8 @@ export default function ChatView(props: ChatViewProps) {
           activeThreadFiled
             ? "Settles when work finishes"
             : activeThreadShell?.settledAt
-            ? `Settled ${formatRelativeTimeLabel(activeThreadShell.settledAt)}`
-            : "Settled"
+              ? `Settled ${formatRelativeTimeLabel(activeThreadShell.settledAt)}`
+              : "Settled"
         }
         actionLabel={isUnsettling ? "Un-settling..." : "Un-settle"}
         actionDisabled={!canOperateThread || isUnsettling}
@@ -10274,7 +10274,7 @@ export default function ChatView(props: ChatViewProps) {
       if (nextPrompt !== currentPrompt) {
         setComposerDraftPrompt(composerDraftTarget, nextPrompt);
       }
-      usePendingUserInputAnswers.setState((existing) => {
+      pendingUserInputAnswersStore.setState((existing) => {
         const question =
           (activePendingProgress?.activeQuestion?.id === questionId
             ? activePendingProgress.activeQuestion
@@ -10326,7 +10326,7 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
       promptRef.current = value;
-      usePendingUserInputAnswers.setState((existing) => ({
+      pendingUserInputAnswersStore.setState((existing) => ({
         ...existing,
         [activePendingRequestKey]: {
           ...existing[activePendingRequestKey],

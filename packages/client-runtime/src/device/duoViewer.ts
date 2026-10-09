@@ -53,6 +53,7 @@ export interface DuoViewer {
 
 /** On-demand renderer for the articulated body. One inner framebuffer spans both leaves; HID belongs to the stream. */
 export function createDuoViewer(options: {
+  reducedMotion?: () => boolean;
   canvas: HTMLCanvasElement;
   sources: Record<DuoPanelId, HTMLCanvasElement>;
   model: DeviceModelSource;
@@ -192,8 +193,9 @@ export function createDuoViewer(options: {
   let presentationAngle = 180;
   let targetPresentation = new Quaternion();
   let lastTime = 0;
-  const reduced =
-    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reducedMotion = () =>
+    (options.reducedMotion?.() ?? false) ||
+    (globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
   const applyPose = () => {
     if (!model) return;
     const before = hingeLeaf && appliedAngle !== angle ? model.leafRotation(hingeLeaf) : null;
@@ -238,12 +240,12 @@ export function createDuoViewer(options: {
     try {
       const now = performance.now();
       const elapsed = Math.max(0, (now - lastTime) / 1000);
-      const amount = reduced
+      const amount = reducedMotion()
         ? 1
         : 1 - Math.exp(-14 * Math.max(0, (now - lastTime) / 1000 || 0.016));
       lastTime = now;
       const inMotion = moving();
-      const orbitChanged = orbit.advance(now, reduced);
+      const orbitChanged = orbit.advance(now, reducedMotion());
       if (inMotion) {
         angle += (targetAngle - angle) * amount;
 
@@ -252,13 +254,13 @@ export function createDuoViewer(options: {
         pivot.lerp(targetPivot, amount);
         if (pivot.distanceTo(targetPivot) <= 0.001) pivot.copy(targetPivot);
         applyPose();
-        fit(reduced || elapsed > 0.5);
+        fit(reducedMotion() || elapsed > 0.5);
       }
       if (orbitChanged) {
         applyPose();
-        fit(reduced || elapsed > 0.5);
+        fit(reducedMotion() || elapsed > 0.5);
       }
-      if (framing.advance(now, reduced)) updateCamera();
+      if (framing.advance(now, reducedMotion())) updateCamera();
       if (
         buffer.width !== viewport.width ||
         buffer.height !== viewport.height ||

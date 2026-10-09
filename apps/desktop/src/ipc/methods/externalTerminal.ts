@@ -28,9 +28,10 @@ export const openInTerminal = DesktopIpc.makeIpcMethod({
     const terminal = yield* DesktopExternalTerminal.DesktopExternalTerminal;
     return yield* terminal.launch(input).pipe(
       Effect.map((opened) => ({ opened })),
-      Effect.catchTag("ExternalTerminalLaunchError", (error) =>
-        Effect.succeed({ opened: false, error: error.message }),
-      ),
+      Effect.catchTags({
+        ExternalTerminalLaunchError: (error) =>
+          Effect.succeed({ opened: false, error: error.message }),
+      }),
     );
   }),
 });

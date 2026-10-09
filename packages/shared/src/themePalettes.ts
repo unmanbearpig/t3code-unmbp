@@ -268,6 +268,10 @@ export const UNMBP_THEME: ThemeDefinition = {
   label: "unmbp",
   appearance: "dark",
   colors: {
+    searchMatchActiveBackground: "#dddd50",
+    searchMatchActiveForeground: "#000000",
+    searchMatchBackground: "#353544",
+    searchMatchForeground: "#ffffff",
     canvas: "#000000",
     chrome: "#000000",
     toolbar: "#000000",
@@ -328,6 +332,10 @@ export const UNMBP_THEME: ThemeDefinition = {
   },
   variants: {
     light: {
+      searchMatchActiveBackground: "#dddd50",
+      searchMatchActiveForeground: "#000000",
+      searchMatchBackground: "#dce7fa",
+      searchMatchForeground: "#000000",
       canvas: "#ffffff",
       chrome: "#ffffff",
       toolbar: "#ffffff",

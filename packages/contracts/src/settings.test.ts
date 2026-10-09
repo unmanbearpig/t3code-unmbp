@@ -1075,3 +1075,14 @@ describe("leader trigger preferences", () => {
     expect(decodeClientSettingsPatch({})).not.toHaveProperty("leaderShortcut");
   });
 });
+
+describe("ClientSettings animations", () => {
+  it("disables motion in this fork by default and persists an explicit opt-in", () => {
+    expect(decodeClientSettings({}).disableAnimations).toBe(true);
+    expect(decodeClientSettings({ disableAnimations: false }).disableAnimations).toBe(false);
+    expect(decodeClientSettingsPatch({ disableAnimations: false })).toEqual({
+      disableAnimations: false,
+    });
+    expect(() => decodeClientSettingsPatch({ disableAnimations: "off" })).toThrow();
+  });
+});

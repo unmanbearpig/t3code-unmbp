@@ -54,6 +54,7 @@ const ANDROID_FOLD_TURN_MS = 850;
 
 /** Owns only presentation resources. The caller retains the decoded canvas and the stream connection. */
 export function createPhoneViewer(options: {
+  readonly reducedMotion?: () => boolean;
   readonly canvas: HTMLCanvasElement;
   readonly source: HTMLCanvasElement;
   readonly onUnavailable: () => void;
@@ -133,7 +134,8 @@ export function createPhoneViewer(options: {
   motion.setPose(rest, performance.now(), true);
   const framing = createDeviceFraming();
   const reducedMotion = () =>
-    globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    (options.reducedMotion?.() ?? false) ||
+    (globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
   let viewport = { width: 0, height: 0, pixelRatio: 1 };
   let drawingBuffer = { width: 0, height: 0, pixelRatio: 0 };
 

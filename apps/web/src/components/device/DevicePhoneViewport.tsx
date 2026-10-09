@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/animationPreference";
 import { useEffect, useRef, type RefObject } from "react";
 import type { PhoneViewer } from "@t3tools/client-runtime/device/phone-viewer";
 import type {
@@ -76,6 +77,7 @@ export function DevicePhoneViewport(props: {
       .then(({ createPhoneViewer }) => {
         if (disposed) return;
         const viewer = createPhoneViewer({
+          reducedMotion: prefersReducedMotion,
           canvas,
           source: decoded,
           onUnavailable,

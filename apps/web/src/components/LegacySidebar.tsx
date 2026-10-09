@@ -1,3 +1,4 @@
+import { useReducedMotion } from "~/hooks/useReducedMotion";
 import { updateThreadShortcutTargets } from "~/threadShortcutTargets";
 import { addAppShortcutListener } from "~/appShortcutEvents";
 import { useExternalTerminal } from "../hooks/useExternalTerminal";
@@ -3497,23 +3498,40 @@ export default function LegacySidebar() {
     dragInProgressRef.current = false;
   }, []);
 
-  const animatedProjectListsRef = useRef(new WeakSet<HTMLElement>());
-  const attachProjectListAutoAnimateRef = useCallback((node: HTMLElement | null) => {
-    if (!node || animatedProjectListsRef.current.has(node)) {
-      return;
-    }
-    autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS);
-    animatedProjectListsRef.current.add(node);
-  }, []);
+  const reducedMotion = useReducedMotion();
+  const animatedProjectListsRef = useRef(
+    new WeakMap<HTMLElement, ReturnType<typeof autoAnimate>>(),
+  );
+  const attachProjectListAutoAnimateRef = useCallback(
+    (node: HTMLElement | null) => {
+      if (!node) return;
+      const existing = animatedProjectListsRef.current.get(node);
+      if (existing) {
+        if (reducedMotion) existing.disable();
+        else existing.enable();
+        return;
+      }
+      if (reducedMotion) return;
+      animatedProjectListsRef.current.set(node, autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS));
+    },
+    [reducedMotion],
+  );
 
-  const animatedThreadListsRef = useRef(new WeakSet<HTMLElement>());
-  const attachThreadListAutoAnimateRef = useCallback((node: HTMLElement | null) => {
-    if (!node || animatedThreadListsRef.current.has(node)) {
-      return;
-    }
-    autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS);
-    animatedThreadListsRef.current.add(node);
-  }, []);
+  const animatedThreadListsRef = useRef(new WeakMap<HTMLElement, ReturnType<typeof autoAnimate>>());
+  const attachThreadListAutoAnimateRef = useCallback(
+    (node: HTMLElement | null) => {
+      if (!node) return;
+      const existing = animatedThreadListsRef.current.get(node);
+      if (existing) {
+        if (reducedMotion) existing.disable();
+        else existing.enable();
+        return;
+      }
+      if (reducedMotion) return;
+      animatedThreadListsRef.current.set(node, autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS));
+    },
+    [reducedMotion],
+  );
 
   const visibleThreads = useMemo(
     () => sidebarThreads.filter((thread) => thread.archivedAt === null),

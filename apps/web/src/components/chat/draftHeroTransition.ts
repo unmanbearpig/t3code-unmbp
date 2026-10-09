@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/animationPreference";
 export const DRAFT_HERO_TRANSITION_ANIMATION_ID = "t3-draft-hero-transition";
 export const DRAFT_HERO_TRANSITION_EASING = "cubic-bezier(0.4, 0, 0.2, 1)";
 export const MOBILE_COMPOSER_VIEW_TRANSITION_NAME = "t3-mobile-composer";
@@ -48,12 +49,11 @@ export async function runMobileComposerTransition(
 
   const transitionDocument = document as ComposerViewTransitionDocument;
   const mobileViewport = window.matchMedia?.("(max-width: 639px)").matches ?? false;
-  const prefersReducedMotion =
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  const reducedMotion = prefersReducedMotion();
   if (
     !options.active ||
     !mobileViewport ||
-    prefersReducedMotion ||
+    reducedMotion ||
     !transitionDocument.startViewTransition
   ) {
     await update();

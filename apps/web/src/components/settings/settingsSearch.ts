@@ -237,6 +237,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["wide full width column layout messages composer monitor"],
   },
   {
+    id: "animations",
+    title: "Animations",
+    to: "/settings/appearance",
+    searchTerms: ["disable motion instant performance resources transitions reduce"],
+  },
+  {
     id: "panel-animations",
     title: "Panel animations",
     to: "/settings/appearance",

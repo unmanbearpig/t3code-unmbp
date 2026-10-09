@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/animationPreference";
 import { useEffect, useRef, type RefObject } from "react";
 import type { DuoViewer } from "@t3tools/client-runtime/device/duo-viewer";
 import type { DeviceModelSource } from "@t3tools/client-runtime/device/model";
@@ -81,6 +82,7 @@ export function DeviceDuoViewport(props: {
           3: document.createElement("canvas"),
         };
         const viewer = createDuoViewer({
+          reducedMotion: prefersReducedMotion,
           canvas,
           sources,
           onUnavailable,

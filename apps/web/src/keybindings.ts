@@ -64,9 +64,14 @@ const TERMINAL_WORD_FORWARD = "\u001bf";
 const TERMINAL_LINE_START = "\u0001";
 const TERMINAL_LINE_END = "\u0005";
 const TERMINAL_DELETE_TO_LINE_START = "\u0015";
-export function matchesShortcut(event: ShortcutEventLike, shortcut: AppKeybindingShortcut, platform = navigator.platform): boolean {
+export function matchesShortcut(
+  event: ShortcutEventLike,
+  shortcut: AppKeybindingShortcut,
+  platform = navigator.platform,
+): boolean {
   if ("leader" in shortcut !== isLeaderShortcutEvent(event)) return false;
-  if ("leader" in shortcut) return matchesLeaderStroke(event, shortcut.leader, isMacPlatform(platform));
+  if ("leader" in shortcut)
+    return matchesLeaderStroke(event, shortcut.leader, isMacPlatform(platform));
   return matchesKeybindingShortcut(event, shortcut, platform);
 }
 
@@ -312,7 +317,7 @@ export function shouldShowThreadJumpHintsForModifiers(
 
   for (const command of THREAD_JUMP_KEYBINDING_COMMANDS) {
     const shortcut = findEffectiveShortcutForCommand(keybindings, command, options);
-    if (!shortcut || ("leader" in shortcut) !== (modifiers.leaderKey === true)) continue;
+    if (!shortcut || "leader" in shortcut !== (modifiers.leaderKey === true)) continue;
     if (matchesKeybindingShortcutModifiers(modifiers, shortcutStroke(shortcut), platform)) {
       return true;
     }

@@ -203,7 +203,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
             rule.shortcut.leader.shiftKey,
         ),
       );
-    }).pipe(Effect.provide(makeKeybindingsLayer())),
+    }).pipe(Effect.provide(layerKeybindings())),
   );
 
   it.effect("bootstraps default keybindings when config file is missing", () =>
@@ -356,7 +356,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           ),
           [{ key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" }],
         );
-      }).pipe(Effect.provide(makeKeybindingsLayer())),
+      }).pipe(Effect.provide(layerKeybindings())),
   );
 
   it.effect("preserves customized project-thread shortcuts and conditions", () =>
@@ -375,7 +375,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         ),
         custom,
       );
-    }).pipe(Effect.provide(makeKeybindingsLayer())),
+    }).pipe(Effect.provide(layerKeybindings())),
   );
 
   it.effect("preserves an existing leader+c shortcut when moving the project-thread default", () =>
@@ -394,7 +394,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         ),
         existing,
       );
-    }).pipe(Effect.provide(makeKeybindingsLayer())),
+    }).pipe(Effect.provide(layerKeybindings())),
   );
 
   it.effect("moves the project-thread default without evicting rules from a full config", () =>
@@ -414,7 +414,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         { key: "leader+c", command: "chat.newLocal" },
         ...fillers,
       ]);
-    }).pipe(Effect.provide(makeKeybindingsLayer())),
+    }).pipe(Effect.provide(layerKeybindings())),
   );
 
   it.effect("adds a late default to an existing command once", () =>

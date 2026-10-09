@@ -340,6 +340,7 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   // Panel motion defaults to zero because width and height transitions cause
   // layout work on every frame, which is noticeable on lower-power clients.
+  disableAnimations: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   panelAnimationDurationMs: PanelAnimationDurationMs.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PANEL_ANIMATION_DURATION_MS)),
   ),
@@ -1585,6 +1586,7 @@ export const ClientSettingsPatch = Schema.Struct({
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
   appearanceContrast: Schema.optionalKey(AppearanceContrast),
+  disableAnimations: Schema.optionalKey(Schema.Boolean),
   panelAnimationDurationMs: Schema.optionalKey(PanelAnimationDurationMs),
   browserDefaultViewport: Schema.optionalKey(PreviewViewportSetting),
   browserDefaultZoomFactor: Schema.optionalKey(PreviewZoomFactor),

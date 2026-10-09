@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/animationPreference";
 const motionTiming = { duration: 150, easing: "ease-out" };
 // Rows normally ride their displaced neighbour's travel. Absent a moving
 // neighbour, a row still travels on its own, clamped so a tall card does not
@@ -23,9 +24,6 @@ function progress(animation: Animation) {
 export function createSidebarListMotion(parent: HTMLUListElement) {
   let positions: Map<HTMLElement, RowPosition> | null = null;
   let disposed = false;
-  const reducedMotion = parent.ownerDocument.defaultView?.matchMedia(
-    "(prefers-reduced-motion: reduce)",
-  );
   const running = new Map<HTMLElement, { animation: Animation; offset: number }>();
   const entering = new Map<HTMLElement, { animation: Animation; travel: number }>();
   const exiting = new Map<HTMLElement, Animation>();
@@ -157,7 +155,7 @@ export function createSidebarListMotion(parent: HTMLUListElement) {
       const shouldAnimate =
         animate &&
         positions !== null &&
-        !reducedMotion?.matches &&
+        !prefersReducedMotion(parent.ownerDocument.defaultView ?? undefined) &&
         fadeCount <= MAX_FADED_ROWS_PER_UPDATE;
       const movedDelta = new Map<HTMLElement, number>();
       const nextOrder = [...next.keys()];
@@ -234,7 +232,7 @@ export function createSidebarListMotion(parent: HTMLUListElement) {
         }
       }
       if (released !== null) {
-        if (!reducedMotion?.matches) {
+        if (!prefersReducedMotion(parent.ownerDocument.defaultView ?? undefined)) {
           for (const [node, position] of next) {
             const top = released.get(node);
             if (top !== undefined) move(node, top - position.top);
