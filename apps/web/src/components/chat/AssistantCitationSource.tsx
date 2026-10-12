@@ -127,6 +127,7 @@ export function observeAssistantCitationSource({
   let scrolling = false;
   let stopped = false;
   let pulseAnimation: Animation | null = null;
+  let highlightTimeout: ReturnType<typeof setTimeout> | null = null;
   let canReplaceSelection = !activation.scrolled;
   const ownsSelection = (selection: Selection | null) =>
     selected !== null &&
@@ -245,7 +246,14 @@ export function observeAssistantCitationSource({
       }
     }
     if (prefersReducedMotion()) {
+      const pulse = (activation.pulse ??= { startedAt: performance.now(), reducedMotion: true });
       root.style.setProperty(CITATION_HIGHLIGHT_OPACITY, String(CITATION_HIGHLIGHT_PEAK));
+      if (highlightTimeout === null) {
+        highlightTimeout = setTimeout(
+          finishHighlight,
+          Math.max(0, CITATION_HIGHLIGHT_TOTAL_MS - (performance.now() - pulse.startedAt)),
+        );
+      }
       return;
     }
     if (!pulseAnimation) {
@@ -337,6 +345,7 @@ export function observeAssistantCitationSource({
     stopped = true;
     cancelScroll();
     pulseAnimation?.cancel();
+    if (highlightTimeout !== null) clearTimeout(highlightTimeout);
     if (frame !== null) cancelAnimationFrame(frame);
     observer.disconnect();
     stopObservingResize();

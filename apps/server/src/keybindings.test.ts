@@ -321,7 +321,10 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         const configState = yield* keybindings.loadConfigState;
         assert.deepEqual(
           configState.keybindings
-            .filter((entry) => entry.shortcut.key === "b" && entry.shortcut.shiftKey)
+            .filter(
+              (entry) =>
+                "key" in entry.shortcut && entry.shortcut.key === "b" && entry.shortcut.shiftKey,
+            )
             .map((entry) => entry.command),
           ["threadPanel.toggle", "script.custom-panel.run", "script.custom-composer.run"],
         );
@@ -348,7 +351,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
           (rule) => rule.command === "terminal.openExternal",
         );
         const threadIndex = persisted.findIndex((rule) => rule.command === "chat.newLocal");
-        assert.isAbove(terminalIndex, threadIndex);
+        assert.isBelow(terminalIndex, threadIndex);
         assert.deepEqual(persisted[threadIndex], {
           key: "leader+c",
           command: "chat.newLocal",

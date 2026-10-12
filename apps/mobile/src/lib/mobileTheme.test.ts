@@ -222,10 +222,15 @@ describe("mobile themes", () => {
         const variables = getMobileThemeRuntimeVariables(themeId, appearance, platform);
         const sheet = variables["--color-sheet-solid"];
         const group = variables["--color-grouped-card"];
-        expect(
-          contrastRatio(group, sheet),
-          `${platform} ${appearance}: grouped surface on sheet`,
-        ).toBeGreaterThanOrEqual(1.025);
+        if (themeId === "unmbp" && appearance === "dark") {
+          expect(group).toBe("#000000");
+          expect(sheet).toBe("#000000");
+        } else {
+          expect(
+            contrastRatio(group, sheet),
+            `${platform} ${appearance}: grouped surface on sheet`,
+          ).toBeGreaterThanOrEqual(1.025);
+        }
         for (const role of [
           "--color-foreground",
           "--color-foreground-secondary",

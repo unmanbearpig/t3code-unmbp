@@ -13,7 +13,6 @@ This is `unmbp`'s personal fork of [T3 Code](https://github.com/pingdotgg/t3code
 - Uses native window decorations on Linux to remove Electron's extra window border. macOS and Windows keep their existing window styling.
 - Ignores late trackpad events after the window or its web contents have been destroyed, preventing an uncaught exception during desktop teardown.
 - Treats Codex version `0.0.0` as an unknown source build rather than a known incompatible release.
-- Removes a duplicate Effect `Option` import that blocked server typechecking.
 
 Download this fork from [GitHub Releases](https://github.com/unmanbearpig/t3code-unmbp/releases), or build it from source using the [development guide](./docs/operations/development.md). The installation commands and release links below point to upstream T3 Code.
 

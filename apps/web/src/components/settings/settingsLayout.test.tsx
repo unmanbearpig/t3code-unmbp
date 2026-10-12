@@ -1,7 +1,12 @@
+import { setAnimationsDisabled } from "~/lib/animationPreference";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { scrollToSettingsTarget, SettingsRow, SettingsUnavailableGroup } from "./settingsLayout";
+
+beforeEach(() => {
+  setAnimationsDisabled(false);
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();

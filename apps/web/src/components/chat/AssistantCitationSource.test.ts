@@ -1,6 +1,7 @@
+import { setAnimationsDisabled } from "~/lib/animationPreference";
 import type { LegendListRef } from "@legendapp/list/react";
 import { EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   observeAssistantCitationCommentSource,
@@ -34,6 +35,7 @@ class TestAnimation {
 class TestElement {
   parentNode: TestElement | null = null;
   dataset: Record<string, string> = {};
+  style = { setProperty: vi.fn(), removeProperty: vi.fn() };
   focus = vi.fn();
   animations: TestAnimation[] = [];
   animate = vi.fn(() => {
@@ -162,6 +164,10 @@ function createSource({ reducedMotion = false } = {}) {
       }
       observe(target: Element) {
         resizeEntries.push({ target } as ResizeObserverEntry);
+      }
+      unobserve(target: Element) {
+        const index = resizeEntries.findIndex((entry) => entry.target === target);
+        if (index >= 0) resizeEntries.splice(index, 1);
       }
       disconnect() {
         resize = () => {};
@@ -319,7 +325,12 @@ function createSource({ reducedMotion = false } = {}) {
   };
 }
 
+beforeEach(() => {
+  setAnimationsDisabled(false);
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -443,20 +454,27 @@ describe("assistant citation source lifecycle", () => {
     source.cleanup();
   });
 
-  it("uses instant navigation and removes the temporary quote highlight for reduced motion", async () => {
-    const source = createSource({ reducedMotion: true });
-    source.mount();
-    source.flushFrame();
-    expect(source.scrollToOffset).toHaveBeenCalledWith({ offset: 80, animated: false });
-    expect(source.highlight()).toBeUndefined();
-    await source.finishScroll();
-    expect(source.target.activationRef.current.pulse?.reducedMotion).toBe(true);
-    expect(source.highlight()?.toString()).toBe("quote");
-    await source.finishPulse();
-    expect(source.highlight()).toBeUndefined();
-    expect(source.root.focus).not.toHaveBeenCalled();
-    source.cleanup();
-  });
+  it.each(["system", "client"])(
+    "uses a temporary static highlight when %s disables animations",
+    async (preference) => {
+      vi.useFakeTimers();
+      const source = createSource({ reducedMotion: preference === "system" });
+      setAnimationsDisabled(preference === "client");
+      source.mount();
+      source.flushFrame();
+      expect(source.scrollToOffset).toHaveBeenCalledWith({ offset: 80, animated: false });
+      expect(source.highlight()).toBeUndefined();
+      await source.finishScroll();
+      expect(source.target.activationRef.current.pulse?.reducedMotion).toBe(true);
+      expect(source.highlight()?.toString()).toBe("quote");
+      expect(source.root.animations).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(source.highlight()).toBeUndefined();
+      expect(source.target.activationRef.current.dismissed).toBe(true);
+      expect(source.root.focus).not.toHaveBeenCalled();
+      source.cleanup();
+    },
+  );
 
   it("does not revive a quote when remounting after its original pulse deadline", async () => {
     const source = createSource();

@@ -5,11 +5,7 @@ import {
   type DesktopTerminalTarget,
 } from "@t3tools/contracts";
 import { fetchRemoteEnvironmentDescriptor } from "@t3tools/client-runtime/environment";
-import {
-  HostProcessAddresses,
-  HostProcessEnvironment,
-  HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import * as NodeDns from "node:dns";
 import * as NodeNet from "node:net";
@@ -46,7 +42,7 @@ export const make = Effect.gen(function* () {
   const isLocalEnvironment = Effect.fn("desktop.externalTerminal.isLocalEnvironment")(
     function* (target: DesktopTerminalTarget) {
       if (target.candidateUrls.length === 0) return false;
-      const readAddresses = yield* HostProcessAddresses;
+      const readAddresses = yield* HostProcess.Addresses;
       const addresses = new Set([...(yield* readAddresses)].map(normalizeAddress));
       return yield* Effect.raceAll(
         [...new Set(target.candidateUrls)].map((candidateUrl) =>
@@ -86,11 +82,11 @@ export const make = Effect.gen(function* () {
     input: DesktopTerminalLaunchInput,
   ) {
     if (!(yield* isLocalEnvironment(input))) return false;
-    const platform = yield* HostProcessPlatform;
+    const platform = yield* HostProcess.Platform;
     if (platform !== "linux" && (platform !== "darwin" || input.terminal === "foot")) {
       return yield* new ExternalTerminalLaunchError({ ...input, reason: "unsupported-platform" });
     }
-    const env = yield* HostProcessEnvironment;
+    const env = yield* HostProcess.Environment;
     if (
       platform === "linux" &&
       (input.terminal === "foot"

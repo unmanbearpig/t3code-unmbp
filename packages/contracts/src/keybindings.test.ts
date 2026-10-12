@@ -331,7 +331,7 @@ it.effect("drops unknown fields in resolved keybinding rules", () =>
 
 it.effect("round trips leader rules and rejects them as physical accelerators", () =>
   Effect.gen(function* () {
-    const rule = { command: "thread.next", shortcut: { leader: shortcut } };
+    const rule = { command: "thread.next", shortcut: { leader: shortcut } } as const;
     const parsed = yield* decode(ResolvedKeybindingsConfig, [rule]);
     assert.deepEqual(yield* encodeResolvedKeybindings(parsed), [rule]);
     // An older client's physical shortcut decoder must not interpret a suffix as a bare key.

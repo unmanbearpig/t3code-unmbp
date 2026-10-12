@@ -2,11 +2,7 @@ import * as NodeOS from "node:os";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import { EnvironmentId, EXTERNAL_TERMINALS } from "@t3tools/contracts";
-import {
-  HostProcessAddresses,
-  HostProcessEnvironment,
-  HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -91,10 +87,10 @@ function harness(
     Layer.provide(Layer.mergeAll(NodeServices.layer, http, spawner)),
     Layer.provideMerge(
       Layer.mergeAll(
-        Layer.succeed(HostProcessAddresses, Effect.succeed(localAddresses)),
-        Layer.succeed(HostProcessPlatform, options.platform ?? "linux"),
+        Layer.succeed(HostProcess.Addresses, Effect.succeed(localAddresses)),
+        Layer.succeed(HostProcess.Platform, options.platform ?? "linux"),
         Layer.succeed(
-          HostProcessEnvironment,
+          HostProcess.Environment,
           options.env ?? {
             PATH: "/gui/bin",
             WAYLAND_DISPLAY: "wayland-gui",

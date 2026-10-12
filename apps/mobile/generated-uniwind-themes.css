@@ -1938,7 +1938,7 @@
       --color-sheet: rgba(255, 255, 255, 0.98);
       --color-sheet-solid: #ffffff;
       --color-card: #ffffff;
-      --color-grouped-card: #ffffff;
+      --color-grouped-card: #f2f2f2;
       --color-card-alt: #ffffff;
       --color-card-translucent: rgba(255, 255, 255, 0.8);
       --color-thread-canvas: #ffffff;
@@ -1948,8 +1948,8 @@
       --color-thread-hover: #f2f2f2;
       --color-row-hover: #dce7fa;
       --color-composer-panel: rgba(255, 255, 255, 0.88);
-      --color-composer-surface: rgba(255, 255, 255, 0.94);
-      --color-composer-border: rgba(119, 119, 119, 0.54);
+      --color-composer-surface: rgba(242, 242, 242, 0.94);
+      --color-composer-border: rgba(119, 119, 119, 0.8);
       --color-foreground: #000000;
       --color-foreground-secondary: #403f53;
       --color-foreground-muted: #505050;
@@ -1964,6 +1964,8 @@
       --color-inline-skill-border: rgba(21, 67, 163, 0.42);
       --color-inline-skill-foreground: #1543a3;
       --color-primary: #1543a3;
+      --color-prominent-action: #1543a3;
+      --color-prominent-action-foreground: #ffffff;
       --color-primary-foreground: #ffffff;
       --color-primary-text: #1543a3;
       --color-primary-shadow: #000000;
@@ -1993,7 +1995,7 @@
       --color-header-foreground: #000000;
       --color-header-border: #777777;
       --color-glass-surface: rgba(255, 255, 255, 0.74);
-      --color-glass-fallback: rgba(255, 255, 255, 0.94);
+      --color-glass-fallback: rgba(242, 242, 242, 0.94);
       --color-glass-tint: rgba(255, 255, 255, 0.22);
       --color-status-bar: #ffffff;
       --color-md-body: #000000;
@@ -2123,6 +2125,8 @@
       --color-inline-skill-border: rgba(124, 124, 255, 0.42);
       --color-inline-skill-foreground: #ff99ff;
       --color-primary: #7c7cff;
+      --color-prominent-action: #7c7cff;
+      --color-prominent-action-foreground: #000000;
       --color-primary-foreground: #000000;
       --color-primary-text: #7c7cff;
       --color-primary-shadow: #000000;
