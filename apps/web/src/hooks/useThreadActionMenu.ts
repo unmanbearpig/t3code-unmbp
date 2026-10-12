@@ -65,9 +65,8 @@ function failureToast(title: string, error: unknown) {
  * chat header. Renders through the native context-menu bridge and dispatches
  * through the same mutations the sidebar uses.
  *
- * Unlike the sidebar, settle and snooze here never navigate away: the caller
- * is acting on the thread they are reading, and ChatView's parked-thread
- * banner already offers the way back.
+ * Settling the open thread advances through the sidebar's order. Snoozing
+ * from this menu keeps the thread open.
  */
 export function useThreadActionMenu(input: {
   readonly threadRef: ScopedThreadRef | null;

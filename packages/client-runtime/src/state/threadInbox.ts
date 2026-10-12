@@ -1,4 +1,7 @@
 import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
+import type { ScopedThreadRef } from "@t3tools/contracts";
+import { scopedThreadKey } from "../environment/scoped.ts";
+import { effectiveSnoozed, isFiledAsSettled } from "./threadSettled.ts";
 import { toSortableTimestamp } from "./threadSort.ts";
 
 // Working section beta, shared so web and mobile fold and order the inbox the
@@ -31,6 +34,36 @@ export function isThreadWorking(thread: WorkingThreadInput): boolean {
     run.status !== "waiting" &&
     thread.runtime?.activeRunId !== run.runId;
   return !(thread.interactionMode === "plan" && thread.hasActionableProposedPlan && runSettled);
+}
+
+/** Follow the order captured before settling, checking each candidate's current state. */
+export function findNextActionableThread(input: {
+  readonly threadRef: ScopedThreadRef;
+  readonly orderedThreadRefs: readonly ScopedThreadRef[];
+  readonly readThread: (ref: ScopedThreadRef) => EnvironmentThreadShell | null;
+  readonly excludedThreadKeys?: ReadonlySet<string> | undefined;
+  readonly now: string;
+}): EnvironmentThreadShell | null {
+  const currentKey = scopedThreadKey(input.threadRef);
+  const index = input.orderedThreadRefs.findIndex((ref) => scopedThreadKey(ref) === currentKey);
+  if (index === -1) return null;
+  for (let offset = 1; offset < input.orderedThreadRefs.length; offset += 1) {
+    const ref = input.orderedThreadRefs[(index + offset) % input.orderedThreadRefs.length]!;
+    if (scopedThreadKey(ref) === currentKey || input.excludedThreadKeys?.has(scopedThreadKey(ref)))
+      continue;
+    const thread = input.readThread(ref);
+    if (
+      thread !== null &&
+      thread.archivedAt === null &&
+      thread.deletedAt === null &&
+      !isFiledAsSettled(thread) &&
+      !effectiveSnoozed(thread, { now: input.now }) &&
+      !isThreadWorking(thread)
+    ) {
+      return thread;
+    }
+  }
+  return null;
 }
 
 type InboxThreadInput = Pick<
