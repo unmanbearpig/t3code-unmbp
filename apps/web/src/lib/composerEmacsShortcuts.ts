@@ -82,6 +82,19 @@ const COMPOSER_MOVEMENT_ACTIONS = new Set([
   "documentEnd",
 ]);
 
+/** An EOF press in an empty composer belongs to the thread on every platform. */
+export function isEmptyComposerEofShortcut(
+  event: EditingKeyEvent,
+  target: EventTarget | null | undefined,
+) {
+  return (
+    composerEmacsAction(event) === "delete" &&
+    typeof Element !== "undefined" &&
+    target instanceof Element &&
+    target.closest('[data-composer-empty="true"]') !== null
+  );
+}
+
 /** Capture-phase app shortcuts yield to editing, except a fresh Ctrl+D on an empty prompt. */
 export function isComposerEmacsEditingShortcut(
   event: EditingKeyEvent,

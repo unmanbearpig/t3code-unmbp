@@ -91,6 +91,10 @@ In the composer, Return sends and `Shift+Return` inserts a new line. `Cmd+Return
 also sends. To make Return insert a new line instead, change the Return key
 behavior in Settings → Keyboard.
 
+A fresh Ctrl+D in an empty composer settles the thread and opens the next thread
+you can act on, skipping Working and Waiting threads. Holding the key does not
+settle more threads. Ctrl+D inside a terminal keeps its terminal behavior.
+
 ## Emacs / readline editing
 
 Ctrl+J inserts a newline in the web and desktop composer and other multiline
@@ -101,9 +105,8 @@ the web and desktop message composer, in both rich text and plain Markdown modes
 The composer takes priority over conflicting app shortcuts while it has focus.
 Turn the setting off to restore the default behavior. Super/Command is unchanged.
 Ctrl+D deletes the selected text or the following character. At the end of a
-nonempty prompt it does nothing. When the prompt is empty, a fresh Ctrl+D press
-follows your app keybinding, so assign it to **Thread: Settle** to settle the
-thread. Key repeat never settles a thread. Use `ctrl+d` for Control on every platform.
+nonempty prompt it does nothing. In an empty prompt it settles the thread and
+opens the next thread you can act on. Use `ctrl+d` for Control on every platform.
 
 | Keys                                                        | Action                                                            |
 | ----------------------------------------------------------- | ----------------------------------------------------------------- |

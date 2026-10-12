@@ -8090,6 +8090,7 @@ export default function ChatView(props: ChatViewProps) {
         if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return;
         event.preventDefault();
         event.stopPropagation();
+        if (event.repeat) return;
         if (!isServerThread || !activeThreadRef || !supportsSettlement) return;
         if (activeThreadSettled) {
           void handleUnsettleActiveThread();

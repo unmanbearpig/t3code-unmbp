@@ -26,7 +26,10 @@ import { projectScriptIdFromCommand } from "./projectScripts";
 
 export { shortcutKeyFromEvent } from "@t3tools/shared/keybindings";
 import { isEditableFocused } from "./lib/editableFocus";
-import { isComposerEmacsEditingShortcut } from "./lib/composerEmacsShortcuts";
+import {
+  isComposerEmacsEditingShortcut,
+  isEmptyComposerEofShortcut,
+} from "./lib/composerEmacsShortcuts";
 import { isTextboxNewlineShortcut } from "./lib/textboxNewline";
 
 export interface ShortcutEventLike extends SharedShortcutEventLike {
@@ -200,6 +203,14 @@ export function resolveShortcutCommand(
     (isTextboxNewlineShortcut(event, target) || isComposerEmacsEditingShortcut(event, target))
   ) {
     return null;
+  }
+
+  if (
+    !isLeaderShortcutEvent(event) &&
+    !context.terminalFocus &&
+    isEmptyComposerEofShortcut(event, target)
+  ) {
+    return event.repeat ? null : "thread.settle";
   }
 
   for (let index = keybindings.length - 1; index >= 0; index -= 1) {

@@ -361,6 +361,42 @@ describe("Emacs composer editing", () => {
     expect(editor.text()).toBe("");
   });
 
+  it.each([
+    { platform: "Linux", enabled: true },
+    { platform: "MacIntel", enabled: true },
+    { platform: "Win32", enabled: true },
+    { platform: "Linux", enabled: false },
+    { platform: "MacIntel", enabled: false },
+    { platform: "Win32", enabled: false },
+  ])(
+    "settles an empty composer with Ctrl-D on $platform with Emacs editing $enabled",
+    ({ platform, enabled }) => {
+      const editor = composer([""], enabled);
+      const commands: string[] = [];
+      const listener = (event: KeyboardEvent) => {
+        const command = resolveShortcutCommand(event, DEFAULT_RESOLVED_KEYBINDINGS, { platform });
+        if (command) {
+          commands.push(command);
+          event.preventDefault();
+        }
+      };
+      window.addEventListener("keydown", listener, true);
+      cleanups.push(() => window.removeEventListener("keydown", listener, true));
+      editor.press("d");
+      expect(commands).toEqual(["thread.settle"]);
+      commands.length = 0;
+      editor.press("d", { ctrlKey: true, repeat: true });
+      expect(commands).toEqual([]);
+      expect(
+        resolveShortcutCommand(
+          new KeyboardEvent("keydown", { key: "d", ctrlKey: true }),
+          DEFAULT_RESOLVED_KEYBINDINGS,
+          { platform, context: { terminalFocus: true } },
+        ),
+      ).not.toBe("thread.settle");
+    },
+  );
+
   it("claims Ctrl-D at the end of a nonempty prompt without deleting or exiting", () => {
     const editor = composer();
     editor.at(12);
