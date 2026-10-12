@@ -11,6 +11,7 @@ import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useExternalTerminal } from "../hooks/useExternalTerminal";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
@@ -38,6 +39,8 @@ export function AppGlobalShortcuts() {
     AuthPreviewOperateScope,
   );
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const { available: externalTerminalAvailable, open: openExternalTerminal } =
+    useExternalTerminal();
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projects = useProjects();
@@ -77,10 +80,19 @@ export function AppGlobalShortcuts() {
           previewOpen,
           editableFocus: isEditableFocused(event.target),
           modelPickerOpen: isModelPickerOpen(),
+          externalTerminalAvailable,
         },
       });
 
       if (isCommandPaletteOpen()) {
+        return;
+      }
+
+      if (command === "terminal.openExternal") {
+        if (!externalTerminalAvailable) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) void openExternalTerminal();
         return;
       }
 
@@ -195,6 +207,8 @@ export function AppGlobalShortcuts() {
     handleNewThread,
     keybindings,
     defaultProjectRef,
+    externalTerminalAvailable,
+    openExternalTerminal,
     previewOpen,
     primaryEnvironmentId,
     projectGroupCount,
