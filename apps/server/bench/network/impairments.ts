@@ -5,6 +5,8 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 
+import { linkSettings } from "./settings.ts";
+
 export interface Scenario {
   readonly name: string;
   readonly delayMs?: number;
@@ -105,9 +107,9 @@ export function describeScenario(scenario: Scenario) {
     scenario.delayMs !== undefined && `${scenario.delayMs * 2}ms RTT`,
     scenario.jitterMs !== undefined && `±${scenario.jitterMs}ms jitter`,
     scenario.loss !== undefined && `loss ${scenario.loss}`,
-    scenario.nthDrop !== undefined && `drop every ${scenario.nthDrop}th packet`,
+    scenario.nthDrop !== undefined && `drop one packet in every ${scenario.nthDrop}`,
     scenario.nthDelay !== undefined &&
-      `+${scenario.nthDelay.extraMs}ms on every ${scenario.nthDelay.every}th packet`,
+      `+${scenario.nthDelay.extraMs}ms on one packet in every ${scenario.nthDelay.every}`,
   ].filter(Boolean);
   return parts.length === 0 ? "no impairment" : parts.join(", ");
 }
@@ -142,13 +144,13 @@ const sh = (
 export function prepareLoopback(scratchDir: string) {
   assertIsolated();
   lockfile = NodePath.join(scratchDir, "xtables.lock");
-  sh("ip", ["link", "set", "lo", "up", "mtu", "1500"]);
+  sh("ip", ["link", "set", "lo", "up", "mtu", String(linkSettings.mtu)]);
   sh("ethtool", ["-K", "lo", "tso", "off", "gso", "off", "gro", "off"]);
   // Without this Linux reuses cwnd/ssthresh learned by the previous run against the same address.
   sh("sysctl", ["-qw", "net.ipv4.tcp_no_metrics_save=1"], { allowFailure: true });
 }
 
-export function applyScenario(scenario: Scenario) {
+export function applyScenario(scenario: Scenario, seed?: number) {
   assertIsolated();
   sh("tc", ["qdisc", "del", "dev", "lo", "root"], { allowFailure: true });
   sh("iptables", ["-F", "INPUT"]);
@@ -163,7 +165,8 @@ export function applyScenario(scenario: Scenario) {
       ...(scenario.loss ? ["loss", ...scenario.loss.split(" ")] : []),
       // netem's default 1000-packet queue overflows on a 4MB burst and adds loss nobody asked for.
       "limit",
-      "100000",
+      String(linkSettings.queuePackets),
+      ...(seed !== undefined ? ["seed", String(seed + (extraMs > 0 ? 1 : 0))] : []),
     ];
   };
 
@@ -231,7 +234,7 @@ export function applyScenario(scenario: Scenario) {
       "--set-mark",
       "7",
     ]);
-  } else if (netem(0).length > 2) {
+  } else if (scenario.delayMs || scenario.jitterMs || scenario.loss) {
     sh("tc", ["qdisc", "add", "dev", "lo", "root", "handle", "1:", "netem", ...netem(0)]);
   }
 

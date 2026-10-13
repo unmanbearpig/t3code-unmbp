@@ -19,6 +19,7 @@ import * as Socket from "effect/socket/Socket";
 import type { TlsMaterial } from "./client.ts";
 import { ports, quicFlowControl } from "./protocol.ts";
 import { BenchRpcs, layerFramedJson, socketFromStream } from "./rpc.ts";
+import { rpcHeartbeatTimeout } from "./settings.ts";
 
 export const rpcTransportNames = ["rpc-ws", "rpc-ws-raw", "rpc-wt", "rpc-wt-multi"] as const;
 export type RpcTransportName = (typeof rpcTransportNames)[number];
@@ -43,7 +44,7 @@ const openWebTransport = Effect.fnUntraced(function* (tls: TlsMaterial) {
 // Matches the session's settings: no protocol-level retries, failures surface to the caller.
 const protocolSocket = RpcClient.makeProtocolSocket({
   // Matches packages/client-runtime/src/rpc/protocol.ts, including long responses under loss.
-  pingTimeout: "15 seconds",
+  pingTimeout: rpcHeartbeatTimeout,
   retryTransientErrors: false,
   retryPolicy: Schedule.recurs(0),
 });

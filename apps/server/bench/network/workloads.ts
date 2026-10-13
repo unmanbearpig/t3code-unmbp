@@ -3,6 +3,7 @@
 // sharing the connection with interactive RPCs, and several thread subscriptions at once.
 import { connect, type Connection, type TlsMaterial, type TransportName } from "./client.ts";
 import { decodeFrame, encodeFrame, type Frame, Kind, wallClockMs } from "./protocol.ts";
+import { workloadSettings } from "./settings.ts";
 
 export type Metrics = Record<string, number | string>;
 
@@ -12,6 +13,28 @@ export class Recorder {
   private readonly values = new Map<string, number>();
   private readonly cleanups: Array<() => void> = [];
   private readonly controller = new AbortController();
+  private readonly expected = new Map<string, number>();
+  private invalid: string | undefined;
+
+  expectSamples(name: string, count: number) {
+    this.expected.set(name, count);
+  }
+
+  check(condition: boolean, message: string) {
+    if (!condition && this.invalid === undefined) this.invalid = message;
+  }
+
+  /** Partial samples are allowed on a timeout; completed work must contain every expected sample. */
+  validationError(completed: boolean) {
+    if (this.invalid) return this.invalid;
+    if (completed) {
+      for (const [name, count] of this.expected) {
+        const actual = this.series.get(name)?.length ?? 0;
+        if (actual !== count) return `${name}: expected ${count} samples, received ${actual}`;
+      }
+    }
+    return undefined;
+  }
 
   get signal() {
     return this.controller.signal;
@@ -75,7 +98,36 @@ function route(connection: Connection) {
 }
 
 const ping = (channel: number, seq: number) =>
-  encodeFrame({ kind: Kind.ping, channel, seq, sentAt: wallClockMs(), arg: 0, payloadBytes: 256 });
+  encodeFrame({
+    kind: Kind.ping,
+    channel,
+    seq,
+    sentAt: wallClockMs(),
+    arg: 0,
+    payloadBytes: workloadSettings.pingBytes,
+  });
+
+function exchangePing(
+  connection: Connection,
+  on: ReturnType<typeof route>,
+  seq: number,
+  record: Recorder,
+  series?: string,
+) {
+  return new Promise<void>((resolve) => {
+    on(0, (frame, receivedAt) => {
+      record.check(
+        frame.kind === Kind.pong &&
+          frame.seq === seq &&
+          frame.payload.byteLength === workloadSettings.pingBytes,
+        "Invalid ping response",
+      );
+      if (series) record.sample(series, receivedAt - frame.sentAt);
+      resolve();
+    });
+    connection.send(0, ping(0, seq));
+  });
+}
 
 function requestStream(
   connection: Connection,
@@ -103,14 +155,23 @@ function collectStreams(
   record: Recorder,
   channels: ReadonlyArray<number>,
   count: number,
+  bytes: number,
   intervalMs: number,
 ) {
   let remaining = channels.length;
+  record.expectSamples("latency", channels.length * count);
   return new Promise<void>((resolve) => {
     for (const channel of channels) {
       let received = 0;
       let lastAt = 0;
       on(channel, (frame, receivedAt) => {
+        record.check(
+          frame.kind === Kind.streamMessage &&
+            frame.seq === received &&
+            frame.arg === count &&
+            frame.payload.byteLength === bytes,
+          "Missing, reordered, or truncated stream event",
+        );
         record.sample("latency", receivedAt - frame.sentAt);
         // Extra wait beyond the send interval: how long the UI would sit frozen.
         if (lastAt !== 0) record.sample("stall", Math.max(0, receivedAt - lastAt - intervalMs));
@@ -125,65 +186,66 @@ function collectStreams(
 export const workloads: ReadonlyArray<Workload> = [
   {
     name: "connect",
-    description: "5 cold connections, then one 256B ping each",
+    description: `${workloadSettings.connect.count} cold connections, then one ${workloadSettings.pingBytes}B ping each`,
     run: async (transport, tls, record) => {
-      for (let i = 0; i < 5; i++) {
+      record.expectSamples("connect", workloadSettings.connect.count);
+      record.expectSamples("firstPing", workloadSettings.connect.count);
+      record.expectSamples("connectAndPing", workloadSettings.connect.count);
+      for (let i = 0; i < workloadSettings.connect.count; i++) {
         const startedAt = wallClockMs();
         const connection = await connect(transport, tls, record.signal);
         record.onAbort(connection.close);
         record.sample("connect", wallClockMs() - startedAt);
         const on = route(connection);
-        await new Promise<void>((resolve) => {
-          on(0, (frame, receivedAt) => {
-            record.sample("firstPing", receivedAt - frame.sentAt);
-            resolve();
-          });
-          connection.send(0, ping(0, 0));
-        });
+        await exchangePing(connection, on, 0, record, "firstPing");
+        record.sample("connectAndPing", wallClockMs() - startedAt);
         connection.close();
       }
     },
   },
   {
     name: "rpc",
-    description: "200 sequential 256B request/response round trips",
+    description: `${workloadSettings.rpc.count} sequential ${workloadSettings.pingBytes}B request/response round trips after a warmup ping`,
     run: async (transport, tls, record) => {
       const connection = await connect(transport, tls, record.signal);
       record.onAbort(connection.close);
       const on = route(connection);
-      for (let seq = 0; seq < 200; seq++) {
-        await new Promise<void>((resolve) => {
-          on(0, (frame, receivedAt) => {
-            record.sample("rtt", receivedAt - frame.sentAt);
-            resolve();
-          });
-          connection.send(0, ping(0, seq));
-        });
+      record.expectSamples("rtt", workloadSettings.rpc.count);
+      for (let seq = 0; seq < workloadSettings.rpc.warmupCount; seq++)
+        await exchangePing(connection, on, seq, record);
+      for (
+        let seq = workloadSettings.rpc.warmupCount;
+        seq < workloadSettings.rpc.warmupCount + workloadSettings.rpc.count;
+        seq++
+      ) {
+        await exchangePing(connection, on, seq, record, "rtt");
       }
       connection.close();
     },
   },
   {
     name: "stream",
-    description: "one subscription: 500 × 512B messages every 10ms (an agent turn streaming)",
+    description: `one subscription: ${workloadSettings.stream.count} events of ${workloadSettings.stream.bytes}B every ${workloadSettings.stream.intervalMs}ms`,
     run: async (transport, tls, record) => {
       const connection = await connect(transport, tls, record.signal);
       record.onAbort(connection.close);
-      const done = collectStreams(route(connection), record, [1], 500, 10);
-      requestStream(connection, 1, 500, 512, 10);
+      const { count, bytes, intervalMs } = workloadSettings.stream;
+      const done = collectStreams(route(connection), record, [1], count, bytes, intervalMs);
+      requestStream(connection, 1, count, bytes, intervalMs);
       await done;
       connection.close();
     },
   },
   {
     name: "fanout",
-    description: "8 subscriptions at once: 200 × 512B every 10ms each",
+    description: `${workloadSettings.fanout.subscriptions} subscriptions: ${workloadSettings.fanout.count} events of ${workloadSettings.fanout.bytes}B every ${workloadSettings.fanout.intervalMs}ms each`,
     run: async (transport, tls, record) => {
       const connection = await connect(transport, tls, record.signal);
       record.onAbort(connection.close);
-      const channels = [1, 2, 3, 4, 5, 6, 7, 8];
-      const done = collectStreams(route(connection), record, channels, 200, 10);
-      for (const channel of channels) requestStream(connection, channel, 200, 512, 10);
+      const { subscriptions, count, bytes, intervalMs } = workloadSettings.fanout;
+      const channels = Array.from({ length: subscriptions }, (_, i) => i + 1);
+      const done = collectStreams(route(connection), record, channels, count, bytes, intervalMs);
+      for (const channel of channels) requestStream(connection, channel, count, bytes, intervalMs);
       await done;
       connection.close();
     },
@@ -195,15 +257,29 @@ export const workloads: ReadonlyArray<Workload> = [
       const connection = await connect(transport, tls, record.signal);
       record.onAbort(connection.close);
       const on = route(connection);
-      let outstanding = 0;
+      for (let seq = 0; seq < workloadSettings.hol.warmupCount; seq++)
+        await exchangePing(connection, on, seq, record);
+      const outstanding = new Set<number>();
       let allPongs: () => void = () => {};
       on(0, (frame, receivedAt) => {
+        record.check(
+          frame.kind === Kind.pong &&
+            outstanding.has(frame.seq) &&
+            frame.payload.byteLength === workloadSettings.pingBytes,
+          "Invalid or duplicated ping during bulk response",
+        );
         record.sample("pingDuringBulk", receivedAt - frame.sentAt);
-        if (--outstanding === 0) allPongs();
+        outstanding.delete(frame.seq);
+        if (outstanding.size === 0) allPongs();
       });
       const startedAt = wallClockMs();
       const bulk = new Promise<void>((resolve) =>
-        on(1, (_frame, receivedAt) => {
+        on(1, (frame, receivedAt) => {
+          record.check(
+            frame.kind === Kind.bulkMessage &&
+              frame.payload.byteLength === workloadSettings.hol.bulkBytes,
+            "Truncated bulk response",
+          );
           record.set("bulkMs", receivedAt - startedAt);
           resolve();
         }),
@@ -215,18 +291,19 @@ export const workloads: ReadonlyArray<Workload> = [
           channel: 1,
           seq: 0,
           sentAt: startedAt,
-          arg: 4 * 1024 * 1024,
+          arg: workloadSettings.hol.bulkBytes,
         }),
       );
       let seq = 0;
       const timer = setInterval(() => {
-        outstanding += 1;
+        outstanding.add(seq);
         connection.send(0, ping(0, seq++));
-      }, 20);
+      }, workloadSettings.hol.pingIntervalMs);
       record.onAbort(() => clearInterval(timer));
       await bulk;
       clearInterval(timer);
-      if (outstanding > 0) await new Promise<void>((resolve) => (allPongs = resolve));
+      record.expectSamples("pingDuringBulk", seq);
+      if (outstanding.size > 0) await new Promise<void>((resolve) => (allPongs = resolve));
       connection.close();
     },
   },

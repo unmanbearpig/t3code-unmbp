@@ -14,6 +14,7 @@ import * as SocketServer from "effect/socket/SocketServer";
 import * as Stream from "effect/Stream";
 
 import { lengthPrefixed, makeFrameSplitter, wallClockMs } from "./protocol.ts";
+import { rpcTextSettings } from "./settings.ts";
 
 /** Shaped like an orchestration event carrying a streamed assistant message delta. */
 export const BenchEvent = Schema.Struct({
@@ -53,16 +54,13 @@ export class BenchRpcs extends RpcGroup.make(
 
 // Synthetic text with a small vocabulary, repeated across messages. Its compression ratio is
 // workload-specific; rpc-ws-raw separates transport performance from the savings of deflate.
-const words = (
-  "the a to of and in is it that for on with as this be are was by at or an from not can " +
-  "function return const value type error thread message server client stream request event " +
-  "update state render network latency packet change file test build agent provider session"
-).split(" ");
+const words = rpcTextSettings.vocabulary.split(" ");
 const text = (bytes: number) => {
   let seed = bytes;
   let out = "";
   while (out.length < bytes) {
-    seed = (seed * 1103515245 + 12345) % 2147483648;
+    seed =
+      (seed * rpcTextSettings.multiplier + rpcTextSettings.increment) % rpcTextSettings.modulus;
     out += `${words[seed % words.length]} `;
   }
   return out.slice(0, bytes);
@@ -96,7 +94,7 @@ export const layerBenchHandlers = BenchRpcs.toLayer({
           id: `message-${index}`,
           role: index % 2 === 0 ? "user" : "assistant",
           text: body,
-          createdAt: "2026-10-13T00:00:00.000Z",
+          createdAt: rpcTextSettings.createdAt,
         })),
       };
     }),

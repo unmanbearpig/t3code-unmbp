@@ -8,6 +8,7 @@ import type { TlsMaterial } from "./client.ts";
 import { wallClockMs } from "./protocol.ts";
 import { makeRpcClient, type RpcTransportName } from "./rpcClient.ts";
 import type { Recorder } from "./workloads.ts";
+import { workloadSettings } from "./settings.ts";
 
 export interface RpcWorkload {
   readonly name: string;
@@ -20,23 +21,39 @@ export interface RpcWorkload {
   ) => Effect.Effect<void, RpcClientError.RpcClientError>;
 }
 
-const pingText = "x".repeat(256);
+const pingText = "x".repeat(workloadSettings.pingBytes);
+
+const ping = (client: Effect.Success<ReturnType<typeof makeRpcClient>>, record: Recorder) =>
+  client
+    .ping({ text: pingText })
+    .pipe(
+      Effect.tap((response) =>
+        Effect.sync(() => record.check(response === pingText, "Invalid ping echo")),
+      ),
+    );
 
 const collectSubscriptions = (
   client: Effect.Success<ReturnType<typeof makeRpcClient>>,
   record: Recorder,
   subscriptions: number,
   count: number,
+  bytes: number,
   intervalMs: number,
-) =>
-  Effect.forEach(
+) => {
+  record.expectSamples("latency", subscriptions * count);
+  return Effect.forEach(
     Array.from({ length: subscriptions }),
     () => {
       let lastAt = 0;
-      return client.subscribe({ count, intervalMs, bytes: 512 }).pipe(
+      let received = 0;
+      return client.subscribe({ count, intervalMs, bytes }).pipe(
         Stream.runForEach((event) =>
           Effect.sync(() => {
             const receivedAt = wallClockMs();
+            record.check(
+              event.sequence === received++ && event.text.length === bytes,
+              "Missing, reordered, or truncated RPC event",
+            );
             record.sample("latency", receivedAt - event.sentAt);
             if (lastAt !== 0) record.sample("stall", Math.max(0, receivedAt - lastAt - intervalMs));
             lastAt = receivedAt;
@@ -46,34 +63,39 @@ const collectSubscriptions = (
     },
     { concurrency: "unbounded", discard: true },
   );
+};
 
 export const rpcWorkloads: ReadonlyArray<RpcWorkload> = [
   {
     name: "connect",
-    description: "5 cold connections, each until its first ping RPC returns",
+    description: `${workloadSettings.connect.count} cold connections, each until its first ping RPC returns`,
     run: (transport, tls, record) =>
       Effect.gen(function* () {
-        for (let i = 0; i < 5; i++) {
+        record.expectSamples("connectAndPing", workloadSettings.connect.count);
+        for (let i = 0; i < workloadSettings.connect.count; i++) {
           const startedAt = wallClockMs();
           yield* Effect.scoped(
-            Effect.flatMap(makeRpcClient(transport, tls), (client) =>
-              client.ping({ text: pingText }),
-            ),
+            Effect.gen(function* () {
+              const client = yield* makeRpcClient(transport, tls);
+              yield* ping(client, record);
+              record.sample("connectAndPing", wallClockMs() - startedAt);
+            }),
           );
-          record.sample("connectAndPing", wallClockMs() - startedAt);
         }
       }),
   },
   {
     name: "rpc",
-    description: "200 sequential ping RPCs",
+    description: `${workloadSettings.rpc.count} sequential ping RPCs after a warmup ping`,
     run: (transport, tls, record) =>
       Effect.scoped(
         Effect.gen(function* () {
           const client = yield* makeRpcClient(transport, tls);
-          for (let i = 0; i < 200; i++) {
+          record.expectSamples("rtt", workloadSettings.rpc.count);
+          for (let i = 0; i < workloadSettings.rpc.warmupCount; i++) yield* ping(client, record);
+          for (let i = 0; i < workloadSettings.rpc.count; i++) {
             const startedAt = wallClockMs();
-            yield* client.ping({ text: pingText });
+            yield* ping(client, record);
             record.sample("rtt", wallClockMs() - startedAt);
           }
         }),
@@ -81,21 +103,35 @@ export const rpcWorkloads: ReadonlyArray<RpcWorkload> = [
   },
   {
     name: "stream",
-    description: "one subscription: 500 events of 512B every 10ms",
+    description: `one subscription: ${workloadSettings.stream.count} events of ${workloadSettings.stream.bytes}B every ${workloadSettings.stream.intervalMs}ms`,
     run: (transport, tls, record) =>
       Effect.scoped(
         Effect.flatMap(makeRpcClient(transport, tls), (client) =>
-          collectSubscriptions(client, record, 1, 500, 10),
+          collectSubscriptions(
+            client,
+            record,
+            1,
+            workloadSettings.stream.count,
+            workloadSettings.stream.bytes,
+            workloadSettings.stream.intervalMs,
+          ),
         ),
       ),
   },
   {
     name: "fanout",
-    description: "8 subscriptions at once: 200 events of 512B every 10ms each",
+    description: `${workloadSettings.fanout.subscriptions} subscriptions: ${workloadSettings.fanout.count} events of ${workloadSettings.fanout.bytes}B every ${workloadSettings.fanout.intervalMs}ms each`,
     run: (transport, tls, record) =>
       Effect.scoped(
         Effect.flatMap(makeRpcClient(transport, tls), (client) =>
-          collectSubscriptions(client, record, 8, 200, 10),
+          collectSubscriptions(
+            client,
+            record,
+            workloadSettings.fanout.subscriptions,
+            workloadSettings.fanout.count,
+            workloadSettings.fanout.bytes,
+            workloadSettings.fanout.intervalMs,
+          ),
         ),
       ),
   },
@@ -107,11 +143,24 @@ export const rpcWorkloads: ReadonlyArray<RpcWorkload> = [
         Effect.gen(function* () {
           const client = yield* makeRpcClient(transport, tls);
           // Warm the connection so the snapshot does not pay for the handshake.
-          yield* client.ping({ text: pingText });
+          for (let i = 0; i < workloadSettings.hol.warmupCount; i++) yield* ping(client, record);
           const startedAt = wallClockMs();
           const snapshot = yield* Effect.forkChild(
-            Effect.map(client.snapshot({ messages: 2000, bytes: 2000 }), () =>
-              record.set("snapshotMs", wallClockMs() - startedAt),
+            Effect.map(
+              client.snapshot({
+                messages: workloadSettings.hol.messages,
+                bytes: workloadSettings.hol.textBytes,
+              }),
+              (response) => {
+                record.set("snapshotMs", wallClockMs() - startedAt);
+                record.check(
+                  response.messages.length === workloadSettings.hol.messages &&
+                    response.messages.every(
+                      (message) => message.text.length === workloadSettings.hol.textBytes,
+                    ),
+                  "Truncated RPC snapshot",
+                );
+              },
             ),
           );
           const pings: Array<Fiber.Fiber<void, RpcClientError.RpcClientError>> = [];
@@ -119,14 +168,15 @@ export const rpcWorkloads: ReadonlyArray<RpcWorkload> = [
             const sentAt = wallClockMs();
             pings.push(
               yield* Effect.forkChild(
-                Effect.map(client.ping({ text: pingText }), () =>
+                Effect.map(ping(client, record), () =>
                   record.sample("pingDuringSnapshot", wallClockMs() - sentAt),
                 ),
               ),
             );
-            yield* Effect.sleep("20 millis");
+            yield* Effect.sleep(`${workloadSettings.hol.pingIntervalMs} millis`);
           }
           yield* Fiber.join(snapshot);
+          record.expectSamples("pingDuringSnapshot", pings.length);
           yield* Fiber.joinAll(pings);
         }),
       ),

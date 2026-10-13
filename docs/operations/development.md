@@ -42,19 +42,42 @@ Run it after `vp i`, with `unshare`, `ip`, `tc`, `iptables`, `ethtool`, `sysctl`
 `openssl` available. Rootless user namespaces must be enabled.
 
 ```sh
-node apps/server/bench/network/run.ts --layer rpc \
-  --scenarios wan,loss2,nth3-delay300 --workloads hol \
-  --timeout 30 --out ~/codex-tmp/network-rpc.json
+vp run bench:network
 ```
 
-Use `--layer raw` to measure the transports with binary framing, or `--layer rpc`
-for Effect RPC with synthetic thread events and a 2,000-message snapshot of about
-4MB. `--help` lists transports, workloads, and presets. `--repeat 3` repeats each
-case. Custom scenarios support one-way delay, jitter, random loss, and every-Nth
-packet drops or extra delays:
+The versioned `network-v1` suite runs 1,080 cases: nine network profiles, five
+workloads, four transport variants in each of two layers, and three repetitions.
+It uses netem seed `104729` for every attempt, rotates the transport order between
+repetitions, and fixes payload sizes and deadlines. Each case starts a fresh server
+and resets network shaping and TCP destination metrics. The complete manifest and
+its SHA-256 hash are saved with the results. Workload settings cannot be overridden
+in suite mode. `vp run bench:network --dry-run` prints the manifest without running
+traffic.
+
+Results default to a new directory below `~/codex-tmp/network-suite`. Record a
+baseline, then rerun after a change on the same host:
 
 ```sh
-node apps/server/bench/network/run.ts --layer raw \
+vp run bench:network --out ~/codex-tmp/network-before.json
+vp run bench:network --baseline ~/codex-tmp/network-before.json \
+  --out ~/codex-tmp/network-after.json
+```
+
+The comparison rejects mismatched suite settings, host/runtime fingerprints,
+incomplete files, missing cases, and duplicate cases. It writes
+`network-after.json.comparison.json`. A new completion regression or a timing
+regression signal returns exit code 1. Without a baseline, exit code 0 means the
+matrix finished running; individual cases may still have error or timeout outcomes.
+The runner saves results atomically after every case and records case duration and
+total matrix duration so the cost of the suite can be measured before reducing it.
+
+For an individual experiment, `--layer raw` measures the transports with binary
+framing and `--layer rpc` includes Effect RPC. `--help` lists the manual-run flags.
+Custom scenarios support one-way delay, jitter, random loss, and every-Nth packet
+drops or extra delays:
+
+```sh
+node apps/server/bench/network/run.ts --layer raw --seed 104729 \
   --scenarios 'slow:delay=150,jitter=15,loss=2%,nthDrop=20' \
   --workloads rpc --transports ws,wt-multi --timeout 30
 ```
@@ -64,10 +87,12 @@ connection handshakes. A private network namespace, MTU 1500, and disabled loopb
 offloads keep the experiment separate from other servers. Packet counters cover
 both directions together, including acknowledgements. `delay=150` adds about
 300ms RTT; `nthDelay=3/300` adds another 300ms to selected packets. Random loss
-varies between runs. JSON results include each repetition, the revision, sample
+uses the fixed seed in suite mode. A seed repeats netem's random sequence, but
+protocol packetization and scheduling can change which packet consumes a draw;
+timings and TCP/QUIC packet traces are not guaranteed to be identical. JSON results
+include each repetition, the revision, dependency lock hash, host/runtime, sample
 counts, percentiles in milliseconds, and explicit error or timeout outcomes.
-The runner saves completed cases immediately and keeps samples from timed-out
-cases. Temporary certificates and lock files live under `~/codex-tmp` and are
+The runner keeps samples from timed-out cases. Temporary certificates and lock files live under `~/codex-tmp` and are
 removed on exit.
 
 In the RPC comparison, `rpc-ws` enables deflate, `rpc-ws-raw` disables it, `rpc-wt`
@@ -78,12 +103,51 @@ deliver bytes despite packet loss. Separate streams let unrelated responses
 continue while a lost packet delays another response, while a single stream
 still delivers in order.
 
+The measurements answer separate questions:
+
+- `connectAndPing` is time from constructing a new connection until its first echo
+  returns. The raw layer also records the handshake and first ping separately.
+- `rtt` measures 128 sequential 256-byte echoes after one warmup ping. It includes
+  client/server scheduling and, in the RPC layer, serialization and dispatch.
+- `latency` measures event creation to client receipt for 128 events of 512 bytes
+  generated every 10ms. `stall` measures the gap between receipts beyond that 10ms
+  interval. The RPC layer includes acknowledgement backpressure in event latency.
+- `fanout` measures the same event latency and stalls with eight simultaneous
+  subscriptions, each producing 64 events.
+- `bulkMs` and `snapshotMs` measure a warmed connection fetching 4MiB of raw bytes
+  or a 2,000-message JSON snapshot. Concurrent 256-byte pings every 20ms measure how
+  responsive other requests remain during that transfer. A short transfer may finish
+  before enough pings exist to estimate a tail percentile.
+
+All timing units are milliseconds. `p50` describes a typical sample, `p99` the slow
+tail, and `n` the number of delivered samples. With few samples, p99 is essentially
+an observed maximum, not a precise estimate of the worst 1%. Echo contents, event
+sequence and count, and response lengths are checked; incomplete or invalid work
+does not qualify as a fast successful case.
+
+Evaluate a change per workload and network profile. Fewer completed repetitions
+are a regression regardless of delivered-sample latency. Compare timing only when
+both versions complete all repetitions. The report flags changes of at least 10%
+and 1ms whose three-run ranges do not overlap; p99 signals also require at least
+100 samples in every repetition. A zero baseline uses the 1ms rule. Overlapping
+ranges or sparse tails are inconclusive. These are conservative review signals,
+not statistical confidence intervals, and need reruns if host load may have changed.
+Avoid one aggregate score that hides a faster ping behind a slower snapshot.
+
+For a transport migration, require better interactive tails on lossy and jittery
+links while keeping cold connect, ordinary RPC, snapshot time, and completion rates
+acceptable on clean and high-latency links. Compare `rpc-ws-raw` with uncompressed
+QUIC to isolate transport effects; compare production behavior with matching
+compression before deciding to migrate. The synthetic snapshot repeats text heavily.
+
 These are Node client measurements. The multi-stream protocol is experimental;
 it does not yet implement T3's heartbeat, authentication, reconnect, or relay
 integration. The benchmark does not change the app transport or measure rendering
 in web, desktop, or Android. Actual client verification and any production
 transport migration need separate work, including native mobile support and
 TCP fallback for connections that cannot carry UDP.
+The suite does not measure UI rendering, wire bytes, CPU use, battery cost, actual
+thread-history HTTP endpoints, or recovery across reconnects and network handoffs.
 
 ### Sharing and remote debugging
 
