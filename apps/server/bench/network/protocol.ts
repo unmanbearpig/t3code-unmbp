@@ -76,14 +76,16 @@ export function makeFrameSplitter(onFrame: (frame: Uint8Array) => void) {
       chunks.length === 1 && chunks[0]!.byteLength === count ? chunks[0]! : new Uint8Array(count);
     if (out !== chunks[0]) {
       let offset = 0;
+      let index = 0;
       while (offset < count) {
-        const chunk = chunks[0]!;
+        const chunk = chunks[index]!;
         const used = Math.min(chunk.byteLength, count - offset);
         out.set(chunk.subarray(0, used), offset);
         offset += used;
-        if (used === chunk.byteLength) chunks.shift();
-        else chunks[0] = chunk.subarray(used);
+        if (used === chunk.byteLength) index += 1;
+        else chunks[index] = chunk.subarray(used);
       }
+      chunks = chunks.slice(index);
     } else {
       chunks = [];
     }
@@ -107,11 +109,12 @@ export function makeFrameSplitter(onFrame: (frame: Uint8Array) => void) {
   };
 }
 
-export const ports = { ws: 4401, wss: 4402, wt: 4403, rpcWs: 4404 } as const;
+export const ports = { ws: 4401, wss: 4402, wt: 4403, rpcWs: 4404, rpcWsRaw: 4405 } as const;
 
 /**
  * QUIC receive windows for both ends. The library defaults to a 64KB stream window, which caps a
- * single stream at 64KB per round trip; these match Chromium's limits so results reflect a browser.
+ * single stream at 64KB per round trip. Use larger windows for the 4MB workload; this remains a
+ * Node client benchmark, rather than a measurement of a browser's network stack.
  */
 export const quicFlowControl = {
   initialStreamFlowControlWindow: 6 * 1024 * 1024,

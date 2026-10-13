@@ -1,5 +1,6 @@
-// Level 2 clients: the same RpcClient over three protocols.
-// - rpc-ws: Socket.layerWebSocket + JSON, as packages/client-runtime/src/rpc/session.ts connects.
+// Level 2 clients: the same RpcClient over four transport configurations.
+// - rpc-ws: Socket.layerWebSocket + JSON, as packages/client-runtime/src/rpc/session.ts connects,
+//   with the server's permessage-deflate. rpc-ws-raw is the same without compression.
 // - rpc-wt: one WebTransport stream carrying every RPC as length-prefixed JSON; a drop-in Socket.
 // - rpc-wt-multi: a WebTransport stream per request, so one slow response cannot block another.
 import {
@@ -19,25 +20,30 @@ import type { TlsMaterial } from "./client.ts";
 import { ports, quicFlowControl } from "./protocol.ts";
 import { BenchRpcs, layerFramedJson, socketFromStream } from "./rpc.ts";
 
-export const rpcTransportNames = ["rpc-ws", "rpc-wt", "rpc-wt-multi"] as const;
+export const rpcTransportNames = ["rpc-ws", "rpc-ws-raw", "rpc-wt", "rpc-wt-multi"] as const;
 export type RpcTransportName = (typeof rpcTransportNames)[number];
 
-const openWebTransport = (tls: TlsMaterial) =>
-  Effect.acquireRelease(
-    Effect.promise(async () => {
-      await quicheLoaded;
-      const transport = new WebTransport(`https://127.0.0.1:${ports.wt}/rpc`, {
-        serverCertificateHashes: [{ algorithm: "sha-256", value: tls.certSha256 }],
-        ...quicFlowControl,
-      });
-      await transport.ready;
-      return transport;
-    }),
+const openWebTransport = Effect.fnUntraced(function* (tls: TlsMaterial) {
+  yield* Effect.promise(() => quicheLoaded);
+  const transport = yield* Effect.acquireRelease(
+    Effect.sync(
+      () =>
+        new WebTransport(`https://127.0.0.1:${ports.wt}/rpc`, {
+          serverCertificateHashes: [{ algorithm: "sha-256", value: tls.certSha256 }],
+          ...quicFlowControl,
+        }),
+    ),
     (transport) => Effect.sync(() => transport.close()),
   );
+  // Wait outside acquireRelease so a deadline can interrupt a stalled handshake and close it.
+  yield* Effect.promise(() => transport.ready);
+  return transport;
+});
 
 // Matches the session's settings: no protocol-level retries, failures surface to the caller.
 const protocolSocket = RpcClient.makeProtocolSocket({
+  // Matches packages/client-runtime/src/rpc/protocol.ts, including long responses under loss.
+  pingTimeout: "15 seconds",
   retryTransientErrors: false,
   retryPolicy: Schedule.recurs(0),
 });
@@ -143,8 +149,13 @@ export const makeRpcClient = (transport: RpcTransportName, tls: TlsMaterial) =>
     let protocol: Layer.Layer<RpcClient.Protocol, never, Scope.Scope>;
     switch (transport) {
       case "rpc-ws":
+      case "rpc-ws-raw":
         protocol = Layer.effect(RpcClient.Protocol, protocolSocket).pipe(
-          Layer.provide(Socket.layerWebSocket(`ws://127.0.0.1:${ports.rpcWs}/`)),
+          Layer.provide(
+            Socket.layerWebSocket(
+              `ws://127.0.0.1:${transport === "rpc-ws" ? ports.rpcWs : ports.rpcWsRaw}/`,
+            ),
+          ),
           Layer.provide(Socket.layerWebSocketConstructorGlobal),
           Layer.provide(RpcSerialization.layerJson),
         );

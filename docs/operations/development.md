@@ -35,6 +35,56 @@ Read ports from the `[dev-runner]` output. Worktrees derive stable preferences f
 but occupied ports can shift them. `T3CODE_PORT_OFFSET` or `T3CODE_DEV_INSTANCE` can select a
 different preference when needed.
 
+### Comparing network transports
+
+The Linux network benchmark compares WebSocket/TCP with WebTransport over QUIC/UDP.
+Run it after `vp i`, with `unshare`, `ip`, `tc`, `iptables`, `ethtool`, `sysctl`, and
+`openssl` available. Rootless user namespaces must be enabled.
+
+```sh
+node apps/server/bench/network/run.ts --layer rpc \
+  --scenarios wan,loss2,nth3-delay300 --workloads hol \
+  --timeout 30 --out ~/codex-tmp/network-rpc.json
+```
+
+Use `--layer raw` to measure the transports with binary framing, or `--layer rpc`
+for Effect RPC with synthetic thread events and a 2,000-message snapshot of about
+4MB. `--help` lists transports, workloads, and presets. `--repeat 3` repeats each
+case. Custom scenarios support one-way delay, jitter, random loss, and every-Nth
+packet drops or extra delays:
+
+```sh
+node apps/server/bench/network/run.ts --layer raw \
+  --scenarios 'slow:delay=150,jitter=15,loss=2%,nthDrop=20' \
+  --workloads rpc --transports ws,wt-multi --timeout 30
+```
+
+`tc netem` and `iptables` impair actual packets, including TCP retransmissions and
+connection handshakes. A private network namespace, MTU 1500, and disabled loopback
+offloads keep the experiment separate from other servers. Packet counters cover
+both directions together, including acknowledgements. `delay=150` adds about
+300ms RTT; `nthDelay=3/300` adds another 300ms to selected packets. Random loss
+varies between runs. JSON results include each repetition, the revision, sample
+counts, percentiles in milliseconds, and explicit error or timeout outcomes.
+The runner saves completed cases immediately and keeps samples from timed-out
+cases. Temporary certificates and lock files live under `~/codex-tmp` and are
+removed on exit.
+
+In the RPC comparison, `rpc-ws` enables deflate, `rpc-ws-raw` disables it, `rpc-wt`
+uses one ordered QUIC stream, and `rpc-wt-multi` opens a stream per request.
+The synthetic text repeats across messages and compresses well; compare the raw
+WebSocket variant when measuring transport differences. QUIC streams reliably
+deliver bytes despite packet loss. Separate streams let unrelated responses
+continue while a lost packet delays another response, while a single stream
+still delivers in order.
+
+These are Node client measurements. The multi-stream protocol is experimental;
+it does not yet implement T3's heartbeat, authentication, reconnect, or relay
+integration. The benchmark does not change the app transport or measure rendering
+in web, desktop, or Android. Actual client verification and any production
+transport migration need separate work, including native mobile support and
+TCP fallback for connections that cannot carry UDP.
+
 ### Sharing and remote debugging
 
 `vp run dev --share` publishes the web port over the machine's tailnet and prints a pairing URL

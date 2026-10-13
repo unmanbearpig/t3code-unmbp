@@ -51,8 +51,8 @@ export class BenchRpcs extends RpcGroup.make(
   }),
 ) {}
 
-// Pseudo-random words, so permessage-deflate compresses it roughly like real prose (~3x), not
-// like a repeated phrase.
+// Synthetic text with a small vocabulary, repeated across messages. Its compression ratio is
+// workload-specific; rpc-ws-raw separates transport performance from the savings of deflate.
 const words = (
   "the a to of and in is it that for on with as this be are was by at or an from not can " +
   "function return const value type error thread message server client stream request event " +

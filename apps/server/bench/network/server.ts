@@ -139,19 +139,18 @@ function serveRpc(webTransport: SocketServer.SocketServer["Service"]) {
       Layer.provide(Layer.fresh(RpcServer.layerProtocolSocketServer)),
       Layer.provide(serialization),
     );
-  const webSocket = Layer.effect(
-    SocketServer.SocketServer,
-    NodeSocketServer.makeWebSocket({
-      host: "127.0.0.1",
-      port: ports.rpcWs,
-      perMessageDeflate: true,
-    }),
-  );
+  const webSocket = (port: number, perMessageDeflate: boolean) =>
+    Layer.effect(
+      SocketServer.SocketServer,
+      NodeSocketServer.makeWebSocket({ host: "127.0.0.1", port, perMessageDeflate }),
+    );
   const layer = Layer.mergeAll(
-    rpcServer(RpcSerialization.layerJson).pipe(Layer.provide(webSocket)),
+    rpcServer(RpcSerialization.layerJson).pipe(Layer.provide(webSocket(ports.rpcWs, true))),
+    // Without compression, to separate what the transport does from what deflate saves.
+    rpcServer(RpcSerialization.layerJson).pipe(Layer.provide(webSocket(ports.rpcWsRaw, false))),
     rpcServer(layerFramedJson).pipe(Layer.provide(layerSocketServer(webTransport))),
   );
-  // Resolves once both servers are listening; the scope stays open for the process lifetime.
+  // Resolves once every server is listening; the scope stays open for the process lifetime.
   return Effect.runPromise(
     Effect.flatMap(Scope.make(), (scope) => Layer.buildWithScope(layer, scope)),
   );

@@ -2,6 +2,8 @@
 // Network impairments applied to `lo` inside the bench's private network namespace. Every packet
 // crosses `lo` once, so delays are one-way: `delay=25` is a 50ms round trip.
 import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodePath from "node:path";
 
 export interface Scenario {
   readonly name: string;
@@ -19,6 +21,7 @@ export interface Scenario {
 export const presets: ReadonlyArray<Scenario> = [
   { name: "clean" },
   { name: "wan", delayMs: 25 },
+  { name: "high-latency", delayMs: 150 },
   { name: "mobile", delayMs: 50, jitterMs: 15, loss: "1%" },
   { name: "loss2", delayMs: 25, loss: "2%" },
   { name: "loss5", delayMs: 25, loss: "5%" },
@@ -31,15 +34,16 @@ export const presets: ReadonlyArray<Scenario> = [
 export function parseScenario(spec: string): Scenario {
   const preset = presets.find((scenario) => scenario.name === spec);
   if (preset) return preset;
-  const [name, params] = spec.split(":");
-  if (!name || params === undefined) {
+  const [name, params, extra] = spec.split(":");
+  if (!name || !params || extra !== undefined) {
     throw new Error(
       `Unknown scenario "${spec}". Presets: ${presets.map((p) => p.name).join(", ")}`,
     );
   }
   const scenario: { -readonly [Key in keyof Scenario]: Scenario[Key] } = { name };
   for (const param of params.split(",")) {
-    const [key, value = ""] = param.split("=");
+    const [key, value = "", extraValue] = param.split("=");
+    if (!value || extraValue !== undefined) throw new Error(`Invalid parameter "${param}"`);
     switch (key) {
       case "delay":
         scenario.delayMs = Number(value);
@@ -54,7 +58,9 @@ export function parseScenario(spec: string): Scenario {
         scenario.nthDrop = Number(value);
         break;
       case "nthDelay": {
-        const [every, extraMs] = value.split("/").map(Number);
+        const parts = value.split("/");
+        if (parts.length !== 2) throw new Error(`Invalid nthDelay "${value}"; use N/ms`);
+        const [every, extraMs] = parts.map(Number);
         scenario.nthDelay = { every: every!, extraMs: extraMs! };
         break;
       }
@@ -62,7 +68,36 @@ export function parseScenario(spec: string): Scenario {
         throw new Error(`Unknown scenario parameter "${key}" in "${spec}"`);
     }
   }
+  for (const [key, value] of [
+    ["delay", scenario.delayMs],
+    ["jitter", scenario.jitterMs],
+    ["extraMs", scenario.nthDelay?.extraMs],
+  ] as const) {
+    if (value !== undefined && (!Number.isFinite(value) || value < 0))
+      throw new Error(`Invalid ${key} in "${spec}"`);
+  }
+  for (const value of [scenario.nthDrop, scenario.nthDelay?.every]) {
+    if (value !== undefined && (!Number.isInteger(value) || value < 1))
+      throw new Error(`Packet interval must be a positive integer in "${spec}"`);
+  }
+  if (
+    scenario.loss !== undefined &&
+    (!/^\d+(?:\.\d+)?%$/.test(scenario.loss) || Number(scenario.loss.slice(0, -1)) > 100)
+  ) {
+    throw new Error(`Loss must be between 0% and 100% in "${spec}"`);
+  }
   return scenario;
+}
+
+/** Presets are comma-separated; commas before key=value stay inside a custom scenario. */
+export function parseScenarios(spec: string): ReadonlyArray<Scenario> {
+  const entries: string[] = [];
+  for (const part of spec.split(",")) {
+    if (part.includes("=") && !part.includes(":") && entries.length > 0) {
+      entries[entries.length - 1] += `,${part}`;
+    } else entries.push(part);
+  }
+  return entries.map(parseScenario);
 }
 
 export function describeScenario(scenario: Scenario) {
@@ -78,28 +113,43 @@ export function describeScenario(scenario: Scenario) {
 }
 
 // iptables-legacy locks /run/xtables.lock, which an unprivileged namespace cannot open.
-const env = { ...process.env, XTABLES_LOCKFILE: "/tmp/netbench-xtables.lock" };
+let lockfile: string | undefined;
+
+function assertIsolated() {
+  if (
+    !process.env.NETBENCH_HOST_NETNS ||
+    NodeFS.readlinkSync("/proc/self/ns/net") === process.env.NETBENCH_HOST_NETNS
+  ) {
+    throw new Error("Refusing to impair the host network; use run.ts to enter a private namespace");
+  }
+}
 const sh = (
   command: string,
   args: ReadonlyArray<string>,
   options: { allowFailure?: boolean } = {},
 ) => {
   try {
-    NodeChildProcess.execFileSync(command, args, { env, stdio: ["ignore", "ignore", "pipe"] });
+    NodeChildProcess.execFileSync(command, args, {
+      env: { ...process.env, XTABLES_LOCKFILE: lockfile },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
   } catch (error) {
     if (!options.allowFailure) throw error;
   }
 };
 
 /** One-time namespace setup: realistic MTU and no offloads, so netem sees real-sized packets. */
-export function prepareLoopback() {
+export function prepareLoopback(scratchDir: string) {
+  assertIsolated();
+  lockfile = NodePath.join(scratchDir, "xtables.lock");
   sh("ip", ["link", "set", "lo", "up", "mtu", "1500"]);
-  sh("ethtool", ["-K", "lo", "tso", "off", "gso", "off", "gro", "off"], { allowFailure: true });
+  sh("ethtool", ["-K", "lo", "tso", "off", "gso", "off", "gro", "off"]);
   // Without this Linux reuses cwnd/ssthresh learned by the previous run against the same address.
   sh("sysctl", ["-qw", "net.ipv4.tcp_no_metrics_save=1"], { allowFailure: true });
 }
 
 export function applyScenario(scenario: Scenario) {
+  assertIsolated();
   sh("tc", ["qdisc", "del", "dev", "lo", "root"], { allowFailure: true });
   sh("iptables", ["-F", "INPUT"]);
   sh("iptables", ["-t", "mangle", "-F", "OUTPUT"]);
@@ -175,7 +225,7 @@ export function applyScenario(scenario: Scenario) {
       "--every",
       String(scenario.nthDelay.every),
       "--packet",
-      "0",
+      String(scenario.nthDelay.every - 1),
       "-j",
       "MARK",
       "--set-mark",
@@ -199,7 +249,7 @@ export function applyScenario(scenario: Scenario) {
       "--every",
       String(scenario.nthDrop),
       "--packet",
-      "0",
+      String(scenario.nthDrop - 1),
       "-j",
       "DROP",
     ]);

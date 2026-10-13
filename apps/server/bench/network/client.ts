@@ -21,20 +21,26 @@ export interface Connection {
   readonly close: () => void;
 }
 
-export async function connect(transport: TransportName, tls: TlsMaterial): Promise<Connection> {
+export async function connect(
+  transport: TransportName,
+  tls: TlsMaterial,
+  signal?: AbortSignal,
+): Promise<Connection> {
   switch (transport) {
     case "ws":
     case "wss":
-      return connectWebSocket(transport, tls);
+      return connectWebSocket(transport, tls, signal);
     case "wt-single":
     case "wt-multi":
-      return connectWebTransport(transport === "wt-multi", tls);
+      return connectWebTransport(transport === "wt-multi", tls, signal);
   }
 }
 
-function connectWebSocket(transport: "ws" | "wss", tls: TlsMaterial) {
+function connectWebSocket(transport: "ws" | "wss", tls: TlsMaterial, signal?: AbortSignal) {
   const url = transport === "ws" ? `ws://127.0.0.1:${ports.ws}/` : `wss://127.0.0.1:${ports.wss}/`;
   const socket = new WebSocket(url, { ca: tls.certPem, perMessageDeflate: false });
+  signal?.addEventListener("abort", () => socket.terminate(), { once: true });
+  if (signal?.aborted) socket.terminate();
   return new Promise<Connection>((resolve, reject) => {
     const connection: Connection = {
       send: (_channel, frame) => socket.send(frame),
@@ -47,12 +53,24 @@ function connectWebSocket(transport: "ws" | "wss", tls: TlsMaterial) {
   });
 }
 
-async function connectWebTransport(streamPerChannel: boolean, tls: TlsMaterial) {
+async function connectWebTransport(
+  streamPerChannel: boolean,
+  tls: TlsMaterial,
+  signal?: AbortSignal,
+) {
   await quicheLoaded;
+  signal?.throwIfAborted();
   const transport = new WebTransport(`https://127.0.0.1:${ports.wt}/bench`, {
     serverCertificateHashes: [{ algorithm: "sha-256", value: tls.certSha256 }],
     ...quicFlowControl,
   });
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    transport.close();
+  };
+  signal?.addEventListener("abort", close, { once: true });
   await transport.ready;
   const writers = new Map<number, Promise<WritableStreamDefaultWriter<Uint8Array>>>();
   const connection: Connection = {
@@ -72,13 +90,7 @@ async function connectWebTransport(streamPerChannel: boolean, tls: TlsMaterial) 
       void writer.then((w) => w.write(lengthPrefixed(frame))).catch(() => {});
     },
     onFrame: () => {},
-    close: () => {
-      try {
-        transport.close();
-      } catch {
-        // Already closed by the peer.
-      }
-    },
+    close,
   };
   return connection;
 }
