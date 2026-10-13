@@ -1,7 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off globalConsole:off globalTimers:off - Bench runner owning a netns, a child server, and run deadlines; Effect scheduling would sit in the measured path.
-// Run with: node apps/server/bench/network/run.ts [--scenarios wan,loss2] [--transports ws,wt-multi]
-//   [--workloads rpc,hol] [--timeout 60] [--out results.json]
-// Compares WebSocket/TCP with WebTransport/QUIC under impaired networks. The runner re-executes
+// Run with: node apps/server/bench/network/run.ts [--layer raw|rpc] [--scenarios wan,loss2]
+//   [--transports ws,wt-multi] [--workloads rpc,hol] [--timeout 60] [--out results.json]
+// Compares WebSocket/TCP with WebTransport/QUIC under impaired networks. `--layer raw` measures
+// the transports with minimal framing; `--layer rpc` runs the app's Effect RPC stack over them. The runner re-executes
 // itself in a rootless network namespace (`unshare -rn`), so tc/iptables impairments touch nothing
 // outside the bench: not the host's loopback, other dev servers, or a running T3 Code.
 import * as NodeChildProcess from "node:child_process";
@@ -10,7 +11,9 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import { transportNames, type TlsMaterial, type TransportName } from "./client.ts";
+import * as Effect from "effect/Effect";
+
+import { transportNames, type TlsMaterial } from "./client.ts";
 import {
   applyScenario,
   describeScenario,
@@ -18,6 +21,8 @@ import {
   prepareLoopback,
   presets,
 } from "./impairments.ts";
+import { rpcTransportNames } from "./rpcClient.ts";
+import { rpcWorkloads } from "./rpcWorkloads.ts";
 import { type Metrics, workloads } from "./workloads.ts";
 
 function option(name: string) {
@@ -35,16 +40,35 @@ if (process.env.NETBENCH_IN_NETNS !== "1") {
   process.exit(result.status ?? 1);
 }
 
+const layer = option("layer") ?? "raw";
+if (layer !== "raw" && layer !== "rpc") throw new Error(`Unknown layer "${layer}"; use raw or rpc`);
 const scenarios = (list("scenarios") ?? presets.map((scenario) => scenario.name)).map(
   parseScenario,
 );
-const transports = (list("transports") ?? [...transportNames]) as TransportName[];
+const knownTransports: ReadonlyArray<string> = layer === "raw" ? transportNames : rpcTransportNames;
+const transports = list("transports") ?? [...knownTransports];
 for (const transport of transports) {
-  if (!transportNames.includes(transport)) throw new Error(`Unknown transport "${transport}"`);
+  if (!knownTransports.includes(transport))
+    throw new Error(`Unknown ${layer} transport "${transport}"`);
 }
+// Both layers' workloads share names and shapes, so results line up across layers.
+const layerWorkloads: ReadonlyArray<{
+  readonly name: string;
+  readonly run: (transport: string, tls: TlsMaterial) => Promise<Metrics>;
+}> =
+  layer === "raw"
+    ? workloads.map((workload) => ({
+        name: workload.name,
+        run: (transport, tls) => workload.run(transport as (typeof transportNames)[number], tls),
+      }))
+    : rpcWorkloads.map((workload) => ({
+        name: workload.name,
+        run: (transport, tls) =>
+          Effect.runPromise(workload.run(transport as (typeof rpcTransportNames)[number], tls)),
+      }));
 const selectedWorkloads = list("workloads")
-  ? workloads.filter((workload) => list("workloads")!.includes(workload.name))
-  : workloads;
+  ? layerWorkloads.filter((workload) => list("workloads")!.includes(workload.name))
+  : layerWorkloads;
 const timeoutMs = Number(option("timeout") ?? 60) * 1000;
 
 prepareLoopback();
@@ -100,7 +124,8 @@ async function startServer() {
 
 interface Row {
   readonly scenario: string;
-  readonly transport: TransportName;
+  readonly layer: string;
+  readonly transport: string;
   readonly workload: string;
   readonly metrics: Metrics;
 }
@@ -123,8 +148,8 @@ for (const scenario of scenarios) {
       ]).catch((error: unknown) => ({ error: String(error) }));
       clearTimeout(timer);
       server.kill("SIGKILL");
-      rows.push({ scenario: scenario.name, transport, workload: workload.name, metrics });
-      console.log(`  ${workload.name.padEnd(8)} ${transport.padEnd(10)} ${format(metrics)}`);
+      rows.push({ scenario: scenario.name, layer, transport, workload: workload.name, metrics });
+      console.log(`  ${workload.name.padEnd(8)} ${transport.padEnd(12)} ${format(metrics)}`);
     }
   }
 }

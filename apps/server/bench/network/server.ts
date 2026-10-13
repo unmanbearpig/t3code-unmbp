@@ -7,7 +7,13 @@ import * as NodeFS from "node:fs";
 import * as NodeHttp from "node:http";
 import * as NodeHttps from "node:https";
 
+import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import { Http3Server, quicheLoaded } from "@fails-components/webtransport";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Scope from "effect/Scope";
+import { RpcSerialization, RpcServer } from "effect/rpc";
+import * as SocketServer from "effect/socket/SocketServer";
 import { WebSocketServer } from "ws";
 
 import {
@@ -20,6 +26,13 @@ import {
   quicFlowControl,
   wallClockMs,
 } from "./protocol.ts";
+import {
+  BenchRpcs,
+  layerBenchHandlers,
+  layerFramedJson,
+  layerSocketServer,
+  makeWebTransportSocketServer,
+} from "./rpc.ts";
 
 const [certPath, keyPath] = process.argv.slice(2);
 if (!certPath || !keyPath) throw new Error("Usage: server.ts <cert.pem> <key.pem>");
@@ -89,6 +102,7 @@ async function serveWebTransport() {
   });
   server.startServer();
   await server.ready;
+  await serveRpc(makeWebTransportSocketServer(server.sessionStream("/rpc"), ports.wt));
   const sessions = server.sessionStream("/bench").getReader();
   void (async () => {
     for (;;) {
@@ -112,6 +126,35 @@ async function serveWebTransport() {
         .catch(() => {});
     }
   })();
+}
+
+// Level 2: one RpcServer per transport, configured like the app's (ws.ts WS_RPC_SERVER_OPTIONS).
+// WebSocket keeps the app's JSON-per-message and permessage-deflate; a WebTransport stream has no
+// message boundaries, so it length-prefixes each JSON message.
+function serveRpc(webTransport: SocketServer.SocketServer["Service"]) {
+  const rpcServer = (serialization: Layer.Layer<RpcSerialization.RpcSerialization>) =>
+    RpcServer.layer(BenchRpcs, { disableTracing: true, disableFatalDefects: true }).pipe(
+      Layer.provide(layerBenchHandlers),
+      // Fresh per server: layers memoize by reference, so the two would otherwise share one protocol.
+      Layer.provide(Layer.fresh(RpcServer.layerProtocolSocketServer)),
+      Layer.provide(serialization),
+    );
+  const webSocket = Layer.effect(
+    SocketServer.SocketServer,
+    NodeSocketServer.makeWebSocket({
+      host: "127.0.0.1",
+      port: ports.rpcWs,
+      perMessageDeflate: true,
+    }),
+  );
+  const layer = Layer.mergeAll(
+    rpcServer(RpcSerialization.layerJson).pipe(Layer.provide(webSocket)),
+    rpcServer(layerFramedJson).pipe(Layer.provide(layerSocketServer(webTransport))),
+  );
+  // Resolves once both servers are listening; the scope stays open for the process lifetime.
+  return Effect.runPromise(
+    Effect.flatMap(Scope.make(), (scope) => Layer.buildWithScope(layer, scope)),
+  );
 }
 
 await Promise.all([
