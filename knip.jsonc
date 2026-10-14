@@ -34,6 +34,7 @@
         "scripts/verify-background-live.ts",
         "bench/network/run.ts",
         "bench/network/server.ts",
+        "bench/network/operationsServer.ts",
         "src/provider/testFixtures/*.mjs",
       ],
       // Keep the transitive Effect runtime pinned for standalone npm installs.

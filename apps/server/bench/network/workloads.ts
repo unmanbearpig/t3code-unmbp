@@ -10,7 +10,7 @@ export type Metrics = Record<string, number | string>;
 /** Samples recorded as a workload runs, so a run cut off by its deadline still reports them. */
 export class Recorder {
   private readonly series = new Map<string, number[]>();
-  private readonly values = new Map<string, number>();
+  private readonly values = new Map<string, number | string>();
   private readonly cleanups: Array<() => void> = [];
   private readonly controller = new AbortController();
   private readonly expected = new Map<string, number>();
@@ -57,7 +57,7 @@ export class Recorder {
     samples.push(value);
   }
 
-  set(name: string, value: number) {
+  set(name: string, value: number | string) {
     this.values.set(name, value);
   }
 

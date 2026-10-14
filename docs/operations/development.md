@@ -37,25 +37,63 @@ different preference when needed.
 
 ### Comparing network transports
 
-The Linux network benchmark compares WebSocket/TCP with WebTransport over QUIC/UDP.
+The Linux network benchmark measures thread operations using the production SQL
+projection, HTTP snapshot routes, persisted replay, live streams, and shared web/mobile
+thread state. It compares WebSocket/TCP with experimental WebTransport over QUIC/UDP.
 Run it after `vp i`, with `unshare`, `ip`, `tc`, `iptables`, `ethtool`, `sysctl`, and
 `openssl` available. Rootless user namespaces must be enabled.
 
 ```sh
 vp run bench:network
+vp run bench:network --dry-run
 ```
 
-The versioned `network-v1` suite runs 1,080 cases: nine network profiles, five
-workloads, four transport variants in each of two layers, and three repetitions.
-It uses netem seed `104729` for every attempt, rotates the transport order between
-repetitions, and fixes payload sizes and deadlines. Each case starts a fresh server
-and resets network shaping and TCP destination metrics. The complete manifest and
-its SHA-256 hash are saved with the results. Workload settings cannot be overridden
-in suite mode. `vp run bench:network --dry-run` prints the manifest without running
-traffic.
+The fixed `operations-v1` suite runs 648 cases: six operations, nine network profiles,
+four RPC transport variants, and three repetitions. Messages contain 2,000 characters
+of deterministic, distinct text. Each user/assistant pair has a completed run and
+visible conversation items. The suite uses netem seed `104729`, rotates transport order,
+sets a 60-second deadline per case including setup, and starts a fresh server with an
+in-memory database. Setup and teardown contribute to suite duration but are excluded
+from the operation timing. Workload settings cannot be overridden in suite mode.
+The complete manifest and its SHA-256 hash are saved with results.
 
-Results default to a new directory below `~/codex-tmp/network-suite`. Record a
-baseline, then rerun after a change on the same host:
+| Operation            | Starting state and action                                                                                | Timing ends when                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `sync-five`          | Live subscription with all 100 messages loaded; persist five additional messages                         | Shared client state has all 105 messages and their conversation items                                 |
+| `open-new`           | Ready session, uncached 100-message thread; load its bounded HTTP snapshot and subscribe from its cursor | Latest history window is correct and the server completion marker has made state live                 |
+| `open-long`          | Same operation with 2,000 messages in server history                                                     | Same completion condition; current policy loads the latest 20 messages                                |
+| `reconnect-idle`     | Disconnect a client with 100 loaded messages; make no changes; create a new session                      | Client receives the completion marker and retains the same 100 messages                               |
+| `reconnect-replay`   | Disconnect with 100 messages; add 50 messages while offline; create a new session                        | All 150 messages and 125 missed domain events have been applied and state is live                     |
+| `reconnect-snapshot` | Disconnect with 100 messages; add 200 messages while offline, exceeding replay limits                    | Client replaces its state with a correct bounded snapshot of the latest conversation and becomes live |
+
+`operationMs` is milliseconds from starting the operation to the completion above.
+Incremental sync starts immediately before the server persists the batch, so it includes
+SQL commit, publication, transfer, decoding, and client application. It excludes IPC
+fixture triggering. Uncached opens start after the session has received configuration;
+connection setup is recorded separately as `connectionReadyMs`. Reconnect timing starts
+when opening the replacement transport, after the simulated offline activity has
+committed. It includes the handshake and configuration subscription, but excludes outage
+detection and retry backoff.
+
+`linkTxBytes` and `linkTxPackets` are loopback transmission counter deltas over the
+operation interval. They include both directions, HTTP, RPC framing, TCP/UDP/QUIC
+headers, acknowledgements, and retransmissions that reach the interface. Packets dropped
+by netem before transmission are absent from these counters. Reads stop at client
+completion, so late acknowledgements or connection-close traffic can fall outside the
+interval. These are transfer-cost measurements, not exact application payload sizes.
+`events`, `socketSnapshots`, `httpSnapshots`, `syncMode`, `loadedMessages`, and
+`totalMessages` explain the path taken. Incremental sync and reconnect start with a full 100-message memory cache copied
+from the isolated projection. They do not refetch that history during setup.
+
+The runner checks message IDs, ordering, contents, roles, run membership, visible
+conversation items, history metadata, event sequences, subscription cursors, expected
+replay/snapshot behavior, and completion markers. Missing or corrupted state produces an
+error outcome even if the measured time looks fast. A bounded window is checked against
+the real server projection and must include the newest message. It is not treated as a
+fully downloaded long thread.
+
+Results default to a new directory below `~/codex-tmp/network-suite`. Record a baseline,
+then rerun the same suite after a change on the same host:
 
 ```sh
 vp run bench:network --out ~/codex-tmp/network-before.json
@@ -63,91 +101,58 @@ vp run bench:network --baseline ~/codex-tmp/network-before.json \
   --out ~/codex-tmp/network-after.json
 ```
 
-The comparison rejects mismatched suite settings, host/runtime fingerprints,
-incomplete files, missing cases, and duplicate cases. It writes
-`network-after.json.comparison.json`. A new completion regression or a timing
-regression signal returns exit code 1. Without a baseline, exit code 0 means the
-matrix finished running; individual cases may still have error or timeout outcomes.
-The runner saves results atomically after every case and records case duration and
-total matrix duration so the cost of the suite can be measured before reducing it.
+The comparison rejects different suite versions, settings, host/runtime fingerprints,
+incomplete files, missing cases, and duplicate cases. It writes a `.comparison.json`
+file. Fewer successful repetitions are a regression. Timing and transfer cost are compared
+only when both revisions finish all repetitions. A change of at least 10% and one unit
+whose three-run ranges do not overlap gets a review signal. Overlapping ranges are
+inconclusive; these checks are not statistical confidence intervals. Three operation
+repetitions do not estimate p99. Compare each operation and profile separately. A smaller
+transfer or faster ping does not compensate for slower catch-up or failed sync.
 
-For an individual experiment, `--layer raw` measures the transports with binary
-framing and `--layer rpc` includes Effect RPC. `--help` lists the manual-run flags.
-Custom scenarios support one-way delay, jitter, random loss, and every-Nth packet
-drops or extra delays:
+A completion regression or timing/transfer regression signal returns exit code 1. Without
+a baseline, exit code 0 means the matrix finished; inspect individual error/timeout
+outcomes. Results are saved atomically after every case, with case and suite durations.
+
+The nine profiles cover clean traffic, WAN delay, high latency, mobile jitter/loss,
+2% and 5% random loss, burst loss, every-third-packet delay, and every-twentieth-packet
+drop. `tc netem` and `iptables` impair real packets, including TCP retransmissions and
+handshakes. They run in a private network namespace with MTU 1500 and disabled offloads.
+Counters for periodic impairment cover both directions together, including acknowledgements.
+A 150ms one-way delay adds about 300ms RTT. The every-third-packet profile adds another
+300ms to selected packets. A fixed seed repeats netem's random sequence, but scheduling
+and packetization can change which packet consumes each draw.
+
+`rpc-ws` uses production deflate, `rpc-ws-raw` disables compression, `rpc-wt` uses one
+ordered QUIC stream, and `rpc-wt-multi` opens a QUIC stream per request. QUIC reliably
+delivers data over UDP. Compare uncompressed WebSocket and QUIC to isolate transport
+cost, and include compression when judging the app's current behavior. Uncached thread
+snapshots use the same production gzip HTTP/1 endpoint for every variant, so these cases
+also reveal how much work remains on TCP after changing only the RPC transport.
+
+For a targeted experiment, call the runner directly. Manual flags do not change the fixed
+suite:
 
 ```sh
-node apps/server/bench/network/run.ts --layer raw --seed 104729 \
+node apps/server/bench/network/run.ts --layer operations --seed 104729 \
   --scenarios 'slow:delay=150,jitter=15,loss=2%,nthDrop=20' \
-  --workloads rpc --transports ws,wt-multi --timeout 30
+  --workloads sync-five,reconnect-replay --transports rpc-ws,rpc-wt-multi --timeout 60
 ```
 
-`tc netem` and `iptables` impair actual packets, including TCP retransmissions and
-connection handshakes. A private network namespace, MTU 1500, and disabled loopback
-offloads keep the experiment separate from other servers. Packet counters cover
-both directions together, including acknowledgements. `delay=150` adds about
-300ms RTT; `nthDelay=3/300` adds another 300ms to selected packets. Random loss
-uses the fixed seed in suite mode. A seed repeats netem's random sequence, but
-protocol packetization and scheduling can change which packet consumes a draw;
-timings and TCP/QUIC packet traces are not guaranteed to be identical. JSON results
-include each repetition, the revision, dependency lock hash, host/runtime, sample
-counts, percentiles in milliseconds, and explicit error or timeout outcomes.
-The runner keeps samples from timed-out cases. Temporary certificates and lock files live under `~/codex-tmp` and are
-removed on exit.
+The original 1,080-case `network-v1` transport suite and its existing baselines remain
+available through `vp run bench:network:transport`. Its five synthetic workloads measure
+cold connect/echo, 128 sequential echoes, one streamed subscription, eight subscriptions,
+and a 4MiB raw response or 2,000-message RPC snapshot with concurrent pings. Use it to
+investigate transport behavior separately from the application operation suite.
 
-In the RPC comparison, `rpc-ws` enables deflate, `rpc-ws-raw` disables it, `rpc-wt`
-uses one ordered QUIC stream, and `rpc-wt-multi` opens a stream per request.
-The synthetic text repeats across messages and compresses well; compare the raw
-WebSocket variant when measuring transport differences. QUIC streams reliably
-deliver bytes despite packet loss. Separate streams let unrelated responses
-continue while a lost packet delays another response, while a single stream
-still delivers in order.
-
-The measurements answer separate questions:
-
-- `connectAndPing` is time from constructing a new connection until its first echo
-  returns. The raw layer also records the handshake and first ping separately.
-- `rtt` measures 128 sequential 256-byte echoes after one warmup ping. It includes
-  client/server scheduling and, in the RPC layer, serialization and dispatch.
-- `latency` measures event creation to client receipt for 128 events of 512 bytes
-  generated every 10ms. `stall` measures the gap between receipts beyond that 10ms
-  interval. The RPC layer includes acknowledgement backpressure in event latency.
-- `fanout` measures the same event latency and stalls with eight simultaneous
-  subscriptions, each producing 64 events.
-- `bulkMs` and `snapshotMs` measure a warmed connection fetching 4MiB of raw bytes
-  or a 2,000-message JSON snapshot. Concurrent 256-byte pings every 20ms measure how
-  responsive other requests remain during that transfer. A short transfer may finish
-  before enough pings exist to estimate a tail percentile.
-
-All timing units are milliseconds. `p50` describes a typical sample, `p99` the slow
-tail, and `n` the number of delivered samples. With few samples, p99 is essentially
-an observed maximum, not a precise estimate of the worst 1%. Echo contents, event
-sequence and count, and response lengths are checked; incomplete or invalid work
-does not qualify as a fast successful case.
-
-Evaluate a change per workload and network profile. Fewer completed repetitions
-are a regression regardless of delivered-sample latency. Compare timing only when
-both versions complete all repetitions. The report flags changes of at least 10%
-and 1ms whose three-run ranges do not overlap; p99 signals also require at least
-100 samples in every repetition. A zero baseline uses the 1ms rule. Overlapping
-ranges or sparse tails are inconclusive. These are conservative review signals,
-not statistical confidence intervals, and need reruns if host load may have changed.
-Avoid one aggregate score that hides a faster ping behind a slower snapshot.
-
-For a transport migration, require better interactive tails on lossy and jittery
-links while keeping cold connect, ordinary RPC, snapshot time, and completion rates
-acceptable on clean and high-latency links. Compare `rpc-ws-raw` with uncompressed
-QUIC to isolate transport effects; compare production behavior with matching
-compression before deciding to migrate. The synthetic snapshot repeats text heavily.
-
-These are Node client measurements. The multi-stream protocol is experimental;
-it does not yet implement T3's heartbeat, authentication, reconnect, or relay
-integration. The benchmark does not change the app transport or measure rendering
-in web, desktop, or Android. Actual client verification and any production
-transport migration need separate work, including native mobile support and
-TCP fallback for connections that cannot carry UDP.
-The suite does not measure UI rendering, wire bytes, CPU use, battery cost, actual
-thread-history HTTP endpoints, or recovery across reconnects and network handoffs.
+These are Node measurements through the shared client state code. They do not measure
+browser/Android rendering, disk cache writes, CPU/battery use, authentication, environment
+or shell synchronization, automatic reconnect scheduling, relay/tunnel operation, or
+network handoffs. Provider execution and authorization use isolated fixtures. Production
+clients still use WebSocket. The QUIC adapters remain experimental and require native
+mobile support, authentication, heartbeat/reconnect integration, relay support, and TCP
+fallback before a production migration. Temporary certificates and namespace lock files
+live below `~/codex-tmp` and are removed on exit.
 
 ### Sharing and remote debugging
 

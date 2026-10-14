@@ -29,11 +29,20 @@ import {
 } from "./impairments.ts";
 import { rpcTransportNames } from "./rpcClient.ts";
 import { rpcWorkloads } from "./rpcWorkloads.ts";
+import { runOperation } from "./operationsWorkloads.ts";
+import {
+  OperationControlResponse,
+  operationNames,
+  type OperationName,
+} from "./operationsFixture.ts";
 import { type Metrics, Recorder, workloads } from "./workloads.ts";
 import { compareSuites, SuiteResults, validateSuiteResults } from "./comparison.ts";
-import { type BenchCase, makeSuitePlan, workloadNames } from "./suite.ts";
+import { type BenchCase, makeOperationSuitePlan, makeSuitePlan, workloadNames } from "./suite.ts";
 
 const isRpcClientError = Schema.is(RpcClientError.RpcClientError);
+const decodeOperationControl = Schema.decodeUnknownEffect(
+  Schema.toCodecJson(OperationControlResponse),
+);
 
 const { values } = NodeUtil.parseArgs({
   options: {
@@ -45,6 +54,7 @@ const { values } = NodeUtil.parseArgs({
     repeat: { type: "string" },
     seed: { type: "string" },
     suite: { type: "boolean" },
+    "suite-name": { type: "string" },
     "dry-run": { type: "boolean" },
     baseline: { type: "string" },
     out: { type: "string" },
@@ -53,17 +63,19 @@ const { values } = NodeUtil.parseArgs({
 });
 if (values.help) {
   console.log(`Usage: node apps/server/bench/network/run.ts [options]
-  --layer raw|rpc       Raw framing or Effect RPC (default: raw)
+  --layer raw|rpc|operations  Raw framing, synthetic RPC, or production thread sync
   --scenarios LIST      ${presets.map((s) => s.name).join(",")}
                         Custom: slow:delay=150,jitter=15,loss=2%,nthDelay=3/300
   --transports LIST     raw: ${transportNames.join(",")}
                         rpc: ${rpcTransportNames.join(",")}
   --workloads LIST      connect,rpc,stream,fanout,hol
+                        operations: ${operationNames.join(",")}
   --timeout SECONDS     Deadline per case (default: 60)
   --repeat N            Repeat each case (default: 1)
   --out PATH            Save JSON after each case, including partial results
   --seed INTEGER        Seed netem's loss and jitter for a manual run
   --suite               Run the complete fixed network-v1 matrix
+  --suite-name NAME     network-v1 or operations-v1 (requires --suite)
   --dry-run             Print the suite manifest without running packets
   --baseline PATH       Compare a suite run with a previous suite result
 Linux only; needs unshare, ip, tc, iptables, ethtool, sysctl, and openssl.
@@ -76,12 +88,22 @@ const repeat = Number(values.repeat ?? 1);
 if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("--timeout must be positive");
 if (!Number.isInteger(repeat) || repeat < 1) throw new Error("--repeat must be a positive integer");
 const layer = values.layer ?? "raw";
-if (layer !== "raw" && layer !== "rpc") throw new Error(`Unknown layer "${layer}"; use raw or rpc`);
+if (layer !== "raw" && layer !== "rpc" && layer !== "operations")
+  throw new Error(`Unknown layer "${layer}"; use raw, rpc, or operations`);
 const scenarios = values.scenarios ? parseScenarios(values.scenarios) : presets;
 const seed = values.seed === undefined ? undefined : Number(values.seed);
 if (seed !== undefined && (!Number.isInteger(seed) || seed < 1 || seed >= 0xffffffff))
   throw new Error("--seed must be an integer between 1 and 4294967294");
-const suite = values.suite ? makeSuitePlan() : undefined;
+if (
+  values["suite-name"] &&
+  (!values.suite || !["network-v1", "operations-v1"].includes(values["suite-name"]))
+)
+  throw new Error("--suite-name must be network-v1 or operations-v1 and requires --suite");
+const suite = values.suite
+  ? values["suite-name"] === "operations-v1"
+    ? makeOperationSuitePlan()
+    : makeSuitePlan()
+  : undefined;
 if (
   suite &&
   ["layer", "scenarios", "transports", "workloads", "timeout", "repeat", "seed"].some(
@@ -103,9 +125,10 @@ for (const transport of transports) {
   if (!knownTransports.includes(transport))
     throw new Error(`Unknown ${layer} transport "${transport}"`);
 }
-const selectedWorkloads = list(values.workloads) ?? [...workloadNames];
+const availableWorkloads = layer === "operations" ? operationNames : workloadNames;
+const selectedWorkloads = list(values.workloads) ?? [...availableWorkloads];
 for (const name of selectedWorkloads) {
-  if (!(workloadNames as readonly string[]).includes(name))
+  if (!(availableWorkloads as readonly string[]).includes(name))
     throw new Error(`Unknown workload "${name}"`);
 }
 const cases: readonly BenchCase[] =
@@ -188,9 +211,32 @@ function runCase(
       record.abort();
     });
   }
-  const workload = rpcWorkloads.find((workload) => workload.name === entry.workload)!;
+  const operationControl = (count: number) =>
+    Effect.callback<unknown>((resume) => {
+      const child = activeServer!;
+      const receive = (message: unknown) => resume(Effect.succeed(message));
+      child.once("message", receive);
+      child.send({ count }, (error) => {
+        if (error) resume(Effect.die(error));
+      });
+      return Effect.sync(() => child.off("message", receive));
+    }).pipe(Effect.flatMap(decodeOperationControl), Effect.orDie);
+  const task =
+    entry.layer === "operations"
+      ? Effect.scoped(
+          runOperation(
+            entry.workload as OperationName,
+            entry.transport as (typeof rpcTransportNames)[number],
+            tls,
+            record,
+            operationControl,
+          ),
+        )
+      : rpcWorkloads
+          .find((workload) => workload.name === entry.workload)!
+          .run(entry.transport as (typeof rpcTransportNames)[number], tls, record);
   return Effect.runPromise(
-    workload.run(entry.transport as (typeof rpcTransportNames)[number], tls, record).pipe(
+    task.pipe(
       Effect.timeoutOption(entry.timeoutMs),
       Effect.map((result) => (Option.isSome(result) ? ("done" as const) : ("timeout" as const))),
     ),
@@ -270,10 +316,13 @@ try {
     ),
   };
 
-  async function startServer() {
+  async function startServer(entry: BenchCase) {
     const child = NodeChildProcess.fork(
-      NodePath.join(import.meta.dirname, "server.ts"),
-      [certPath, keyPath],
+      NodePath.join(
+        import.meta.dirname,
+        entry.layer === "operations" ? "operationsServer.ts" : "server.ts",
+      ),
+      [certPath, keyPath, entry.workload],
       {
         stdio: ["ignore", "inherit", "inherit", "ipc"],
       },
@@ -292,7 +341,7 @@ try {
 
   interface Row {
     readonly scenario: string;
-    readonly layer: "raw" | "rpc";
+    readonly layer: "raw" | "rpc" | "operations";
     readonly transport: string;
     readonly workload: string;
     readonly repetition: number;
@@ -347,6 +396,8 @@ try {
     : undefined;
   if (baseline) {
     validateSuiteResults(baseline);
+    if (baseline.suite.hash !== suite?.hash)
+      throw new Error("Suite configuration differs; compare the same suite version");
     if (baseline.metadata.environmentHash !== metadata.environmentHash)
       throw new Error(
         "Benchmark environments differ; use the same host, Node, kernel, and network tools",
@@ -385,7 +436,7 @@ try {
     const caseStartedAt = performance.now();
     // A fresh server per run: a timed-out run can leave streams sending into the next one.
     applyScenario({ name: "clean" });
-    await startServer();
+    await startServer(entry);
     applyScenario(entry.scenario, entry.seed);
     const record = new Recorder();
     activeRecorder = record;

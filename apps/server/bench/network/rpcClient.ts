@@ -143,8 +143,8 @@ const makeProtocolStreamPerRequest = (transport: WebTransport) =>
     }),
   );
 
-/** Builds a BenchRpcs client for `transport` in the current scope. */
-export const makeRpcClient = (transport: RpcTransportName, tls: TlsMaterial) =>
+/** Builds the transport context shared by synthetic and production-contract clients. */
+export const makeRpcProtocol = (transport: RpcTransportName, tls: TlsMaterial) =>
   Effect.gen(function* () {
     const scope = yield* Effect.scope;
     let protocol: Layer.Layer<RpcClient.Protocol, never, Scope.Scope>;
@@ -178,6 +178,11 @@ export const makeRpcClient = (transport: RpcTransportName, tls: TlsMaterial) =>
         break;
       }
     }
-    const context = yield* Layer.buildWithScope(protocol, scope);
-    return yield* RpcClient.make(BenchRpcs).pipe(Effect.provide(context));
+    return yield* Layer.buildWithScope(protocol, scope);
   });
+
+/** Builds a BenchRpcs client for `transport` in the current scope. */
+export const makeRpcClient = (transport: RpcTransportName, tls: TlsMaterial) =>
+  Effect.flatMap(makeRpcProtocol(transport, tls), (context) =>
+    RpcClient.make(BenchRpcs).pipe(Effect.provide(context)),
+  );

@@ -2,7 +2,7 @@
 // [u8 kind][u16 channel][u32 seq][f64 sentAt][u32 arg][payload...]. WebSocket sends one frame per
 // message; WebTransport streams prefix each frame with a u32 length.
 
-export const HEADER_BYTES = 1 + 2 + 4 + 8 + 4;
+const HEADER_BYTES = 1 + 2 + 4 + 8 + 4;
 
 export const Kind = {
   /** Client → server: echo the frame back as `pong`. */
