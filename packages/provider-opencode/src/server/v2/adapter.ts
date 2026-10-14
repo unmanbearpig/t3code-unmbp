@@ -231,7 +231,6 @@ interface ActiveTurn {
     reasoning: number;
   };
   steps: number;
-  lastStep: Tokens | undefined;
   /**
    * The history item this turn's execution follows, for a turn with no prompt
    * id of T3's: the session's newest item before a `/name` command (null when
@@ -819,6 +818,25 @@ const skillsNamed = (text: string, known: ReadonlySet<string>) => [
   ),
 ];
 
+export function openCode2ProviderTurnTokenUsage(
+  tokens: NonNullable<Tokens>,
+  maxTokens: number | null,
+  updatedAt: string,
+  previousCacheWriteAt?: string,
+) {
+  const lastCacheWriteAt = tokens.cache.write > 0 ? updatedAt : previousCacheWriteAt;
+  return {
+    usedTokens: tokens.input + tokens.cache.read + tokens.cache.write + tokens.output,
+    maxTokens,
+    inputTokens: tokens.input + tokens.cache.read + tokens.cache.write,
+    cachedInputTokens: tokens.cache.read,
+    outputTokens: tokens.output,
+    reasoningOutputTokens: tokens.reasoning,
+    ...(lastCacheWriteAt === undefined ? {} : { lastCacheWriteAt }),
+    updatedAt,
+  };
+}
+
 /**
  * The turn's own tokens: steps add up, and the last step's input is the live
  * context size. A subagent's tokens are its own session's, never these.
@@ -1286,7 +1304,6 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       nextOrdinal: providerTurn.ordinal * 100 + 1,
       usage: { input: 0, cached: 0, cacheWrite: 0, output: 0, reasoning: 0 },
       steps: 0,
-      lastStep: undefined,
       before: undefined,
       compaction: undefined,
       compactions: 0,
@@ -1781,24 +1798,16 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         });
       }
       yield* emitCompaction(state, turn, terminal.status === "failed" ? "failed" : "interrupted");
-      const window = windowOf(turn.input.runtimePolicy.cwd, turn.input.modelSelection.model);
-      const lastStep = turn.lastStep;
       yield* emitProviderTurn(state, turn, {
         ...turn.providerTurn,
         status: terminal.status,
         completedAt,
         turnTokenUsage: turnTokenUsage(turn, terminal.status),
-        ...(lastStep === undefined
+        ...(turn.providerTurn.tokenUsage === undefined
           ? {}
           : {
               tokenUsage: {
-                usedTokens:
-                  lastStep.input + lastStep.cache.read + lastStep.cache.write + lastStep.output,
-                maxTokens: window ?? null,
-                inputTokens: lastStep.input + lastStep.cache.read + lastStep.cache.write,
-                cachedInputTokens: lastStep.cache.read,
-                outputTokens: lastStep.output,
-                reasoningOutputTokens: lastStep.reasoning,
+                ...turn.providerTurn.tokenUsage,
                 updatedAt: DateTime.formatIso(completedAt),
               },
             }),
@@ -2342,12 +2351,22 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           const tokens = event.data.tokens;
           if (tokens === undefined) return;
           turn.steps += 1;
-          turn.lastStep = tokens;
           turn.usage.input += tokens.input + tokens.cache.read + tokens.cache.write;
           turn.usage.cached += tokens.cache.read;
           turn.usage.cacheWrite += tokens.cache.write;
           turn.usage.output += tokens.output + tokens.reasoning;
           turn.usage.reasoning += tokens.reasoning;
+          const updatedAt = DateTime.formatIso(yield* DateTime.now);
+          turn.providerTurn = {
+            ...turn.providerTurn,
+            tokenUsage: openCode2ProviderTurnTokenUsage(
+              tokens,
+              windowOf(turn.input.runtimePolicy.cwd, turn.input.modelSelection.model) ?? null,
+              updatedAt,
+              turn.providerTurn.tokenUsage?.lastCacheWriteAt,
+            ),
+          };
+          yield* emitProviderTurn(state, turn, turn.providerTurn);
           return;
         }
         case "session.execution.started":

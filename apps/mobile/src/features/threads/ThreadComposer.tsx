@@ -1,4 +1,5 @@
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
+import { PromptCacheElapsed } from "./PromptCacheElapsed";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { useAtomValue } from "@effect/atom-react";
@@ -1168,6 +1169,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   </View>
                 )}
                 <View className="shrink-0 flex-row items-center">
+                  {!isVoiceInputPresented && isToolbarVisible ? (
+                    <PromptCacheElapsed
+                      threadRef={{
+                        environmentId: props.environmentId,
+                        threadId: props.selectedThread.id,
+                      }}
+                    />
+                  ) : null}
                   <ComposerDictationPrimaryAction
                     state={voiceInput.state}
                     presentation={voicePresentation}

@@ -900,8 +900,33 @@ describe("ClaudeAdapterV2 context usage", () => {
       cachedInputTokens: 5_000,
       outputTokens: 1_000,
       reasoningOutputTokens: 0,
+      lastCacheWriteAt: "2026-08-29T00:00:00.000Z",
       updatedAt: "2026-08-29T00:00:00.000Z",
     });
+  });
+
+  it("retains the last cache write through read-only usage reports", () => {
+    const writtenAt = "2026-08-29T00:00:00.000Z";
+    const write = ClaudeAdapterV2.claudeProviderTurnTokenUsage(
+      { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 100 },
+      CLAUDE_TEST_MODEL_SELECTION,
+      writtenAt,
+    );
+    const read = ClaudeAdapterV2.claudeProviderTurnTokenUsage(
+      { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 100 },
+      CLAUDE_TEST_MODEL_SELECTION,
+      "2026-08-29T00:01:00.000Z",
+      write.lastCacheWriteAt,
+    );
+    assert.strictEqual(read.lastCacheWriteAt, writtenAt);
+    assert.strictEqual(
+      ClaudeAdapterV2.claudeProviderTurnTokenUsage(
+        { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 100 },
+        CLAUDE_TEST_MODEL_SELECTION,
+        writtenAt,
+      ).lastCacheWriteAt,
+      undefined,
+    );
   });
 
   it("reports the prompt cache TTL the response wrote", () => {

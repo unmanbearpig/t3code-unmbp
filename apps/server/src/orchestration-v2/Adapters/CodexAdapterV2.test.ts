@@ -157,6 +157,35 @@ describe("CodexAdapterV2 file change approvals", () => {
 });
 
 describe("CodexAdapterV2 context usage", () => {
+  it("records explicit cache writes and keeps their timestamp through reads", () => {
+    const writtenAt = "2026-08-29T00:00:00.000Z";
+    const tokens = {
+      totalTokens: 100,
+      inputTokens: 90,
+      cachedInputTokens: 80,
+      outputTokens: 10,
+      reasoningOutputTokens: 0,
+    };
+    const write = CodexAdapterV2.codexProviderTurnTokenUsage(
+      { total: tokens, last: { ...tokens, cacheWriteInputTokens: 10 }, modelContextWindow: null },
+      writtenAt,
+    );
+    const read = CodexAdapterV2.codexProviderTurnTokenUsage(
+      { total: tokens, last: tokens, modelContextWindow: null },
+      "2026-08-29T00:01:00.000Z",
+      write.lastCacheWriteAt,
+    );
+    assert.strictEqual(write.lastCacheWriteAt, writtenAt);
+    assert.strictEqual(read.lastCacheWriteAt, writtenAt);
+    assert.strictEqual(
+      CodexAdapterV2.codexProviderTurnTokenUsage(
+        { total: tokens, last: tokens, modelContextWindow: null },
+        writtenAt,
+      ).lastCacheWriteAt,
+      undefined,
+    );
+  });
+
   it("uses the current context rather than cumulative processed tokens", () => {
     const usage = CodexAdapterV2.codexProviderTurnTokenUsage(
       {

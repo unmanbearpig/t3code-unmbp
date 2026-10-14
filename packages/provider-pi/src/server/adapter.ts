@@ -428,6 +428,7 @@ interface ActivePiTurn {
   latestCompactionAfterTokens: number | null;
   /** Last streamed usage total already emitted on the running turn. */
   lastLiveUsedTokens: number | null;
+  lastCacheWriteAt?: string | undefined;
   /** Invalidates idle snapshots when new work starts after a settle probe. */
   settleProbeGeneration: number;
   /** An extension may start compaction immediately after Pi emits agent_settled. */
@@ -784,16 +785,16 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
 
       /**
        * Pi attaches the current message's cumulative usage to every streaming
-       * update (0.84.2+). Emit it on the running turn only when the total
-       * changes, so the meter moves live without a burst of no-op updates.
+       * update (0.84.2+). Emit changed stream totals and each final message,
+       * which can report another cache write even when the total is unchanged.
        */
-      const reportLiveUsage = (turn: ActivePiTurn, usage: unknown) =>
+      const reportLiveUsage = (turn: ActivePiTurn, usage: unknown, finalMessage = false) =>
         Effect.gen(function* () {
           const usedTokens = nonNegativeInteger(usage, "totalTokens");
           if (
             usedTokens === undefined ||
             usedTokens === 0 ||
-            usedTokens === turn.lastLiveUsedTokens ||
+            (usedTokens === turn.lastLiveUsedTokens && !finalMessage) ||
             contextWindow === null ||
             contextWindow === 0
           ) {
@@ -804,21 +805,25 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           const cachedInputTokens = nonNegativeInteger(usage, "cacheRead");
           const outputTokens = nonNegativeInteger(usage, "output");
           const updatedAt = yield* DateTime.now;
+          const cacheWriteAt =
+            (nonNegativeInteger(usage, "cacheWrite") ?? 0) > 0
+              ? DateTime.formatIso(updatedAt)
+              : turn.lastCacheWriteAt;
+          const tokenUsage = {
+            usedTokens,
+            maxTokens: contextWindow,
+            ...(inputTokens === undefined ? {} : { inputTokens }),
+            ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
+            ...(outputTokens === undefined ? {} : { outputTokens }),
+            ...(cacheWriteAt === undefined ? {} : { lastCacheWriteAt: cacheWriteAt }),
+            updatedAt: DateTime.formatIso(updatedAt),
+          };
+          turn.lastCacheWriteAt = cacheWriteAt;
           yield* emit({
             type: "provider_turn.updated",
             driver: PI_PROVIDER,
             threadId: turn.turnInput.threadId,
-            providerTurn: {
-              ...turn.providerTurn,
-              tokenUsage: {
-                usedTokens,
-                maxTokens: contextWindow,
-                ...(inputTokens === undefined ? {} : { inputTokens }),
-                ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
-                ...(outputTokens === undefined ? {} : { outputTokens }),
-                updatedAt: DateTime.formatIso(updatedAt),
-              },
-            },
+            providerTurn: { ...turn.providerTurn, tokenUsage },
           });
         });
 
@@ -1876,6 +1881,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             if (turn === null) return;
             const message = event["message"];
             if (recordString(message, "role") !== "assistant") return;
+            yield* reportLiveUsage(turn, recordField(message, "usage"), true);
             yield* completeOpenStreamItems(turn);
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {
               turn.failure = makeProviderFailure({

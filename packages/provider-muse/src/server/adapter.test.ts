@@ -30,6 +30,7 @@ import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -533,6 +534,40 @@ describe("MuseAdapterV2", () => {
       Effect.scoped,
       Effect.provide(testLayer),
     ),
+  );
+
+  it.effect("retains cache write time through read-only usage notifications", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      const harness = yield* makeHarness(fake);
+      const { nativeId } = yield* startConversation(harness, fake);
+      yield* fake.emit("session/contextUsage", { usedTokens: 100, windowTokens: 200_000 });
+      const usage = { inputTokens: 80, outputTokens: 20, cachedTokens: 0, reasoningTokens: 0 };
+      yield* fake.emit("session/tokenUsage", {
+        turnId: nativeId,
+        promptTokens: 80,
+        usage: { ...usage, cacheWriteTokens: 60 },
+      });
+      const write = yield* harness.takeEvent(
+        "provider_turn.updated",
+        (event) => event.providerTurn.tokenUsage?.lastCacheWriteAt !== undefined,
+      );
+      const writtenAt = write.providerTurn.tokenUsage?.lastCacheWriteAt;
+      yield* TestClock.adjust(1_000);
+      yield* fake.emit("session/tokenUsage", {
+        turnId: nativeId,
+        promptTokens: 80,
+        usage: { ...usage, cacheWriteTokens: 0, cacheReadTokens: 60 },
+      });
+      const read = yield* harness.takeEvent(
+        "provider_turn.updated",
+        (event) => event.providerTurn.tokenUsage?.cachedInputTokens === 60,
+      );
+      assert.strictEqual(read.providerTurn.tokenUsage?.lastCacheWriteAt, writtenAt);
+      assert.notStrictEqual(read.providerTurn.tokenUsage?.updatedAt, writtenAt);
+      yield* fake.emit("turn/completed", { turnId: nativeId, terminal: "completed" });
+      yield* harness.takeEvent("turn.terminal");
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
   it.effect("skips an unreadable usage notification without ending the turn", () =>

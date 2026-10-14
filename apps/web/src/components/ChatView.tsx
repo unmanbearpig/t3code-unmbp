@@ -1,4 +1,5 @@
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
+import { deriveLastPromptCacheWriteAt } from "@t3tools/client-runtime/prompt-cache";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
 import { addAppShortcutListener, isLeaderShortcutEvent } from "~/appShortcutEvents";
 import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
@@ -3651,6 +3652,10 @@ export default function ChatView(props: ChatViewProps) {
         ),
       ),
     [activeThreadLiveTokenUsage, serverVisibleTurnItems, serverProjection],
+  );
+  const lastPromptCacheWriteAt = useMemo(
+    () => deriveLastPromptCacheWriteAt(serverProjection),
+    [serverProjection],
   );
   const pendingBackgroundTasks = useMemo(() => {
     if (serverProjection === null || serverProjection === undefined) {
@@ -11820,6 +11825,7 @@ export default function ChatView(props: ChatViewProps) {
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeProjectId={activeProject?.id ?? null}
                               activeContextWindow={activeContextWindow}
+                              lastPromptCacheWriteAt={lastPromptCacheWriteAt}
                               activeTasksProgress={activeComposerTasksProgress}
                               activeTaskSteps={activeComposerTaskSteps}
                               compactThreadUnavailable={compactThreadUnavailable}

@@ -619,6 +619,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         maxTokens: 200_000,
         inputTokens: 11_000,
         outputTokens: 1_000,
+        lastCacheWriteAt: "2026-08-29T12:00:00.000Z",
         updatedAt: "2026-08-29T12:00:00.000Z",
       } as const;
       const replacementUsage = {
@@ -626,6 +627,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         maxTokens: 200_000,
         inputTokens: 16_000,
         outputTokens: 2_000,
+        lastCacheWriteAt: "2026-08-29T12:00:00.000Z",
         updatedAt: "2026-08-29T12:00:01.000Z",
       } as const;
 

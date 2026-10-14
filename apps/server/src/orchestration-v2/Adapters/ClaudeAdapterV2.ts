@@ -199,6 +199,7 @@ export function claudeProviderTurnTokenUsage(
   },
   modelSelection: ModelSelection,
   updatedAt: string,
+  previousCacheWriteAt?: string,
 ) {
   const inputTokens =
     usage.input_tokens +
@@ -206,6 +207,10 @@ export function claudeProviderTurnTokenUsage(
     (usage.cache_read_input_tokens ?? 0);
   const outputTokens = usage.output_tokens;
   const promptCacheTtlMs = claudePromptCacheTtlMs(usage.cache_creation);
+  const lastCacheWriteAt =
+    (usage.cache_creation_input_tokens ?? 0) > 0 || promptCacheTtlMs !== undefined
+      ? updatedAt
+      : previousCacheWriteAt;
   return {
     usedTokens: inputTokens + outputTokens,
     maxTokens: claudeContextWindow(modelSelection),
@@ -214,6 +219,7 @@ export function claudeProviderTurnTokenUsage(
     outputTokens,
     reasoningOutputTokens: 0,
     ...(promptCacheTtlMs === undefined ? {} : { promptCacheTtlMs }),
+    ...(lastCacheWriteAt === undefined ? {} : { lastCacheWriteAt }),
     updatedAt,
   };
 }
@@ -2893,6 +2899,7 @@ function formatClaudeUsageLimitWait(waitMs: number): string {
 }
 
 interface ActiveClaudeTurnContext {
+  lastCacheWriteAt?: string | undefined;
   readonly input: ProviderAdapter.ProviderAdapterV2TurnInput;
   readonly nativeThreadId: string;
   readonly nativeTurnId: string;
@@ -6844,6 +6851,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   tokenUsage: {
                     usedTokens: afterTokenCount,
                     maxTokens: claudeContextWindow(context.input.modelSelection),
+                    ...(context.lastCacheWriteAt === undefined
+                      ? {}
+                      : { lastCacheWriteAt: context.lastCacheWriteAt }),
                     updatedAt: DateTime.formatIso(now),
                   },
                 },
@@ -6974,6 +6984,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               message.message.usage !== undefined &&
               message.message.model !== "<synthetic>"
             ) {
+              const tokenUsage = claudeProviderTurnTokenUsage(
+                message.message.usage,
+                context.input.modelSelection,
+                DateTime.formatIso(now),
+                context.lastCacheWriteAt,
+              );
+              context.lastCacheWriteAt = tokenUsage.lastCacheWriteAt;
               yield* emitProviderEvent({
                 type: "provider_turn.updated",
                 driver: CLAUDE_PROVIDER,
@@ -6992,11 +7009,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   status: "running",
                   startedAt: context.startedAt,
                   completedAt: null,
-                  tokenUsage: claudeProviderTurnTokenUsage(
-                    message.message.usage,
-                    context.input.modelSelection,
-                    DateTime.formatIso(now),
-                  ),
+                  tokenUsage,
                 },
               });
             }

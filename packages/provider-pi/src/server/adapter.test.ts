@@ -1587,6 +1587,59 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("retains cache write time through later read-only messages", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      fake.queueState({
+        sessionFile: FAKE_SESSION_FILE,
+        model: { provider: "anthropic", id: "default", contextWindow: 200_000 },
+      });
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          usage: { totalTokens: 100, input: 80, output: 20, cacheWrite: 60 },
+        },
+      });
+      const write = yield* takeEvent(
+        (event) =>
+          event.type === "provider_turn.updated" &&
+          event.providerTurn.tokenUsage?.lastCacheWriteAt !== undefined,
+      );
+      assert.isTrue(write.type === "provider_turn.updated");
+      if (write.type !== "provider_turn.updated") return;
+      const writtenAt = write.providerTurn.tokenUsage?.lastCacheWriteAt;
+      yield* TestClock.adjust(1_000);
+      yield* fake.emit({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          usage: { totalTokens: 110, input: 80, output: 30, cacheWrite: 0, cacheRead: 60 },
+        },
+      });
+      const read = yield* takeEvent(
+        (event) =>
+          event.type === "provider_turn.updated" &&
+          event.providerTurn.tokenUsage?.usedTokens === 110,
+      );
+      assert.isTrue(read.type === "provider_turn.updated");
+      if (read.type !== "provider_turn.updated") return;
+      assert.equal(read.providerTurn.tokenUsage?.lastCacheWriteAt, writtenAt);
+      assert.notEqual(read.providerTurn.tokenUsage?.updatedAt, writtenAt);
+      yield* fake.emit({ type: "agent_settled" });
+      yield* takeEvent((event) => event.type === "turn.terminal");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect("budgets legacy native history with Pi's selected model capacity", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;

@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./prompt-cache": {
+      "types": "./src/promptCache.ts",
+      "default": "./src/promptCache.ts"
+    },
     "./composerThreadItems": {
       "types": "./src/composerThreadItems.ts",
       "default": "./src/composerThreadItems.ts"

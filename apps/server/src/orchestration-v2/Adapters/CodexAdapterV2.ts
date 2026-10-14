@@ -186,7 +186,10 @@ export function canReuseCodexContextUsage(previous: ModelSelection, next: ModelS
 export function codexProviderTurnTokenUsage(
   tokenUsage: CodexSchema.V2ThreadTokenUsageUpdatedNotification["tokenUsage"],
   updatedAt: string,
+  previousCacheWriteAt?: string,
 ) {
+  const lastCacheWriteAt =
+    (tokenUsage.last.cacheWriteInputTokens ?? 0) > 0 ? updatedAt : previousCacheWriteAt;
   return {
     usedTokens: Math.max(0, tokenUsage.last.totalTokens),
     maxTokens: tokenUsage.modelContextWindow ?? null,
@@ -194,6 +197,7 @@ export function codexProviderTurnTokenUsage(
     cachedInputTokens: Math.max(0, tokenUsage.last.cachedInputTokens),
     outputTokens: Math.max(0, tokenUsage.last.outputTokens),
     reasoningOutputTokens: Math.max(0, tokenUsage.last.reasoningOutputTokens),
+    ...(lastCacheWriteAt === undefined ? {} : { lastCacheWriteAt }),
     updatedAt,
   };
 }
@@ -1105,6 +1109,7 @@ function codexErrorInfoCode(value: unknown): string | null {
 }
 
 interface ActiveCodexTurnContext {
+  lastCacheWriteAt?: string | undefined;
   latestProviderFailure?: {
     readonly nativeMessage: string;
     readonly failure: OrchestrationV2ProviderFailure;
@@ -4342,6 +4347,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             const now = yield* DateTime.now;
             // Live context usage rides on the provider turn (#8144): the turn
             // is the natural owner and re-emitting it never disturbs items.
+            const tokenUsage = codexProviderTurnTokenUsage(
+              payload.tokenUsage,
+              DateTime.formatIso(now),
+              context.lastCacheWriteAt,
+            );
+            context.lastCacheWriteAt = tokenUsage.lastCacheWriteAt;
             yield* emitProviderEvent({
               type: "provider_turn.updated",
               driver: CODEX_PROVIDER,
@@ -4360,10 +4371,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 status: "running",
                 startedAt: context.startedAt,
                 completedAt: null,
-                tokenUsage: codexProviderTurnTokenUsage(
-                  payload.tokenUsage,
-                  DateTime.formatIso(now),
-                ),
+                tokenUsage,
               },
             });
           }).pipe(Effect.orDie),

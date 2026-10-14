@@ -1065,6 +1065,9 @@ export const OrchestrationV2ProviderTurnTokenUsage = Schema.Struct({
   /** Prompt cache lifetime the provider wrote with this report. Clients treat
       the cache as cold once `updatedAt` is this old. */
   promptCacheTtlMs: Schema.optional(PositiveInt),
+  /** ISO timestamp when the provider last reported a cache write. Cache reads
+      and later usage reports retain this timestamp. */
+  lastCacheWriteAt: Schema.optional(Schema.String),
   /** ISO timestamp of the provider's report; string so wire encoding is stable. */
   updatedAt: Schema.String,
 });
