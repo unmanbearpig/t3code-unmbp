@@ -145,9 +145,11 @@ A 150ms one-way delay adds about 300ms RTT. The every-third-packet profile adds 
 and packetization can change which packet consumes each draw.
 
 `rpc-ws` uses production deflate, `rpc-ws-raw` disables compression, `rpc-wt` uses one
-ordered QUIC stream, and `rpc-wt-multi` opens a QUIC stream per request. QUIC reliably
-delivers data over UDP. Compare uncompressed WebSocket and QUIC to isolate transport
-cost, and include compression when judging the app's current behavior. Uncached thread
+ordered QUIC stream, and `rpc-wt-multi` opens a QUIC stream per request. Both operation
+WebTransport variants compress substantial RPC frames and retain raw JSON for tiny
+control messages. QUIC reliably delivers data over UDP. Compare complete operations
+with production WebSocket deflate when judging the proposed implementation; the
+synthetic transport suite retains its uncompressed controls. Uncached thread
 snapshots use HTTPS/HTTP/1.1 for the WebSocket variants and HTTP/3 for WebTransport.
 Both use libcurl, the same fixture certificate, Caddy, and the production gzip route
 over a Unix socket, so the proxy introduces no additional counted TCP hop. The client
