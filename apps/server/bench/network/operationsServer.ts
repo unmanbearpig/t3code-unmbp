@@ -48,7 +48,8 @@ import {
 } from "../../src/orchestration-v2/threadHistoryPaging.ts";
 import { buildBoundedThreadProjection } from "../../src/orchestration-v2/threadHistoryPaging.ts";
 import { projectThreadProjectionForWire } from "../../src/orchestration-v2/WireProjection.ts";
-import { layerFramedJson, layerSocketServer, makeWebTransportSocketServer } from "./rpc.ts";
+import { layerSocketServer, makeWebTransportSocketServer } from "./rpc.ts";
+import { operationRpcSerialization } from "./operationsRpc.ts";
 import { ports, quicFlowControl, wallClockMs } from "./protocol.ts";
 import {
   operationMessageEvents,
@@ -202,7 +203,7 @@ await Effect.runPromise(
           http,
           rpcServer(RpcSerialization.layerJson).pipe(Layer.provide(ws(ports.rpcWs, true))),
           rpcServer(RpcSerialization.layerJson).pipe(Layer.provide(ws(ports.rpcWsRaw, false))),
-          rpcServer(layerFramedJson).pipe(
+          rpcServer(operationRpcSerialization).pipe(
             Layer.provide(
               layerSocketServer(makeWebTransportSocketServer(quic.sessionStream("/rpc"), ports.wt)),
             ),

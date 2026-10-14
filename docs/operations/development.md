@@ -41,7 +41,7 @@ The Linux network benchmark measures thread operations using the production SQL
 projection, HTTP snapshot routes, persisted replay, live streams, and shared web/mobile
 thread state. It compares WebSocket/TCP with experimental WebTransport over QUIC/UDP.
 Run it after `vp i`, with `unshare`, `ip`, `tc`, `iptables`, `ethtool`, `sysctl`,
-`openssl`, and an HTTP/3-enabled libcurl development installation available. Rootless
+`openssl`, `python3`, and an HTTP/3-enabled libcurl development installation available. Rootless
 user namespaces must be enabled. Build the benchmark's native client against that
 libcurl if its downloaded prebuild lacks HTTP/3:
 
@@ -59,7 +59,7 @@ vp run bench:network
 vp run bench:network --dry-run
 ```
 
-The fixed `operations-v3` suite runs 648 cases: six operations, nine network profiles,
+The fixed `operations-v4` suite runs 648 cases: six operations, nine network profiles,
 four RPC transport variants, and three repetitions. Messages contain 2,000 characters
 of deterministic, distinct text. Each user/assistant pair has a completed run and
 visible conversation items. The suite uses netem seed `104729`, rotates transport order,
@@ -89,7 +89,7 @@ detection and retry backoff.
 `linkTxBytes` and `linkTxPackets` are loopback transmission counter deltas over the
 operation interval. They include both directions, HTTP, RPC framing, TCP/UDP/QUIC
 headers, acknowledgements, and retransmissions that reach the interface. Packets dropped
-by netem before transmission are absent from these counters. Reads stop at client
+after transmission are included in these counters. Reads stop at client
 completion, so late acknowledgements or connection-close traffic can fall outside the
 interval. These are transfer-cost measurements, not exact application payload sizes.
 `events`, `socketSnapshots`, `httpSnapshots`, `syncMode`, `loadedMessages`, and
@@ -97,8 +97,9 @@ interval. These are transfer-cost measurements, not exact application payload si
 from the isolated projection. Reconnect cases verify that cache while offline and open
 only the measured connection, so a previous socket cannot send teardown traffic or
 receive the offline writes. They do not refetch that history during setup. The corrected
-completion and reconnect boundaries and the HTTP/3 snapshot experiment require a new
-baseline; `operations-v1` and `operations-v2` results cannot be compared with this suite.
+completion and reconnect boundaries, HTTP/3 snapshots, and packet shaping after UDP
+segmentation require a new baseline. Earlier operation suites cannot be compared with
+this suite.
 
 The runner checks message IDs, ordering, contents, roles, run membership, visible
 conversation items, history metadata, event sequences, subscription cursors, expected
@@ -132,8 +133,12 @@ outcomes. Results are saved atomically after every case, with case and suite dur
 
 The nine profiles cover clean traffic, WAN delay, high latency, mobile jitter/loss,
 2% and 5% random loss, burst loss, every-third-packet delay, and every-twentieth-packet
-drop. `tc netem` and `iptables` impair real packets, including TCP retransmissions and
-handshakes. They run in a private network namespace with MTU 1500 and disabled offloads.
+drop. The operation suite applies `tc` ingress actions and `netem` through an IFB after
+segmentation, so batching by QUIC stacks cannot turn one loss decision into several
+lost datagrams. This includes TCP retransmissions and handshakes. It runs in a private
+network namespace with MTU 1500 and disabled TCP/UDP offloads. A preflight sends ten
+datagrams in one UDP segmentation batch and checks that exactly datagrams 3, 6, and 9
+are dropped or delayed.
 Counters for periodic impairment cover both directions together, including acknowledgements.
 A 150ms one-way delay adds about 300ms RTT. The every-third-packet profile adds another
 300ms to selected packets. A fixed seed repeats netem's random sequence, but scheduling
@@ -149,6 +154,9 @@ over a Unix socket, so the proxy introduces no additional counted TCP hop. The c
 forces the protocol and verifies it at both ends; HTTP/3 never silently falls back.
 Each case owns its connection pool. HTTP handshake, first-byte, and total request
 times are saved alongside the complete operation time.
+Operation framing and compression follow the transport implementation under test;
+`rpcCompression` records the mode. This lets the same workload measure implementation
+improvements while continuing to verify the complete delivered state.
 
 The HTTP/3 snapshot and WebTransport RPC use separate QUIC connections. This suite
 measures that implementation, not a browser sharing one QUIC connection. It remains

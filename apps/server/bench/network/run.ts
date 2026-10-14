@@ -40,6 +40,7 @@ import { compareSuites, SuiteResults, validateSuiteResults } from "./comparison.
 import { type BenchCase, makeOperationSuitePlan, makeSuitePlan, workloadNames } from "./suite.ts";
 import { http3Environment, type SnapshotHttpProtocol } from "./http3.ts";
 import { ensureHttp3Proxy, http3ProxyConfig, waitForHttp3Proxy } from "./http3Proxy.ts";
+import { verifyPacketImpairments } from "./packetizationCheck.ts";
 
 const isRpcClientError = Schema.is(RpcClientError.RpcClientError);
 const decodeOperationControl = Schema.decodeUnknownEffect(
@@ -78,7 +79,7 @@ if (values.help) {
   --out PATH            Save JSON after each case, including partial results
   --seed INTEGER        Seed netem's loss and jitter for a manual run
   --suite               Run the complete fixed network-v1 matrix
-  --suite-name NAME     network-v1 or operations-v3 (requires --suite)
+  --suite-name NAME     network-v1 or operations-v4 (requires --suite)
   --http-protocol h1|h3 Override snapshot protocol in a manual operation experiment
   --dry-run             Print the suite manifest without running packets
   --baseline PATH       Compare a suite run with a previous suite result
@@ -100,11 +101,11 @@ if (seed !== undefined && (!Number.isInteger(seed) || seed < 1 || seed >= 0xffff
   throw new Error("--seed must be an integer between 1 and 4294967294");
 if (
   values["suite-name"] &&
-  (!values.suite || !["network-v1", "operations-v3"].includes(values["suite-name"]))
+  (!values.suite || !["network-v1", "operations-v4"].includes(values["suite-name"]))
 )
-  throw new Error("--suite-name must be network-v1 or operations-v3 and requires --suite");
+  throw new Error("--suite-name must be network-v1 or operations-v4 and requires --suite");
 const suite = values.suite
-  ? values["suite-name"] === "operations-v3"
+  ? values["suite-name"] === "operations-v4"
     ? makeOperationSuitePlan()
     : makeSuitePlan()
   : undefined;
@@ -305,7 +306,8 @@ process.once("disconnect", () => {
 });
 
 try {
-  prepareLoopback(tlsDir);
+  prepareLoopback(tlsDir, usesOperations);
+  if (usesOperations) verifyPacketImpairments();
   // ECDSA and under 14 days: the constraints browsers put on serverCertificateHashes certificates.
   NodeChildProcess.execFileSync(
     "openssl",
@@ -476,9 +478,9 @@ try {
     }
     const caseStartedAt = performance.now();
     // A fresh server per run: a timed-out run can leave streams sending into the next one.
-    applyScenario({ name: "clean" });
+    applyScenario({ name: "clean" }, undefined, usesOperations);
     await startServer(entry);
-    applyScenario(entry.scenario, entry.seed);
+    applyScenario(entry.scenario, entry.seed, usesOperations);
     const record = new Recorder();
     activeRecorder = record;
     const outcome = await runCase(entry, tls, record).catch((error: unknown) => {

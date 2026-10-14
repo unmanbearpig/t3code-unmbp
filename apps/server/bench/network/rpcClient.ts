@@ -144,7 +144,11 @@ const makeProtocolStreamPerRequest = (transport: WebTransport) =>
   );
 
 /** Builds the transport context shared by synthetic and production-contract clients. */
-export const makeRpcProtocol = (transport: RpcTransportName, tls: TlsMaterial) =>
+export const makeRpcProtocol = (
+  transport: RpcTransportName,
+  tls: TlsMaterial,
+  framedSerialization = layerFramedJson,
+) =>
   Effect.gen(function* () {
     const scope = yield* Effect.scope;
     let protocol: Layer.Layer<RpcClient.Protocol, never, Scope.Scope>;
@@ -166,14 +170,14 @@ export const makeRpcProtocol = (transport: RpcTransportName, tls: TlsMaterial) =
         const socket = yield* socketFromStream(() => session.createBidirectionalStream());
         protocol = Layer.effect(RpcClient.Protocol, protocolSocket).pipe(
           Layer.provide(Layer.succeed(Socket.Socket, socket)),
-          Layer.provide(layerFramedJson),
+          Layer.provide(framedSerialization),
         );
         break;
       }
       case "rpc-wt-multi": {
         const session = yield* openWebTransport(tls);
         protocol = Layer.effect(RpcClient.Protocol, makeProtocolStreamPerRequest(session)).pipe(
-          Layer.provide(layerFramedJson),
+          Layer.provide(framedSerialization),
         );
         break;
       }

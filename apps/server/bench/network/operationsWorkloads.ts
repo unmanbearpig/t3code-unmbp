@@ -46,6 +46,7 @@ import {
 } from "./operationsFixture.ts";
 import type { Recorder } from "./workloads.ts";
 import { makeSnapshotHttpClient, snapshotPort, type SnapshotHttpProtocol } from "./http3.ts";
+import { operationRpcCompression, operationRpcSerialization } from "./operationsRpc.ts";
 
 /** Counts IP traffic in both directions, including TCP/QUIC headers and retransmissions. */
 function readLinkCounters() {
@@ -164,6 +165,14 @@ export const runOperation = Effect.fnUntraced(function* (
 ) {
   const scope = yield* Effect.scope;
   record.set("phase", "setup");
+  record.set(
+    "rpcCompression",
+    transport.startsWith("rpc-wt")
+      ? operationRpcCompression
+      : transport === "rpc-ws"
+        ? "permessage-deflate"
+        : "none",
+  );
   let snapshots = 0;
   let events = 0;
   let streamItems = 0;
@@ -247,7 +256,9 @@ export const runOperation = Effect.fnUntraced(function* (
     const connectionStartedAt = wallClockMs();
     const synchronized = yield* Deferred.make<void>();
     const config = yield* Deferred.make<ServerConfig>();
-    const context = yield* makeRpcProtocol(transport, tls).pipe(Scope.provide(connectionScope));
+    const context = yield* makeRpcProtocol(transport, tls, operationRpcSerialization).pipe(
+      Scope.provide(connectionScope),
+    );
     const protocol = Context.get(context, RpcClient.Protocol);
     const threadRequests = new Set<string | number>();
     const measuredProtocol = RpcClient.Protocol.of({

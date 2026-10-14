@@ -210,7 +210,7 @@ it("keeps the busy reconnect on replay and exercises snapshot fallback separatel
 
 function operationResults(value = 100): SuiteResults {
   const plan = makeOperationSuitePlan();
-  assert.equal(plan.version, "operations-v3");
+  assert.equal(plan.version, "operations-v4");
   return {
     suite: { hash: plan.hash },
     complete: true,

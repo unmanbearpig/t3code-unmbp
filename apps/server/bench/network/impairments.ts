@@ -141,21 +141,44 @@ const sh = (
 };
 
 /** One-time namespace setup: realistic MTU and no offloads, so netem sees real-sized packets. */
-export function prepareLoopback(scratchDir: string) {
+export const operationPacketSettings = {
+  point: "loopback-ingress-after-segmentation",
+  device: "ifb-netbench",
+  offloads: ["tso", "gso", "gro", "tx-udp-segmentation", "tx-gso-list"],
+} as const;
+
+export function prepareLoopback(scratchDir: string, ingress = false) {
   assertIsolated();
   lockfile = NodePath.join(scratchDir, "xtables.lock");
   sh("ip", ["link", "set", "lo", "up", "mtu", String(linkSettings.mtu)]);
   sh("ethtool", ["-K", "lo", "tso", "off", "gso", "off", "gro", "off"]);
+  if (ingress) {
+    sh("ethtool", ["-K", "lo", "tx-udp-segmentation", "off", "tx-gso-list", "off"]);
+    sh("ip", ["link", "add", operationPacketSettings.device, "type", "ifb"]);
+    sh("ip", [
+      "link",
+      "set",
+      operationPacketSettings.device,
+      "up",
+      "mtu",
+      String(linkSettings.mtu),
+    ]);
+    sh("ethtool", ["-K", operationPacketSettings.device, "tso", "off", "gso", "off", "gro", "off"]);
+  }
   // Without this Linux reuses cwnd/ssthresh learned by the previous run against the same address.
   sh("sysctl", ["-qw", "net.ipv4.tcp_no_metrics_save=1"], { allowFailure: true });
 }
 
-export function applyScenario(scenario: Scenario, seed?: number) {
+export function applyScenario(scenario: Scenario, seed?: number, ingress = false) {
   assertIsolated();
   sh("tc", ["qdisc", "del", "dev", "lo", "root"], { allowFailure: true });
   sh("iptables", ["-F", "INPUT"]);
   sh("iptables", ["-t", "mangle", "-F", "OUTPUT"]);
   sh("ip", ["tcp_metrics", "flush", "all"], { allowFailure: true });
+  if (ingress) {
+    applyIngressScenario(scenario, seed);
+    return;
+  }
 
   const netem = (extraMs: number) => {
     const delay = (scenario.delayMs ?? 0) + extraMs;
@@ -256,5 +279,126 @@ export function applyScenario(scenario: Scenario, seed?: number) {
       "-j",
       "DROP",
     ]);
+  }
+}
+
+/** Ingress sees real datagrams even when curl or quic-go sends a UDP_SEGMENT batch. */
+function applyIngressScenario(scenario: Scenario, seed?: number) {
+  const device = operationPacketSettings.device;
+  sh("tc", ["qdisc", "del", "dev", "lo", "clsact"], { allowFailure: true });
+  sh("tc", ["qdisc", "del", "dev", device, "root"], { allowFailure: true });
+  const shaped = Boolean(
+    scenario.delayMs || scenario.jitterMs || scenario.loss || scenario.nthDelay,
+  );
+  if (!shaped && !scenario.nthDrop) return;
+  sh("tc", ["qdisc", "add", "dev", "lo", "clsact"]);
+  const netem = (extraMs: number) => [
+    ...((scenario.delayMs ?? 0) + extraMs > 0 || scenario.jitterMs
+      ? ["delay", String((scenario.delayMs ?? 0) + extraMs) + "ms"]
+      : []),
+    ...(scenario.jitterMs ? [String(scenario.jitterMs) + "ms"] : []),
+    ...(scenario.loss ? ["loss", ...scenario.loss.split(" ")] : []),
+    "limit",
+    String(linkSettings.queuePackets),
+    ...(seed !== undefined ? ["seed", String(seed + (extraMs > 0 ? 1 : 0))] : []),
+  ];
+  const filter = (priority: number, actions: ReadonlyArray<string>) =>
+    sh("tc", [
+      "filter",
+      "add",
+      "dev",
+      "lo",
+      "ingress",
+      "protocol",
+      "ip",
+      "pref",
+      String(priority),
+      "matchall",
+      ...actions,
+    ]);
+  if (scenario.nthDrop)
+    filter(10, [
+      "action",
+      "gact",
+      "continue",
+      "random",
+      "determ",
+      "drop",
+      String(scenario.nthDrop),
+    ]);
+  if (!shaped) return;
+  if (scenario.nthDelay) {
+    sh("tc", [
+      "qdisc",
+      "add",
+      "dev",
+      device,
+      "root",
+      "handle",
+      "1:",
+      "prio",
+      "bands",
+      "2",
+      "priomap",
+      ...Array(16).fill("0"),
+    ]);
+    sh("tc", [
+      "qdisc",
+      "add",
+      "dev",
+      device,
+      "parent",
+      "1:1",
+      "handle",
+      "20:",
+      "netem",
+      ...netem(0),
+    ]);
+    sh("tc", [
+      "qdisc",
+      "add",
+      "dev",
+      device,
+      "parent",
+      "1:2",
+      "handle",
+      "30:",
+      "netem",
+      ...netem(scenario.nthDelay.extraMs),
+    ]);
+    filter(20, [
+      "action",
+      "gact",
+      "continue",
+      "random",
+      "determ",
+      "pipe",
+      String(scenario.nthDelay.every),
+      "action",
+      "skbedit",
+      "priority",
+      "1:2",
+      "action",
+      "mirred",
+      "egress",
+      "redirect",
+      "dev",
+      device,
+    ]);
+    filter(30, [
+      "action",
+      "skbedit",
+      "priority",
+      "1:1",
+      "action",
+      "mirred",
+      "egress",
+      "redirect",
+      "dev",
+      device,
+    ]);
+  } else {
+    sh("tc", ["qdisc", "add", "dev", device, "root", "handle", "1:", "netem", ...netem(0)]);
+    filter(30, ["action", "mirred", "egress", "redirect", "dev", device]);
   }
 }

@@ -2,7 +2,7 @@
 import * as NodeCrypto from "node:crypto";
 
 import { transportNames } from "./client.ts";
-import { presets, type Scenario } from "./impairments.ts";
+import { operationPacketSettings, presets, type Scenario } from "./impairments.ts";
 import { quicFlowControl } from "./protocol.ts";
 import { rpcTransportNames } from "./rpcClient.ts";
 import { operationNames, operationSettings } from "./operationsFixture.ts";
@@ -118,7 +118,7 @@ export function makeOperationSuitePlan() {
     }
   }
   const definition = {
-    version: "operations-v3",
+    version: "operations-v4",
     scenarios: presets,
     layers: [{ name: "operations", transports: rpcTransportNames }],
     workloads: operationNames,
@@ -128,13 +128,17 @@ export function makeOperationSuitePlan() {
     linkSettings,
     quicFlowControl,
     rpcHeartbeatTimeout,
-    serialization: suiteDefinition.serialization,
-    compression: suiteDefinition.compression,
+    serialization: {
+      ...suiteDefinition.serialization,
+      rpcWebTransport: "operation-transport-default",
+    },
+    compression: { ...suiteDefinition.compression, webTransport: "operation-transport-default" },
     order: "scenario,workload,seed,rotated-transport",
     timing:
       "uncached:ready-session-through-live;incremental:server-write-through-applied;reconnect:open-through-live",
     traffic: "loopback-tx-IP-bytes-both-directions-through-client-completion",
     reconnectSetup: "verified-offline-cache-with-no-prior-transport",
+    packetization: operationPacketSettings,
     snapshots: {
       proxy: http3ProxySettings,
       websocket: "https-http1.1",
