@@ -1,10 +1,10 @@
 import * as Schema from "effect/Schema";
 
-import { caseId, makeSuitePlan } from "./suite.ts";
+import { caseId, makeOperationSuitePlan, makeSuitePlan } from "./suite.ts";
 
 export const BenchRow = Schema.Struct({
   scenario: Schema.String,
-  layer: Schema.Literals(["raw", "rpc"]),
+  layer: Schema.Literals(["raw", "rpc", "operations"]),
   transport: Schema.String,
   workload: Schema.String,
   repetition: Schema.Number,
@@ -24,8 +24,10 @@ export type SuiteResults = typeof SuiteResults.Type;
 
 /** Rejects results from different experiments or incomplete files, rather than scoring partial work. */
 export function validateSuiteResults(result: SuiteResults) {
-  const plan = makeSuitePlan();
-  if (result.suite.hash !== plan.hash)
+  const plan = [makeSuitePlan(), makeOperationSuitePlan()].find(
+    (plan) => plan.hash === result.suite.hash,
+  );
+  if (!plan)
     throw new Error("Suite configuration differs; rerun both revisions with the same suite");
   if (!result.complete || result.rows.length !== plan.cases.length)
     throw new Error("Suite is incomplete");
@@ -59,6 +61,8 @@ const metricNames: Record<string, readonly string[]> = {
 export function compareSuites(baseline: SuiteResults, candidate: SuiteResults) {
   validateSuiteResults(baseline);
   validateSuiteResults(candidate);
+  if (baseline.suite.hash !== candidate.suite.hash)
+    throw new Error("Suite configuration differs; compare the same operation and transport suite");
   if (baseline.metadata.environmentHash !== candidate.metadata.environmentHash)
     throw new Error(
       "Benchmark environments differ; use the same host, Node, kernel, and network tools",
@@ -80,6 +84,23 @@ export function compareSuites(baseline: SuiteResults, candidate: SuiteResults) {
       rows.filter((row) => row.metrics.outcome === undefined).length;
     const beforeCompleted = completed(group.baseline);
     const afterCompleted = completed(group.candidate);
+    const deliveredState =
+      group.baseline[0]!.layer !== "operations"
+        ? "not-applicable"
+        : beforeCompleted !== group.baseline.length || afterCompleted !== group.candidate.length
+          ? "not-verified"
+          : ["loadedMessages", "totalMessages"].every((metric) => {
+                const expected = group.baseline[0]!.metrics[metric];
+                return (
+                  typeof expected === "number" &&
+                  Number.isFinite(expected) &&
+                  [...group.baseline, ...group.candidate].every(
+                    (row) => row.metrics[metric] === expected,
+                  )
+                );
+              })
+            ? "same"
+            : "changed";
     const completion =
       afterCompleted < beforeCompleted
         ? "regressed"
@@ -88,8 +109,14 @@ export function compareSuites(baseline: SuiteResults, candidate: SuiteResults) {
           : "unchanged";
     const metrics = [];
     // No timing win for a workload that no longer finishes. Partial percentiles remain in raw results.
-    if (beforeCompleted === group.baseline.length && afterCompleted === group.candidate.length) {
-      for (const metric of metricNames[group.baseline[0]!.workload] ?? []) {
+    if (
+      beforeCompleted === group.baseline.length &&
+      afterCompleted === group.candidate.length &&
+      deliveredState !== "changed"
+    ) {
+      for (const metric of group.baseline[0]!.layer === "operations"
+        ? ["operationMs", "linkTxBytes", "linkTxPackets"]
+        : (metricNames[group.baseline[0]!.workload] ?? [])) {
         const before = group.baseline.map((row) => row.metrics[metric]);
         const after = group.candidate.map((row) => row.metrics[metric]);
         if (
@@ -139,6 +166,7 @@ export function compareSuites(baseline: SuiteResults, candidate: SuiteResults) {
     return {
       case: key,
       completion,
+      deliveredState,
       baselineCompleted: beforeCompleted,
       candidateCompleted: afterCompleted,
       repetitions: group.baseline.length,

@@ -5,6 +5,7 @@ import { transportNames } from "./client.ts";
 import { presets, type Scenario } from "./impairments.ts";
 import { quicFlowControl } from "./protocol.ts";
 import { rpcTransportNames } from "./rpcClient.ts";
+import { operationNames, operationSettings } from "./operationsFixture.ts";
 import {
   linkSettings,
   rpcHeartbeatTimeout,
@@ -46,7 +47,7 @@ export const suiteDefinition = {
 } as const;
 
 export interface BenchCase {
-  readonly layer: "raw" | "rpc";
+  readonly layer: "raw" | "rpc" | "operations";
   readonly scenario: Scenario;
   readonly workload: string;
   readonly transport: string;
@@ -89,6 +90,51 @@ export function makeSuitePlan() {
     }
   }
   const definition = { ...suiteDefinition, cases };
+  return {
+    hash: NodeCrypto.createHash("sha256").update(JSON.stringify(definition)).digest("hex"),
+    ...definition,
+  };
+}
+
+/** Thread operations run only over RPC transports; raw frames have no application sync semantics. */
+export function makeOperationSuitePlan() {
+  const cases: BenchCase[] = [];
+  for (const scenario of presets) {
+    for (const workload of operationNames) {
+      for (let index = 0; index < 3; index++) {
+        for (let offset = 0; offset < rpcTransportNames.length; offset++) {
+          cases.push({
+            layer: "operations",
+            scenario,
+            workload,
+            transport: rpcTransportNames[(index + offset) % rpcTransportNames.length]!,
+            repetition: index + 1,
+            seed: 104729,
+            timeoutMs: 60000,
+          });
+        }
+      }
+    }
+  }
+  const definition = {
+    version: "operations-v1",
+    scenarios: presets,
+    layers: [{ name: "operations", transports: rpcTransportNames }],
+    workloads: operationNames,
+    workloadSettings: operationSettings,
+    seeds: [104729, 104729, 104729],
+    timeoutMs: 60000,
+    linkSettings,
+    quicFlowControl,
+    rpcHeartbeatTimeout,
+    serialization: suiteDefinition.serialization,
+    compression: suiteDefinition.compression,
+    order: "scenario,workload,seed,rotated-transport",
+    timing:
+      "uncached:ready-session-through-live;incremental:server-write-through-applied;reconnect:open-through-live",
+    traffic: "loopback-tx-IP-bytes-both-directions-through-client-completion",
+    cases,
+  } as const;
   return {
     hash: NodeCrypto.createHash("sha256").update(JSON.stringify(definition)).digest("hex"),
     ...definition,

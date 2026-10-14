@@ -5,6 +5,7 @@ import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -879,8 +880,9 @@ export const make = Effect.gen(function* () {
     );
 
   // Plain HTTP routes are unusable from an HTTPS page, which blocks mixed content.
+  const pageLocation: unknown = Reflect.get(globalThis, "location");
   const allowInsecureRoutes =
-    typeof globalThis.location === "undefined" || globalThis.location.protocol !== "https:";
+    !Predicate.hasProperty(pageLocation, "protocol") || pageLocation.protocol !== "https:";
 
   /**
    * Saves the direct addresses a connected server reports as learned routes,
