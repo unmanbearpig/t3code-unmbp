@@ -142,7 +142,10 @@ are dropped or delayed.
 Counters for periodic impairment cover both directions together, including acknowledgements.
 A 150ms one-way delay adds about 300ms RTT. The every-third-packet profile adds another
 300ms to selected packets. A fixed seed repeats netem's random sequence, but scheduling
-and packetization can change which packet consumes each draw.
+and packetization can change which packet consumes each draw. Different transports can
+therefore lose different application packets under the same seed. The fixed suite is a
+regression probe; deployment decisions also need independent loss sequences and real
+client measurements.
 
 `rpc-ws` uses production deflate, `rpc-ws-raw` disables compression, `rpc-wt` uses one
 ordered QUIC stream, and `rpc-wt-multi` opens a QUIC stream per request. Both operation
