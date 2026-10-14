@@ -1858,7 +1858,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       );
       // A spawned server lists its models lazily, so a window still unknown is
       // read again for the next turn, off this stream so it never delays one.
-      if (window === undefined) {
+      if (windowOf(turn.input.runtimePolicy.cwd, turn.input.modelSelection.model) === undefined) {
         yield* Effect.forkIn(readModels(directoryOf(turn.input.runtimePolicy.cwd)), sessionScope);
       }
     });
