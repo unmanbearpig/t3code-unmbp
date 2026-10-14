@@ -24,13 +24,17 @@ import { rpcHeartbeatTimeout } from "./settings.ts";
 export const rpcTransportNames = ["rpc-ws", "rpc-ws-raw", "rpc-wt", "rpc-wt-multi"] as const;
 export type RpcTransportName = (typeof rpcTransportNames)[number];
 
-const openWebTransport = Effect.fnUntraced(function* (tls: TlsMaterial) {
+const openWebTransport = Effect.fnUntraced(function* (
+  tls: TlsMaterial,
+  requireUnreliable: boolean,
+) {
   yield* Effect.promise(() => quicheLoaded);
   const transport = yield* Effect.acquireRelease(
     Effect.sync(
       () =>
         new WebTransport(`https://127.0.0.1:${ports.wt}/rpc`, {
           serverCertificateHashes: [{ algorithm: "sha-256", value: tls.certSha256 }],
+          requireUnreliable,
           ...quicFlowControl,
         }),
     ),
@@ -38,6 +42,9 @@ const openWebTransport = Effect.fnUntraced(function* (tls: TlsMaterial) {
   );
   // Wait outside acquireRelease so a deadline can interrupt a stalled handshake and close it.
   yield* Effect.promise(() => transport.ready);
+  if (requireUnreliable && transport.reliability !== "supports-unreliable") {
+    return yield* Effect.die(new Error("Operation WebTransport must negotiate QUIC over UDP"));
+  }
   return transport;
 });
 
@@ -147,7 +154,10 @@ const makeProtocolStreamPerRequest = (transport: WebTransport) =>
 export const makeRpcProtocol = (
   transport: RpcTransportName,
   tls: TlsMaterial,
-  framedSerialization = layerFramedJson,
+  options: {
+    readonly serialization?: typeof layerFramedJson;
+    readonly requireUnreliable?: boolean;
+  } = {},
 ) =>
   Effect.gen(function* () {
     const scope = yield* Effect.scope;
@@ -166,18 +176,18 @@ export const makeRpcProtocol = (
         );
         break;
       case "rpc-wt": {
-        const session = yield* openWebTransport(tls);
+        const session = yield* openWebTransport(tls, options.requireUnreliable ?? false);
         const socket = yield* socketFromStream(() => session.createBidirectionalStream());
         protocol = Layer.effect(RpcClient.Protocol, protocolSocket).pipe(
           Layer.provide(Layer.succeed(Socket.Socket, socket)),
-          Layer.provide(framedSerialization),
+          Layer.provide(options.serialization ?? layerFramedJson),
         );
         break;
       }
       case "rpc-wt-multi": {
-        const session = yield* openWebTransport(tls);
+        const session = yield* openWebTransport(tls, options.requireUnreliable ?? false);
         protocol = Layer.effect(RpcClient.Protocol, makeProtocolStreamPerRequest(session)).pipe(
-          Layer.provide(framedSerialization),
+          Layer.provide(options.serialization ?? layerFramedJson),
         );
         break;
       }

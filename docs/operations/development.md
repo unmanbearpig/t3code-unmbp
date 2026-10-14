@@ -146,8 +146,9 @@ and packetization can change which packet consumes each draw.
 
 `rpc-ws` uses production deflate, `rpc-ws-raw` disables compression, `rpc-wt` uses one
 ordered QUIC stream, and `rpc-wt-multi` opens a QUIC stream per request. Both operation
-WebTransport variants compress substantial RPC frames and retain raw JSON for tiny
-control messages. QUIC reliably delivers data over UDP. Compare complete operations
+WebTransport variants compress substantial RPC frames with a per-stream dictionary
+and retain raw JSON for tiny control messages. They require QUIC over UDP and reject
+HTTP/2 fallback; their RPC streams still deliver data reliably. Compare complete operations
 with production WebSocket deflate when judging the proposed implementation; the
 synthetic transport suite retains its uncompressed controls. Uncached thread
 snapshots use HTTPS/HTTP/1.1 for the WebSocket variants and HTTP/3 for WebTransport.

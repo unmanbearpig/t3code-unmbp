@@ -256,9 +256,10 @@ export const runOperation = Effect.fnUntraced(function* (
     const connectionStartedAt = wallClockMs();
     const synchronized = yield* Deferred.make<void>();
     const config = yield* Deferred.make<ServerConfig>();
-    const context = yield* makeRpcProtocol(transport, tls, operationRpcSerialization).pipe(
-      Scope.provide(connectionScope),
-    );
+    const context = yield* makeRpcProtocol(transport, tls, {
+      serialization: operationRpcSerialization,
+      requireUnreliable: true,
+    }).pipe(Scope.provide(connectionScope));
     const protocol = Context.get(context, RpcClient.Protocol);
     const threadRequests = new Set<string | number>();
     const measuredProtocol = RpcClient.Protocol.of({
