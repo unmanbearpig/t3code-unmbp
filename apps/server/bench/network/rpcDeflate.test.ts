@@ -60,3 +60,22 @@ it.effect("decodes a batched RPC response as separate messages and retains unfin
     assert.deepEqual(receiver.decode(wire.subarray(-1)), messages);
   }).pipe(Effect.provide(layerDeflatedJson)),
 );
+
+it.effect("retains a bounded dictionary per direction without sharing state between streams", () =>
+  Effect.gen(function* () {
+    const client = yield* codec;
+    const server = yield* codec;
+    const request = { _tag: "Request", text: operationMessageText(10).repeat(20) };
+    const reply = { _tag: "Chunk", text: operationMessageText(20).repeat(20) };
+    const first = binaryBytes(client.encode(request));
+    const repeated = binaryBytes(client.encode(request));
+    assert.isBelow(repeated.length, first.length);
+    assert.deepEqual(server.decode(first), [request]);
+    assert.deepEqual(client.decode(binaryBytes(server.encode(reply))), [reply]);
+    assert.deepEqual(server.decode(repeated), [request]);
+    assert.deepEqual(client.decode(binaryBytes(server.encode(reply))), [reply]);
+    const isolatedClient = yield* codec;
+    const isolatedServer = yield* codec;
+    assert.deepEqual(isolatedServer.decode(binaryBytes(isolatedClient.encode(request))), [request]);
+  }).pipe(Effect.provide(layerDeflatedJson)),
+);

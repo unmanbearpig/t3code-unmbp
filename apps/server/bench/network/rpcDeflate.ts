@@ -5,6 +5,19 @@ import { RpcSerialization } from "effect/rpc";
 
 import { lengthPrefixed, makeFrameSplitter } from "./protocol.ts";
 
+const dictionaryWindow = 32768;
+const remember = (previous: Uint8Array, bytes: Uint8Array): Uint8Array => {
+  if (bytes.length >= dictionaryWindow)
+    return Uint8Array.from(bytes.subarray(bytes.length - dictionaryWindow));
+  const retained = previous.subarray(
+    Math.max(0, previous.length + bytes.length - dictionaryWindow),
+  );
+  const next = new Uint8Array(retained.length + bytes.length);
+  next.set(retained);
+  next.set(bytes, retained.length);
+  return next;
+};
+
 /** Compresses substantial RPC frames; tiny control messages keep their original JSON bytes. */
 export const layerDeflatedJson = Layer.succeed(RpcSerialization.RpcSerialization)(
   RpcSerialization.RpcSerialization.of({
@@ -14,13 +27,19 @@ export const layerDeflatedJson = Layer.succeed(RpcSerialization.RpcSerialization
     makeUnsafe: () => {
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
+      let outgoingDictionary: Uint8Array = new Uint8Array();
+      let incomingDictionary: Uint8Array = new Uint8Array();
       let decoded: Array<unknown> = [];
       const split = makeFrameSplitter((frame) => {
         if (frame[0] !== 0 && frame[0] !== 1) throw new Error("Invalid RPC compression frame");
         const bytes =
           frame[0] === 1
-            ? NodeZlib.inflateRawSync(frame.subarray(1), { maxOutputLength: 16 * 1024 * 1024 })
+            ? NodeZlib.inflateRawSync(frame.subarray(1), {
+                maxOutputLength: 16 * 1024 * 1024,
+                dictionary: incomingDictionary,
+              })
             : frame.subarray(1);
+        incomingDictionary = remember(incomingDictionary, bytes);
         const value: unknown = JSON.parse(decoder.decode(bytes));
         if (Array.isArray(value)) decoded.push(...value);
         else decoded.push(value);
@@ -35,7 +54,10 @@ export const layerDeflatedJson = Layer.succeed(RpcSerialization.RpcSerialization
         encode: (message) => {
           const bytes = encoder.encode(JSON.stringify(message));
           const compressed =
-            bytes.length >= 256 ? NodeZlib.deflateRawSync(bytes, { level: 3 }) : bytes;
+            bytes.length >= 256
+              ? NodeZlib.deflateRawSync(bytes, { level: 3, dictionary: outgoingDictionary })
+              : bytes;
+          outgoingDictionary = remember(outgoingDictionary, bytes);
           const useCompressed = compressed.length < bytes.length;
           const body = useCompressed ? compressed : bytes;
           const frame = new Uint8Array(body.length + 1);
