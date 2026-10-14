@@ -13,7 +13,7 @@ import * as Predicate from "effect/Predicate";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import { FetchHttpClient, HttpClient } from "effect/http";
+import { HttpClient } from "effect/http";
 import { RpcClient } from "effect/rpc";
 
 import {
@@ -45,6 +45,7 @@ import {
   type OperationName,
 } from "./operationsFixture.ts";
 import type { Recorder } from "./workloads.ts";
+import { makeSnapshotHttpClient, snapshotPort, type SnapshotHttpProtocol } from "./http3.ts";
 
 /** Counts IP traffic in both directions, including TCP/QUIC headers and retransmissions. */
 function readLinkCounters() {
@@ -159,6 +160,7 @@ export const runOperation = Effect.fnUntraced(function* (
   tls: TlsMaterial,
   record: Recorder,
   control: OperationControl,
+  httpProtocol?: SnapshotHttpProtocol,
 ) {
   const scope = yield* Effect.scope;
   record.set("phase", "setup");
@@ -174,10 +176,15 @@ export const runOperation = Effect.fnUntraced(function* (
   let sequenceError = false;
   const expectedInitial = yield* control(0);
   const cold = name === "open-new" || name === "open-long";
+  const snapshotClient = yield* makeSnapshotHttpClient(
+    httpProtocol ?? (transport.startsWith("rpc-wt") ? "h3" : "h1"),
+    tls,
+    record,
+  );
   const target = new PrimaryConnectionTarget({
     environmentId: operationServerConfig.environment.environmentId,
     label: "Benchmark",
-    httpBaseUrl: "http://127.0.0.1:4406",
+    httpBaseUrl: "https://127.0.0.1:" + snapshotPort,
     wsBaseUrl: "ws://127.0.0.1:4404",
   });
   const prepared: PreparedConnection = {
@@ -220,7 +227,7 @@ export const runOperation = Effect.fnUntraced(function* (
               return request;
             }),
           ),
-        ).pipe(Layer.provide(FetchHttpClient.layer)),
+        ).pipe(Layer.provide(Layer.succeed(HttpClient.HttpClient, snapshotClient))),
       ),
     ),
     scope,

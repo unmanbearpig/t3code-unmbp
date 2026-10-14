@@ -28,7 +28,7 @@ export const operationSettings = {
   timestamps: { createdAt: "2026-10-14T00:00:00.000Z", stepMs: 1000 },
   eventModel: "completed-run,message,visible-conversation-item-v1",
   fixture: "distinct-message-text-v1",
-  http: "production-gzip-http1",
+  http: "production-gzip-https-h1-h3-common-libcurl",
   cache: "memory",
   completion: "shared-client-state-live-and-verified",
   initialState: "full-memory-cache-from-isolated-projection",

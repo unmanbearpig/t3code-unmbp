@@ -38,6 +38,8 @@ import {
 import { type Metrics, Recorder, workloads } from "./workloads.ts";
 import { compareSuites, SuiteResults, validateSuiteResults } from "./comparison.ts";
 import { type BenchCase, makeOperationSuitePlan, makeSuitePlan, workloadNames } from "./suite.ts";
+import { http3Environment, type SnapshotHttpProtocol } from "./http3.ts";
+import { ensureHttp3Proxy, http3ProxyConfig, waitForHttp3Proxy } from "./http3Proxy.ts";
 
 const isRpcClientError = Schema.is(RpcClientError.RpcClientError);
 const decodeOperationControl = Schema.decodeUnknownEffect(
@@ -55,6 +57,7 @@ const { values } = NodeUtil.parseArgs({
     seed: { type: "string" },
     suite: { type: "boolean" },
     "suite-name": { type: "string" },
+    "http-protocol": { type: "string" },
     "dry-run": { type: "boolean" },
     baseline: { type: "string" },
     out: { type: "string" },
@@ -75,7 +78,8 @@ if (values.help) {
   --out PATH            Save JSON after each case, including partial results
   --seed INTEGER        Seed netem's loss and jitter for a manual run
   --suite               Run the complete fixed network-v1 matrix
-  --suite-name NAME     network-v1 or operations-v2 (requires --suite)
+  --suite-name NAME     network-v1 or operations-v3 (requires --suite)
+  --http-protocol h1|h3 Override snapshot protocol in a manual operation experiment
   --dry-run             Print the suite manifest without running packets
   --baseline PATH       Compare a suite run with a previous suite result
 Linux only; needs unshare, ip, tc, iptables, ethtool, sysctl, and openssl.
@@ -96,25 +100,35 @@ if (seed !== undefined && (!Number.isInteger(seed) || seed < 1 || seed >= 0xffff
   throw new Error("--seed must be an integer between 1 and 4294967294");
 if (
   values["suite-name"] &&
-  (!values.suite || !["network-v1", "operations-v2"].includes(values["suite-name"]))
+  (!values.suite || !["network-v1", "operations-v3"].includes(values["suite-name"]))
 )
-  throw new Error("--suite-name must be network-v1 or operations-v2 and requires --suite");
+  throw new Error("--suite-name must be network-v1 or operations-v3 and requires --suite");
 const suite = values.suite
-  ? values["suite-name"] === "operations-v2"
+  ? values["suite-name"] === "operations-v3"
     ? makeOperationSuitePlan()
     : makeSuitePlan()
   : undefined;
 if (
   suite &&
-  ["layer", "scenarios", "transports", "workloads", "timeout", "repeat", "seed"].some(
-    (key) => values[key as keyof typeof values] !== undefined,
-  )
+  [
+    "layer",
+    "scenarios",
+    "transports",
+    "workloads",
+    "timeout",
+    "repeat",
+    "seed",
+    "http-protocol",
+  ].some((key) => values[key as keyof typeof values] !== undefined)
 )
   throw new Error(
     "--suite fixes every benchmark setting; only --out, --baseline, and --dry-run may accompany it",
   );
 if (!suite && (values.baseline || values["dry-run"]))
   throw new Error("--baseline and --dry-run require --suite");
+const httpProtocol = values["http-protocol"];
+if (httpProtocol !== undefined && (layer !== "operations" || !["h1", "h3"].includes(httpProtocol)))
+  throw new Error("--http-protocol must be h1 or h3 and requires --layer operations");
 if (values["dry-run"]) {
   console.log(JSON.stringify(suite, null, 2));
   process.exit(0);
@@ -149,6 +163,9 @@ const cases: readonly BenchCase[] =
     ),
   );
 
+const usesOperations = cases.some((entry) => entry.layer === "operations");
+if (usesOperations && process.env.NETBENCH_IN_NETNS !== "1")
+  process.env.NETBENCH_CADDY = (await ensureHttp3Proxy()).executable;
 if (process.env.NETBENCH_IN_NETNS !== "1") {
   const child = NodeChildProcess.spawn(
     "unshare",
@@ -230,6 +247,7 @@ function runCase(
             tls,
             record,
             operationControl,
+            httpProtocol as SnapshotHttpProtocol | undefined,
           ),
         )
       : rpcWorkloads
@@ -249,17 +267,21 @@ const tlsDir = NodeFS.mkdtempSync(NodePath.join(scratchRoot, "netbench-"));
 const certPath = NodePath.join(tlsDir, "cert.pem");
 const keyPath = NodePath.join(tlsDir, "key.pem");
 let activeServer: NodeChildProcess.ChildProcess | undefined;
+let activeProxy: NodeChildProcess.ChildProcess | undefined;
 let activeRecorder: Recorder | undefined;
 let exitCode = 0;
 
 async function stopServer() {
-  const child = activeServer;
+  const children = [activeProxy, activeServer];
+  activeProxy = undefined;
   activeServer = undefined;
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise<void>((resolve) => {
-    child.once("exit", () => resolve());
-    child.kill("SIGKILL");
-  });
+  for (const child of children) {
+    if (!child || child.exitCode !== null || child.signalCode !== null) continue;
+    await new Promise<void>((resolve) => {
+      child.once("exit", () => resolve());
+      child.kill("SIGKILL");
+    });
+  }
 }
 
 async function cleanup() {
@@ -317,12 +339,14 @@ try {
   };
 
   async function startServer(entry: BenchCase) {
+    const socketPath = NodePath.join(tlsDir, "snapshot.sock");
+    NodeFS.rmSync(socketPath, { force: true });
     const child = NodeChildProcess.fork(
       NodePath.join(
         import.meta.dirname,
         entry.layer === "operations" ? "operationsServer.ts" : "server.ts",
       ),
-      [certPath, keyPath, entry.workload],
+      [certPath, keyPath, entry.workload, socketPath],
       {
         stdio: ["ignore", "inherit", "inherit", "ipc"],
       },
@@ -337,6 +361,20 @@ try {
       );
       child.once("exit", (code) => reject(new Error(`bench server exited with ${code}`)));
     }).finally(() => clearTimeout(timer));
+    if (entry.layer === "operations") {
+      const proxy = await ensureHttp3Proxy();
+      const configPath = NodePath.join(tlsDir, "proxy.json");
+      NodeFS.writeFileSync(
+        configPath,
+        JSON.stringify(
+          http3ProxyConfig(certPath, keyPath, socketPath, NodePath.join(tlsDir, "proxy-storage")),
+        ),
+      );
+      activeProxy = NodeChildProcess.spawn(proxy.executable, ["run", "--config", configPath], {
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+      await waitForHttp3Proxy(activeProxy);
+    }
   }
 
   interface Row {
@@ -362,6 +400,9 @@ try {
     cpuCount: NodeOS.cpus().length,
     tc: NodeChildProcess.execFileSync("tc", ["-V"], { encoding: "utf8" }).trim(),
     iptables: NodeChildProcess.execFileSync("iptables", ["-V"], { encoding: "utf8" }).trim(),
+    http3: usesOperations
+      ? { ...(await http3Environment()), caddy: (await ensureHttp3Proxy()).version }
+      : undefined,
   };
   const metadata = {
     revision: NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], {

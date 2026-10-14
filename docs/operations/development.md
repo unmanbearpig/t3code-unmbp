@@ -40,15 +40,26 @@ different preference when needed.
 The Linux network benchmark measures thread operations using the production SQL
 projection, HTTP snapshot routes, persisted replay, live streams, and shared web/mobile
 thread state. It compares WebSocket/TCP with experimental WebTransport over QUIC/UDP.
-Run it after `vp i`, with `unshare`, `ip`, `tc`, `iptables`, `ethtool`, `sysctl`, and
-`openssl` available. Rootless user namespaces must be enabled.
+Run it after `vp i`, with `unshare`, `ip`, `tc`, `iptables`, `ethtool`, `sysctl`,
+`openssl`, and an HTTP/3-enabled libcurl development installation available. Rootless
+user namespaces must be enabled. Build the benchmark's native client against that
+libcurl if its downloaded prebuild lacks HTTP/3:
+
+```sh
+npm_config_build_from_source=true npm_config_curl_config_bin=/usr/bin/curl-config \
+  vp rebuild node-libcurl
+```
+
+The first run downloads checksum-verified Caddy 2.11.7 into
+`~/codex-tmp/network-bench-tools`; later runs reuse it. Other Linux architectures
+can supply that version through `NETBENCH_CADDY`.
 
 ```sh
 vp run bench:network
 vp run bench:network --dry-run
 ```
 
-The fixed `operations-v2` suite runs 648 cases: six operations, nine network profiles,
+The fixed `operations-v3` suite runs 648 cases: six operations, nine network profiles,
 four RPC transport variants, and three repetitions. Messages contain 2,000 characters
 of deterministic, distinct text. Each user/assistant pair has a completed run and
 visible conversation items. The suite uses netem seed `104729`, rotates transport order,
@@ -86,8 +97,8 @@ interval. These are transfer-cost measurements, not exact application payload si
 from the isolated projection. Reconnect cases verify that cache while offline and open
 only the measured connection, so a previous socket cannot send teardown traffic or
 receive the offline writes. They do not refetch that history during setup. The corrected
-completion and reconnect boundaries require a new baseline; `operations-v1` results
-cannot be compared with this suite.
+completion and reconnect boundaries and the HTTP/3 snapshot experiment require a new
+baseline; `operations-v1` and `operations-v2` results cannot be compared with this suite.
 
 The runner checks message IDs, ordering, contents, roles, run membership, visible
 conversation items, history metadata, event sequences, subscription cursors, expected
@@ -132,8 +143,18 @@ and packetization can change which packet consumes each draw.
 ordered QUIC stream, and `rpc-wt-multi` opens a QUIC stream per request. QUIC reliably
 delivers data over UDP. Compare uncompressed WebSocket and QUIC to isolate transport
 cost, and include compression when judging the app's current behavior. Uncached thread
-snapshots use the same production gzip HTTP/1 endpoint for every variant, so these cases
-also reveal how much work remains on TCP after changing only the RPC transport.
+snapshots use HTTPS/HTTP/1.1 for the WebSocket variants and HTTP/3 for WebTransport.
+Both use libcurl, the same fixture certificate, Caddy, and the production gzip route
+over a Unix socket, so the proxy introduces no additional counted TCP hop. The client
+forces the protocol and verifies it at both ends; HTTP/3 never silently falls back.
+Each case owns its connection pool. HTTP handshake, first-byte, and total request
+times are saved alongside the complete operation time.
+
+The HTTP/3 snapshot and WebTransport RPC use separate QUIC connections. This suite
+measures that implementation, not a browser sharing one QUIC connection. It remains
+an experimental benchmark path; production clients still use their existing transports.
+For a protocol-only snapshot comparison, keep the RPC transport unchanged and rerun
+a manual experiment with `--http-protocol h1` and `--http-protocol h3`.
 
 For a targeted experiment, call the runner directly. Manual flags do not change the fixed
 suite:

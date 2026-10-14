@@ -59,8 +59,9 @@ import {
   OperationControlResponse,
 } from "./operationsFixture.ts";
 
-const [certPath, keyPath, workload] = process.argv.slice(2);
-if (!certPath || !keyPath) throw new Error("Usage: operationsServer.ts <cert> <key> <workload>");
+const [certPath, keyPath, workload, httpSocketPath] = process.argv.slice(2);
+if (!certPath || !keyPath || !httpSocketPath)
+  throw new Error("Usage: operationsServer.ts <cert> <key> <workload> <http-socket>");
 
 const persistence = EventSink.layer.pipe(
   Layer.provideMerge(EventStore.layerFromOrchestrationEventStore),
@@ -149,9 +150,7 @@ const httpRoutes = HttpApiBuilder.layer(OperationApi).pipe(
   Layer.provide(NodeHttpPlatform.layer),
 );
 const http = HttpRouter.serve(httpRoutes, { disableListenLog: true }).pipe(
-  Layer.provideMerge(
-    NodeHttpServer.layer(NodeHttp.createServer, { host: "127.0.0.1", port: 4406 }),
-  ),
+  Layer.provideMerge(NodeHttpServer.layer(NodeHttp.createServer, { path: httpSocketPath })),
 );
 const controlRequest = Schema.Struct({ count: Schema.Number });
 const decodeControlRequest = Schema.decodeUnknownEffect(controlRequest);

@@ -20,6 +20,8 @@ allowBuilds:
   msgpackr-extract: true
   msw: false
   node-pty: true
+  # Native libcurl adapter used only by the HTTP/3 network benchmark.
+  node-libcurl: true
   # Ships N-API prebuilds; its install script only rebuilds from source.
   objc-js: false
   "react-native-enriched-markdown@file:apps/mobile/deps/react-native-enriched-markdown-1.2.0-t3.11.tgz": true

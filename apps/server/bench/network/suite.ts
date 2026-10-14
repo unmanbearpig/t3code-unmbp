@@ -6,6 +6,7 @@ import { presets, type Scenario } from "./impairments.ts";
 import { quicFlowControl } from "./protocol.ts";
 import { rpcTransportNames } from "./rpcClient.ts";
 import { operationNames, operationSettings } from "./operationsFixture.ts";
+import { http3ProxySettings } from "./http3Proxy.ts";
 import {
   linkSettings,
   rpcHeartbeatTimeout,
@@ -117,7 +118,7 @@ export function makeOperationSuitePlan() {
     }
   }
   const definition = {
-    version: "operations-v2",
+    version: "operations-v3",
     scenarios: presets,
     layers: [{ name: "operations", transports: rpcTransportNames }],
     workloads: operationNames,
@@ -134,6 +135,12 @@ export function makeOperationSuitePlan() {
       "uncached:ready-session-through-live;incremental:server-write-through-applied;reconnect:open-through-live",
     traffic: "loopback-tx-IP-bytes-both-directions-through-client-completion",
     reconnectSetup: "verified-offline-cache-with-no-prior-transport",
+    snapshots: {
+      proxy: http3ProxySettings,
+      websocket: "https-http1.1",
+      webTransport: "http3-only",
+      client: "node-libcurl-5.1.2",
+    },
     cases,
   } as const;
   return {
