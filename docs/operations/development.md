@@ -104,7 +104,8 @@ vp run bench:network --baseline ~/codex-tmp/network-before.json \
 The comparison rejects different suite versions, settings, host/runtime fingerprints,
 incomplete files, missing cases, and duplicate cases. It writes a `.comparison.json`
 file. Fewer successful repetitions are a regression. Timing and transfer cost are compared
-only when both revisions finish all repetitions. A change of at least 10% and one unit
+only when both revisions finish all repetitions and deliver the same message counts.
+Changed delivered state requires review and cannot qualify as a speedup. A change of at least 10% and one unit
 whose three-run ranges do not overlap gets a review signal. Overlapping ranges are
 inconclusive; these checks are not statistical confidence intervals. Three operation
 repetitions do not estimate p99. Compare each operation and profile separately. A smaller

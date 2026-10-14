@@ -84,6 +84,23 @@ export function compareSuites(baseline: SuiteResults, candidate: SuiteResults) {
       rows.filter((row) => row.metrics.outcome === undefined).length;
     const beforeCompleted = completed(group.baseline);
     const afterCompleted = completed(group.candidate);
+    const deliveredState =
+      group.baseline[0]!.layer !== "operations"
+        ? "not-applicable"
+        : beforeCompleted !== group.baseline.length || afterCompleted !== group.candidate.length
+          ? "not-verified"
+          : ["loadedMessages", "totalMessages"].every((metric) => {
+                const expected = group.baseline[0]!.metrics[metric];
+                return (
+                  typeof expected === "number" &&
+                  Number.isFinite(expected) &&
+                  [...group.baseline, ...group.candidate].every(
+                    (row) => row.metrics[metric] === expected,
+                  )
+                );
+              })
+            ? "same"
+            : "changed";
     const completion =
       afterCompleted < beforeCompleted
         ? "regressed"
@@ -92,7 +109,11 @@ export function compareSuites(baseline: SuiteResults, candidate: SuiteResults) {
           : "unchanged";
     const metrics = [];
     // No timing win for a workload that no longer finishes. Partial percentiles remain in raw results.
-    if (beforeCompleted === group.baseline.length && afterCompleted === group.candidate.length) {
+    if (
+      beforeCompleted === group.baseline.length &&
+      afterCompleted === group.candidate.length &&
+      deliveredState !== "changed"
+    ) {
       for (const metric of group.baseline[0]!.layer === "operations"
         ? ["operationMs", "linkTxBytes", "linkTxPackets"]
         : (metricNames[group.baseline[0]!.workload] ?? [])) {
@@ -145,6 +166,7 @@ export function compareSuites(baseline: SuiteResults, candidate: SuiteResults) {
     return {
       case: key,
       completion,
+      deliveredState,
       baselineCompleted: beforeCompleted,
       candidateCompleted: afterCompleted,
       repetitions: group.baseline.length,

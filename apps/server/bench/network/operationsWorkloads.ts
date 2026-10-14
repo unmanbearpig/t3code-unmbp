@@ -65,6 +65,16 @@ export function operationStateError(
   if (state.status !== "live" || Option.isNone(state.data) || Option.isSome(state.error))
     return "Client did not become live";
   const projection = state.data.value;
+  if (new Set(projection.messages.map((message) => message.id)).size !== projection.messages.length)
+    return "Duplicated message";
+  const runIdsInState = new Set(projection.runs.map((run) => run.id));
+  if (runIdsInState.size !== projection.runs.length) return "Duplicated run";
+  if (
+    projection.messages.some(
+      (message) => message.runId === null || !runIdsInState.has(message.runId),
+    )
+  )
+    return "Missing message run";
   const ids = bounded
     ? expected.windowMessageIds
     : Array.from({ length: expected.messages }, (_, i) => `operation-message-${i}`);

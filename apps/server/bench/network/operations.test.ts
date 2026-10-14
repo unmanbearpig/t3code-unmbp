@@ -108,6 +108,36 @@ it.effect(
             true,
           ),
         );
+        // A server-side projection bug must not pass by also corrupting the
+        // inspector's expected window in the same way.
+        const duplicateMessages = bounded.projection.messages.map((message, index) =>
+          index === 1 ? bounded.projection.messages[0]! : message,
+        );
+        assert.isString(
+          operationStateError(
+            {
+              ...state,
+              data: Option.some({
+                ...bounded.projection,
+                messages: duplicateMessages,
+                visibleTurnItems: bounded.projection.visibleTurnItems.map((row, index) =>
+                  index === 1 ? bounded.projection.visibleTurnItems[0]! : row,
+                ),
+              }),
+              history: {
+                ...state.history,
+                hasMoreHistory: true,
+                historyCursor: bounded.historyCursor,
+                latestLocalTurnOrdinal: bounded.latestLocalTurnOrdinal,
+              },
+            },
+            {
+              ...boundedExpected,
+              windowMessageIds: duplicateMessages.map((message) => message.id),
+            },
+            true,
+          ),
+        );
       }),
     ).pipe(Effect.provide(persistence)),
 );
@@ -134,7 +164,13 @@ function operationResults(value = 100): SuiteResults {
       ...entry,
       scenario: entry.scenario.name,
       seed: entry.seed!,
-      metrics: { operationMs: value, linkTxBytes: 10000, linkTxPackets: 100 },
+      metrics: {
+        operationMs: value,
+        linkTxBytes: 10000,
+        linkTxPackets: 100,
+        loadedMessages: 100,
+        totalMessages: 100,
+      },
     })),
   };
 }
@@ -199,4 +235,17 @@ it("flags slower completion and extra transfer cost without letting an incomplet
   });
   assert.equal(failures[0]!.completion, "regressed");
   assert.deepEqual(failures[0]!.metrics, []);
+});
+
+it("does not award a speedup for delivering fewer messages", () => {
+  const candidate = operationResults(1);
+  const comparison = compareSuites(operationResults(), {
+    ...candidate,
+    rows: candidate.rows.map((row) => ({
+      ...row,
+      metrics: { ...row.metrics, loadedMessages: 10 },
+    })),
+  });
+  assert.equal(comparison[0]!.deliveredState, "changed");
+  assert.deepEqual(comparison[0]!.metrics, []);
 });

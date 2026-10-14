@@ -480,6 +480,7 @@ try {
     const regressions = comparisons.filter(
       (comparison) =>
         comparison.completion === "regressed" ||
+        comparison.deliveredState === "changed" ||
         comparison.metrics.some((metric) => metric.signal === "regressed"),
     );
     const reportPath = `${out}.comparison.json`;
