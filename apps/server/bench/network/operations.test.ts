@@ -1,7 +1,11 @@
 import { assert, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as SubscriptionRef from "effect/SubscriptionRef";
+import type { EnvironmentThreadState } from "../../../../packages/client-runtime/src/state/threads.ts";
 
 import * as EventSink from "../../src/orchestration-v2/EventSink.ts";
 import * as EventStore from "../../src/orchestration-v2/EventStore.ts";
@@ -15,7 +19,7 @@ import {
   THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,
 } from "../../src/orchestration-v2/threadHistoryPaging.ts";
 import { EMPTY_ENVIRONMENT_THREAD_STATE } from "../../../../packages/client-runtime/src/state/threadState.ts";
-import { operationStateError } from "./operationsWorkloads.ts";
+import { operationStateError, waitForOperationState } from "./operationsWorkloads.ts";
 import {
   operationMessageEvents,
   operationMessageText,
@@ -59,6 +63,10 @@ it.effect(
           data: Option.some(snapshot.projection),
         };
         assert.isUndefined(operationStateError(state, expected, false));
+        assert.isUndefined(
+          operationStateError({ ...state, status: "cached" }, expected, false, "cached"),
+        );
+        assert.isString(operationStateError({ ...state, status: "cached" }, expected, false));
         for (const messages of [
           snapshot.projection.messages.slice(1),
           [...snapshot.projection.messages.slice(0, -1), snapshot.projection.messages[0]!],
@@ -142,6 +150,52 @@ it.effect(
     ).pipe(Effect.provide(persistence)),
 );
 
+it.effect("waits for the last visible item when incremental events arrive in separate chunks", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const sink = yield* EventSink.EventSinkV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      yield* sink.write({ events: [operationThreadCreated, ...operationMessageEvents(0, 100)] });
+      const added = operationMessageEvents(100, 5);
+      yield* sink.write({ events: added.slice(0, -1) });
+      const intermediate = yield* projections.getThreadSnapshot(operationThreadId);
+      assert.equal(intermediate.projection.messages.length, 105);
+      assert.equal(intermediate.projection.visibleTurnItems.length, 104);
+      const state = yield* SubscriptionRef.make<EnvironmentThreadState>({
+        ...EMPTY_ENVIRONMENT_THREAD_STATE,
+        status: "live" as const,
+        data: Option.some(intermediate.projection),
+      });
+      const expected: OperationControlResponse = {
+        startedAt: 0,
+        sequence: intermediate.snapshotSequence + 1,
+        messages: 105,
+        windowMessageIds: [],
+        windowRunIds: [],
+        hasMoreHistory: false,
+        latestLocalTurnOrdinal: null,
+      };
+      const completed = yield* Deferred.make<void>();
+      const waiting = yield* waitForOperationState(state, expected, false).pipe(
+        Effect.tap(() => Deferred.succeed(completed, undefined)),
+        Effect.forkChild,
+      );
+      yield* Effect.yieldNow;
+      assert.isFalse(yield* Deferred.isDone(completed));
+      yield* sink.write({ events: added.slice(-1) });
+      const final = yield* projections.getThreadSnapshot(operationThreadId);
+      yield* SubscriptionRef.set<EnvironmentThreadState>(state, {
+        ...EMPTY_ENVIRONMENT_THREAD_STATE,
+        status: "live",
+        data: Option.some(final.projection),
+      });
+      const observed = yield* Fiber.join(waiting);
+      assert.equal(Option.getOrThrow(observed.data).visibleTurnItems.length, 105);
+      assert.isUndefined(operationStateError(observed, expected, false));
+    }),
+  ).pipe(Effect.provide(persistence)),
+);
+
 it("keeps the busy reconnect on replay and exercises snapshot fallback separately", () => {
   assert.isAtMost(
     operationMessageEvents(100, operationSettings.replayMessages).length,
@@ -156,6 +210,7 @@ it("keeps the busy reconnect on replay and exercises snapshot fallback separatel
 
 function operationResults(value = 100): SuiteResults {
   const plan = makeOperationSuitePlan();
+  assert.equal(plan.version, "operations-v2");
   return {
     suite: { hash: plan.hash },
     complete: true,
@@ -186,6 +241,14 @@ it("fixes every operation, network profile, transport, and repetition independen
     "624d269925dfbfb4b098791d6c46dfe91abedf451f01d3852e61f50cf5fd16f6",
   );
   validateSuiteResults(operationResults());
+  assert.throws(
+    () =>
+      validateSuiteResults({
+        ...operationResults(),
+        suite: { hash: "796f7a83bf04f051a7c193cc132588e079ef0e17eb9d4405793ddb591334a20e" },
+      }),
+    /configuration differs/,
+  );
   assert.throws(
     () => validateSuiteResults({ ...operationResults(), rows: operationResults().rows.slice(1) }),
     /incomplete/,

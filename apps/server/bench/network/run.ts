@@ -75,7 +75,7 @@ if (values.help) {
   --out PATH            Save JSON after each case, including partial results
   --seed INTEGER        Seed netem's loss and jitter for a manual run
   --suite               Run the complete fixed network-v1 matrix
-  --suite-name NAME     network-v1 or operations-v1 (requires --suite)
+  --suite-name NAME     network-v1 or operations-v2 (requires --suite)
   --dry-run             Print the suite manifest without running packets
   --baseline PATH       Compare a suite run with a previous suite result
 Linux only; needs unshare, ip, tc, iptables, ethtool, sysctl, and openssl.
@@ -96,11 +96,11 @@ if (seed !== undefined && (!Number.isInteger(seed) || seed < 1 || seed >= 0xffff
   throw new Error("--seed must be an integer between 1 and 4294967294");
 if (
   values["suite-name"] &&
-  (!values.suite || !["network-v1", "operations-v1"].includes(values["suite-name"]))
+  (!values.suite || !["network-v1", "operations-v2"].includes(values["suite-name"]))
 )
-  throw new Error("--suite-name must be network-v1 or operations-v1 and requires --suite");
+  throw new Error("--suite-name must be network-v1 or operations-v2 and requires --suite");
 const suite = values.suite
-  ? values["suite-name"] === "operations-v1"
+  ? values["suite-name"] === "operations-v2"
     ? makeOperationSuitePlan()
     : makeSuitePlan()
   : undefined;

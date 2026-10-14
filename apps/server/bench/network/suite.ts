@@ -117,7 +117,7 @@ export function makeOperationSuitePlan() {
     }
   }
   const definition = {
-    version: "operations-v1",
+    version: "operations-v2",
     scenarios: presets,
     layers: [{ name: "operations", transports: rpcTransportNames }],
     workloads: operationNames,
@@ -133,6 +133,7 @@ export function makeOperationSuitePlan() {
     timing:
       "uncached:ready-session-through-live;incremental:server-write-through-applied;reconnect:open-through-live",
     traffic: "loopback-tx-IP-bytes-both-directions-through-client-completion",
+    reconnectSetup: "verified-offline-cache-with-no-prior-transport",
     cases,
   } as const;
   return {

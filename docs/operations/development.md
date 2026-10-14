@@ -48,7 +48,7 @@ vp run bench:network
 vp run bench:network --dry-run
 ```
 
-The fixed `operations-v1` suite runs 648 cases: six operations, nine network profiles,
+The fixed `operations-v2` suite runs 648 cases: six operations, nine network profiles,
 four RPC transport variants, and three repetitions. Messages contain 2,000 characters
 of deterministic, distinct text. Each user/assistant pair has a completed run and
 visible conversation items. The suite uses netem seed `104729`, rotates transport order,
@@ -62,9 +62,9 @@ The complete manifest and its SHA-256 hash are saved with results.
 | `sync-five`          | Live subscription with all 100 messages loaded; persist five additional messages                         | Shared client state has all 105 messages and their conversation items                                 |
 | `open-new`           | Ready session, uncached 100-message thread; load its bounded HTTP snapshot and subscribe from its cursor | Latest history window is correct and the server completion marker has made state live                 |
 | `open-long`          | Same operation with 2,000 messages in server history                                                     | Same completion condition; current policy loads the latest 20 messages                                |
-| `reconnect-idle`     | Disconnect a client with 100 loaded messages; make no changes; create a new session                      | Client receives the completion marker and retains the same 100 messages                               |
-| `reconnect-replay`   | Disconnect with 100 messages; add 50 messages while offline; create a new session                        | All 150 messages and 125 missed domain events have been applied and state is live                     |
-| `reconnect-snapshot` | Disconnect with 100 messages; add 200 messages while offline, exceeding replay limits                    | Client replaces its state with a correct bounded snapshot of the latest conversation and becomes live |
+| `reconnect-idle`     | Offline client with 100 cached messages; make no changes; create a new session                           | Client receives the completion marker and retains the same 100 messages                               |
+| `reconnect-replay`   | Offline client with 100 cached messages; add 50 messages; create a new session                           | All 150 messages and 125 missed domain events have been applied and state is live                     |
+| `reconnect-snapshot` | Offline client with 100 cached messages; add 200 messages, exceeding replay limits                       | Client replaces its state with a correct bounded snapshot of the latest conversation and becomes live |
 
 `operationMs` is milliseconds from starting the operation to the completion above.
 Incremental sync starts immediately before the server persists the batch, so it includes
@@ -83,7 +83,11 @@ completion, so late acknowledgements or connection-close traffic can fall outsid
 interval. These are transfer-cost measurements, not exact application payload sizes.
 `events`, `socketSnapshots`, `httpSnapshots`, `syncMode`, `loadedMessages`, and
 `totalMessages` explain the path taken. Incremental sync and reconnect start with a full 100-message memory cache copied
-from the isolated projection. They do not refetch that history during setup.
+from the isolated projection. Reconnect cases verify that cache while offline and open
+only the measured connection, so a previous socket cannot send teardown traffic or
+receive the offline writes. They do not refetch that history during setup. The corrected
+completion and reconnect boundaries require a new baseline; `operations-v1` results
+cannot be compared with this suite.
 
 The runner checks message IDs, ordering, contents, roles, run membership, visible
 conversation items, history metadata, event sequences, subscription cursors, expected

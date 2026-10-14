@@ -61,9 +61,10 @@ export function operationStateError(
   state: EnvironmentThreadState,
   expected: OperationControlResponse,
   bounded: boolean,
+  status: "live" | "cached" = "live",
 ) {
-  if (state.status !== "live" || Option.isNone(state.data) || Option.isSome(state.error))
-    return "Client did not become live";
+  if (state.status !== status || Option.isNone(state.data) || Option.isSome(state.error))
+    return `Client did not become ${status}`;
   const projection = state.data.value;
   if (new Set(projection.messages.map((message) => message.id)).size !== projection.messages.length)
     return "Duplicated message";
@@ -128,16 +129,25 @@ export function operationStateError(
   return undefined;
 }
 
-const liveState = (
+/** Waits for all expected rows; content validation runs after recording completion time. */
+export const waitForOperationState = (
   state: SubscriptionRef.SubscriptionRef<EnvironmentThreadState>,
-  messages?: number,
+  expected: OperationControlResponse,
+  bounded: boolean,
+  status: "live" | "cached" = "live",
 ) =>
   SubscriptionRef.changes(state).pipe(
     Stream.filter(
       (current) =>
-        current.status === "live" &&
+        current.status === status &&
         Option.isSome(current.data) &&
-        (messages === undefined || current.data.value.messages.length === messages),
+        Option.isNone(current.error) &&
+        current.data.value.messages.length ===
+          (bounded ? expected.windowMessageIds.length : expected.messages) &&
+        current.data.value.visibleTurnItems.length ===
+          (bounded ? expected.windowMessageIds.length : expected.messages) &&
+        current.data.value.runs.length ===
+          (bounded ? expected.windowRunIds.length : Math.ceil(expected.messages / 2)),
     ),
     Stream.runHead,
     Effect.map(Option.getOrThrow),
@@ -220,7 +230,7 @@ export const runOperation = Effect.fnUntraced(function* (
     Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
   );
 
-  const open = Effect.fnUntraced(function* () {
+  const open = Effect.fnUntraced(function* (expected: OperationControlResponse, bounded: boolean) {
     yield* SubscriptionRef.set(supervisorState, {
       ...AVAILABLE_CONNECTION_STATE,
       desired: true,
@@ -315,28 +325,32 @@ export const runOperation = Effect.fnUntraced(function* (
     }
     yield* SubscriptionRef.set(sessions, Option.some(session));
     yield* Deferred.await(synchronized);
-    yield* liveState(state);
+    yield* waitForOperationState(state, expected, bounded);
     return connectionScope;
   });
 
-  let startedAt = wallClockMs();
-  let connection = yield* open();
+  let connection: Scope.Closeable;
   let expected = expectedInitial;
   let bounded = cold;
-  if (!cold) {
+  if (cold || name === "sync-five") {
+    connection = yield* open(expectedInitial, cold);
+    if (!cold)
+      record.check(
+        operationStateError(yield* SubscriptionRef.get(state), expectedInitial, false) ===
+          undefined,
+        "Invalid initial 100-message client fixture",
+      );
+  } else {
+    // Reconnect starts from the same offline cache/cursor. A warm-up socket adds
+    // delayed teardown and stale subscriptions to the measured traffic and loss draws.
+    yield* SubscriptionRef.set(supervisorState, AVAILABLE_CONNECTION_STATE);
+    const cached = yield* waitForOperationState(state, expectedInitial, false, "cached");
     record.check(
-      operationStateError(yield* SubscriptionRef.get(state), expectedInitial, false) === undefined,
+      operationStateError(cached, expectedInitial, false, "cached") === undefined,
       "Invalid initial 100-message client fixture",
     );
-    if (name !== "sync-five") {
-      yield* SubscriptionRef.set(sessions, Option.none());
-      yield* SubscriptionRef.set(supervisorState, AVAILABLE_CONNECTION_STATE);
-      yield* Scope.close(connection, Exit.void);
-      yield* SubscriptionRef.changes(state).pipe(
-        Stream.filter((value) => value.status === "cached"),
-        Stream.runHead,
-      );
-    }
+  }
+  if (!cold) {
     snapshots = 0;
     events = 0;
     streamItems = 0;
@@ -347,9 +361,14 @@ export const runOperation = Effect.fnUntraced(function* (
     record.set("phase", "operation");
     const before = readLinkCounters();
     const applied = yield* Effect.forkChild(
-      liveState(state, operationSettings.initialMessages + operationSettings.addedMessages).pipe(
-        Effect.map((state) => ({ state, completedAt: wallClockMs() })),
-      ),
+      waitForOperationState(
+        state,
+        {
+          ...expectedInitial,
+          messages: expectedInitial.messages + operationSettings.addedMessages,
+        },
+        false,
+      ).pipe(Effect.map((state) => ({ state, completedAt: wallClockMs() }))),
     );
     snapshots = 0;
     events = 0;
@@ -371,10 +390,10 @@ export const runOperation = Effect.fnUntraced(function* (
           : 0;
     expected = yield* control(count);
     Object.assign(counters, readLinkCounters());
-    startedAt = wallClockMs();
+    const startedAt = wallClockMs();
     record.set("phase", "operation");
-    connection = yield* open();
     bounded = name === "reconnect-snapshot";
+    connection = yield* open(expected, bounded);
     record.set("operationMs", wallClockMs() - startedAt);
   } else {
     record.set("operationMs", wallClockMs() - coldStartedAt);
@@ -409,5 +428,5 @@ export const runOperation = Effect.fnUntraced(function* (
   record.set("totalMessages", expected.messages);
   record.set("phase", "complete");
   yield* SubscriptionRef.set(sessions, Option.none());
-  yield* Scope.close(connection, Exit.void);
+  yield* Scope.close(connection!, Exit.void);
 });
