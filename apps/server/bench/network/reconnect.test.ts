@@ -79,6 +79,30 @@ describe("bounded reconnect plan", () => {
 });
 
 describe("paired completion evidence", () => {
+  it("keeps per-run resource and probe sample counts separate and excludes failed runs", () => {
+    const first = row("a", 10);
+    const second = row("a", 20, { case: { ...entry, id: "second", repetition: 2 } });
+    const failed = row("a", 1, { case: { ...entry, id: "failed" }, error: "timeout" });
+    const observed = [first, second, failed].map((sample, index) => ({
+      ...sample,
+      result: {
+        ...sample.result!,
+        operationMetrics: {
+          operation: "bulk-overlap",
+          probeSamples: index + 10,
+          probeMedianMs: index + 1,
+        },
+        resources: { window: "whole-case", client: { cpuUserMs: (index + 1) * 10 }, server: {} },
+      },
+    }));
+    expect(summarize(observed, "a")[0]).toMatchObject({
+      attempted: 3,
+      completed: 2,
+      selectedTransportCounts: { websocket: 2, webtransport: 0 },
+      operationMetrics: { probeSamples: { n: 2, min: 10, median: 10.5, max: 11 } },
+      resources: { windows: ["whole-case"], client: { cpuUserMs: { n: 2, median: 15 } } },
+    });
+  });
   it("reports paired deltas for equal successful inputs while retaining failures", () => {
     const failedCase = { ...entry, id: "second", seed: 947, repetition: 2 };
     const groups = summarize(

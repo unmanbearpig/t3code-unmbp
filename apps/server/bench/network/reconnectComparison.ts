@@ -100,6 +100,15 @@ const cell = (row: ReconnectRow) =>
     row.case.phaseMs,
   ].join("/");
 const successful = (row: ReconnectRow) => row.error === undefined && row.result?.correct === true;
+function numericDistributions(records: readonly Readonly<Record<string, number | string>>[]) {
+  const values = new Map<string, number[]>();
+  for (const record of records)
+    for (const [key, value] of Object.entries(record)) {
+      if (typeof value === "number" && Number.isFinite(value))
+        values.set(key, [...(values.get(key) ?? []), value]);
+    }
+  return Object.fromEntries([...values].map(([key, samples]) => [key, distribution(samples)]));
+}
 
 /** Only successful, identical case IDs enter paired deltas. Failures remain visible separately. */
 export function summarize(rows: readonly ReconnectRow[], baselineVariant: string) {
@@ -145,6 +154,20 @@ export function summarize(rows: readonly ReconnectRow[], baselineVariant: string
         .filter((row) => !successful(row))
         .map((row) => ({ caseId: row.case.id, error: row.error ?? "incorrect state" })),
       selectedTransports: [...new Set(completed.map((row) => row.result!.selectedTransport))],
+      selectedTransportCounts: Object.fromEntries(
+        ["websocket", "webtransport"].map((transport) => [
+          transport,
+          completed.filter((row) => row.result!.selectedTransport === transport).length,
+        ]),
+      ),
+      operationMetrics: numericDistributions(
+        completed.map((row) => row.result!.operationMetrics ?? {}),
+      ),
+      resources: {
+        windows: [...new Set(completed.map((row) => row.result!.resources.window))],
+        client: numericDistributions(completed.map((row) => row.result!.resources.client)),
+        server: numericDistributions(completed.map((row) => row.result!.resources.server)),
+      },
       completionMs: distribution(completed.map((row) => row.result!.totalMs)),
       shellLiveMs: distribution(completed.map((row) => row.result!.shellLiveMs)),
       bytes: distribution(completed.map((row) => row.result!.bytes)),
