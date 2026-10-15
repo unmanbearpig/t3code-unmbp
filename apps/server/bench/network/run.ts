@@ -30,6 +30,8 @@ const decodeWorker = Schema.decodeUnknownSync(
       result: Schema.Struct({
         totalMs: Schema.Number,
         shellLiveMs: Schema.Number,
+        negotiatedExtensions: Schema.optionalKey(Schema.String),
+        helloSupportCachedAtStart: Schema.optionalKey(Schema.Boolean),
         switches: VariantOptions,
         serverRequests: Schema.Array(
           Schema.Struct({
