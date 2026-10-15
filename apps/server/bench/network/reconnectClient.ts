@@ -379,6 +379,9 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     Option.isNone(finalShell.snapshot) ||
     finalShell.snapshot.value.projects.length !== 8 ||
     finalShell.snapshot.value.threads.length !== 160 ||
+    new Set(finalShell.snapshot.value.threads.map((t) => t.id)).size !== 160 ||
+    finalShell.snapshot.value.threads.find((t) => t.id === operationThreadId)?.latestRunId !==
+      `operation-run-${Math.floor((expected.messages - 1) / 2)}` ||
     finalShell.snapshot.value.threads.find((t) => t.id === operationThreadId)?.title !==
       "Network operation"
   )
