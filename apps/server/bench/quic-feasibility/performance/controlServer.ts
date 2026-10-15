@@ -56,11 +56,16 @@ const wss = Layer.effect(
           server.close();
         }),
     );
-    const socket = yield* NodeSocketServer.makeWebSocket({ server, perMessageDeflate: false });
-    yield* Effect.callback<void>((resume) => {
-      server.once("error", (cause) => resume(Effect.die(cause)));
-      server.listen(ports.rpcWss, "127.0.0.1", () => resume(Effect.void));
-    });
+    const [socket] = yield* Effect.all(
+      [
+        NodeSocketServer.makeWebSocket({ server, perMessageDeflate: false }),
+        Effect.callback<void>((resume) => {
+          server.once("error", (cause) => resume(Effect.die(cause)));
+          server.listen(ports.rpcWss, "127.0.0.1", () => resume(Effect.void));
+        }),
+      ],
+      { concurrency: "unbounded" },
+    );
     return socket;
   }),
 );
