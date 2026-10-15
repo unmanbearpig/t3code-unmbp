@@ -53,6 +53,10 @@ const CONNECTION_PROBE_TIMEOUT = "15 seconds";
 // the user is waiting, or the network may be gone.
 const QUICK_CONNECTION_PROBE_TIMEOUT = "3 seconds";
 const BACKOFF_RESET_AFTER_MS = 30_000;
+// Allow a retry dispatched just before mobile's active notification to keep
+// its progress. Two seconds is a scheduling grace period, well below mobile's
+// ten-second long-resume threshold, not an extension of the setup deadline.
+const FRESH_ATTEMPT_WINDOW_MS = 2_000;
 // While connected over a fallback route, how often to look for a better one.
 // Network changes and returning to the app also trigger a check.
 const BETTER_ROUTE_CHECK_INTERVAL = "60 seconds";
@@ -291,6 +295,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   // closed or failed before answering, so the follow-up reconnect skips the
   // first backoff rung instead of sleeping.
   const probeUnanswered = yield* Ref.make(false);
+  const resumedDuringAttempt = yield* Ref.make(false);
   const state = yield* SubscriptionRef.make<SupervisorConnectionState>(
     !initialIntent.desired
       ? availableState(initialIntent, 0)
@@ -514,7 +519,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     );
   });
 
-  const waitForEstablishmentInterrupt = Effect.fnUntraced(function* () {
+  const waitForEstablishmentInterrupt = Effect.fnUntraced(function* (attemptStartedAt: number) {
     for (;;) {
       const next = yield* Queue.take(signals);
       switch (next._tag) {
@@ -531,7 +536,13 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           break;
         case "Wakeup":
           if (next.reason === "application-active-reconnect") {
-            return true;
+            // Count suspension time: a monotonic clock can stop during device
+            // sleep and make a pre-suspension attempt look fresh. Treat a
+            // backward wall-clock jump conservatively as stale too.
+            const age = (yield* Clock.currentTimeMillis) - attemptStartedAt;
+            if (age < 0 || age >= FRESH_ATTEMPT_WINDOW_MS) return true;
+            yield* Ref.set(resumedDuringAttempt, true);
+            break;
           }
           if (next.reason === "credentials-changed" && usesRelay) {
             yield* logManagedRelayAccountChange;
@@ -697,6 +708,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     const switchingTo = yield* Ref.get(preferredRouteId);
     yield* SubscriptionRef.set(prepared, Option.none());
     const synchronizedRoutes = yield* Ref.make(0);
+    const attemptStartedAt = yield* Clock.currentTimeMillis;
     const establishment = yield* Effect.raceAllFirst([
       exitUnlessInterrupted(
         establishTracedConnection(
@@ -712,7 +724,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           exit,
         })),
       ),
-      waitForEstablishmentInterrupt().pipe(
+      waitForEstablishmentInterrupt(attemptStartedAt).pipe(
         Effect.map((resetRetry): EstablishmentEvent => ({
           _tag: "Interrupted",
           resetRetry,
@@ -945,6 +957,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       // Consumed on every iteration so a stale marker can never leak into a
       // later, unrelated failure.
       const failedProbe = yield* Ref.getAndSet(probeUnanswered, false);
+      const resumedWhileFresh = yield* Ref.getAndSet(resumedDuringAttempt, false);
       if (outcome.established) {
         generation = nextGeneration;
         if (outcome.stable) {
@@ -993,6 +1006,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         continue;
       }
 
+      if (resumedWhileFresh) resetRetryLadder();
       failureCount += 1;
       const delayMs = retryDelayMs(failureCount - 1, yield* Random.next);
       pendingRetry = Option.map(attemptSpan, (previousAttempt) => ({
