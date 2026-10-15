@@ -193,7 +193,7 @@ export const make = Effect.gen(function* () {
       entry,
       (route) => checkRoute(entry, route, descriptorScope),
       Effect.fnUntraced(function* (route) {
-        const prepared = yield* resolver.prepare(routeEntry(entry, route), "preflight");
+        const prepared = yield* resolver.prepare(routeEntry(entry, route));
         yield* reportProgress({ stage: "opening", prepared });
         const session = yield* sessions.connect(prepared);
         yield* reportProgress({ stage: "synchronizing", prepared });

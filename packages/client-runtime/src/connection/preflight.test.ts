@@ -174,6 +174,7 @@ const makeHarness = Effect.fn("TestRoutePreflight.makeHarness")(function* (optio
   const driver = yield* ConnectionDriver.make.pipe(Effect.provide(Layer.merge(resolver, sessions)));
   return {
     driver,
+    resolver: yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(resolver)),
     requests,
     socketCount: () => socketCount,
     ticketRequests: () =>
@@ -197,6 +198,23 @@ function awaitGeneration(
 }
 
 describe("preferred bearer route preflight", () => {
+  it.effect("updates through the valid fallback when the first route bearer is revoked", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const selected = yield* Effect.firstSuccessOf(
+        [PREFERRED_ROUTE, FALLBACK_ROUTE].map((route) =>
+          harness.resolver.prepareForUpdate({
+            ...ENTRY,
+            target: route.target,
+            profile: route.profile,
+          }),
+        ),
+      );
+      expect(selected.prepared.target).toEqual(FALLBACK_ROUTE.target);
+      expect(harness.ticketRequests()).toHaveLength(2);
+      expect(harness.socketCount()).toBe(0);
+    }),
+  );
   it.effect(
     "rejects a revoked bearer after a correct public descriptor without opening a socket",
     () =>

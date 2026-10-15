@@ -239,7 +239,10 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       ).pipe(Effect.forkIn(sessionScope)),
     );
     const diagnoseError = (error: ConnectionAttemptError) =>
-      !usesBearerUpgradeHeaders || socketOpened || error._tag === "ConnectionBlockedError"
+      transport !== "websocket" ||
+      !usesBearerUpgradeHeaders ||
+      socketOpened ||
+      error._tag === "ConnectionBlockedError"
         ? Effect.fail(error)
         : diagnostic.pipe(
             Effect.flatMap(Fiber.join),
@@ -382,7 +385,6 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
             pingTimeout: PING_TIMEOUT,
             retryTransientErrors: false,
             retryPolicy: Schedule.recurs(0),
-            onPingTimeout: Ref.set(pingTimedOut, true),
           }),
         ).pipe(
           Layer.provide(

@@ -10,7 +10,11 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
 
-import { appendClientConnectionParams, issuePrimaryRpcTicket } from "../authorization/remote.ts";
+import {
+  appendClientConnectionParams,
+  issuePrimaryRpcTicket,
+  resolveRemoteWebSocketConnection,
+} from "../authorization/remote.ts";
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import { RpcWebTransportConnector } from "../platform/rpcWebTransport.ts";
@@ -320,8 +324,20 @@ export const make = Effect.gen(function* () {
     });
     const rpcTicket =
       prepared.rpcTicket ??
-      (candidate !== undefined && prepared.httpAuthorization === null
-        ? yield* issuePrimaryRpcTicket({ httpBaseUrl: prepared.httpBaseUrl }).pipe(
+      (candidate !== undefined
+        ? yield* (
+            prepared.httpAuthorization === null
+              ? issuePrimaryRpcTicket({ httpBaseUrl: prepared.httpBaseUrl })
+              : prepared.httpAuthorization._tag === "Bearer"
+                ? resolveRemoteWebSocketConnection({
+                    httpBaseUrl: prepared.httpBaseUrl,
+                    wsBaseUrl: prepared.socketUrl,
+                    bearerToken: prepared.httpAuthorization.token,
+                    clientMetadata: presentation.metadata,
+                    connectionMethod: "direct",
+                  }).pipe(Effect.map((connection) => connection.rpcTicket))
+                : Effect.succeed(undefined)
+          ).pipe(
             Effect.provideService(HttpClient.HttpClient, httpClient),
             Effect.option,
             Effect.map(Option.getOrUndefined),
@@ -351,7 +367,7 @@ export const make = Effect.gen(function* () {
         Effect.provideService(HttpClient.HttpClient, httpClient),
       ),
     prepareForUpdate: (entry) =>
-      authorize(entry).pipe(
+      authorize(entry, "preflight").pipe(
         ConnectionDescriptors.withConnectionDescriptors,
         Effect.provideService(HttpClient.HttpClient, httpClient),
       ),

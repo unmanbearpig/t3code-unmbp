@@ -1,7 +1,6 @@
 import {
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
-  ORCHESTRATION_PROTOCOL_VERSION,
   ProviderDriverKind,
   ProviderInstanceId,
   ServerConfig,
@@ -243,6 +242,7 @@ const LEGACY_SERVER_CONFIG = {
 const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* (
   options: RpcSession.RpcSessionOptions = {},
   connectorOrFetch?: ReliableConnector | typeof fetch,
+  native?: { readonly fetch: typeof fetch },
 ) {
   const connector = typeof connectorOrFetch === "function" ? undefined : connectorOrFetch;
   const fetchFn: typeof fetch =
@@ -259,7 +259,14 @@ const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* (
     Layer.provide(
       Layer.mergeAll(
         layerConstructor,
-        RpcHttp.layerRemoteHttpClient(fetchFn),
+        RpcHttp.layerRemoteHttpClient(native?.fetch ?? fetchFn),
+        native === undefined
+          ? Layer.empty
+          : Layer.succeed(ClientCapabilities.WebSocketConstructorWithHeaders, (url) => {
+              const socket = new TestWebSocket(url);
+              sockets.push(socket);
+              return socket as unknown as globalThis.WebSocket;
+            }),
         connector === undefined ? Layer.empty : Layer.succeed(RpcWebTransportConnector, connector),
       ),
     ),
@@ -1730,6 +1737,34 @@ const completeQuicConfig = Effect.fnUntraced(function* (
 });
 
 describe("RpcSessionFactory transport selection", () => {
+  it.effect("does not diagnose WebSocket auth when a selected native QUIC session closes", () =>
+    Effect.gen(function* () {
+      const pair = memorySessionPair();
+      let requests = 0;
+      const { factory, sockets } = yield* makeFactory(
+        {},
+        { connect: async () => pair.client },
+        {
+          fetch: () => {
+            requests++;
+            return Promise.resolve(new Response(null, { status: 401 }));
+          },
+        },
+      );
+      const connecting = yield* factory
+        .connect({ ...QUIC_PREPARED, httpAuthorization: BEARER_PREPARED.httpAuthorization })
+        .pipe(Effect.forkScoped);
+      const control = yield* acceptQuicControl(pair);
+      yield* control.write(quicReady, true);
+      const session = yield* Fiber.join(connecting);
+      yield* completeQuicConfig(pair);
+      yield* session.ready;
+      pair.server.close(0);
+      expect((yield* Effect.flip(session.closed))._tag).toBe("ConnectionTransientError");
+      expect(sockets).toHaveLength(0);
+      expect(requests).toBe(0);
+    }).pipe(Effect.scoped),
+  );
   it.effect(
     "waits for full Ready before creating any application RPC and selects the real QUIC protocol",
     () =>

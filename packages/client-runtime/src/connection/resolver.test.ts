@@ -613,6 +613,49 @@ describe("ConnectionResolver", () => {
 });
 
 describe("ConnectionResolver WebTransport preparation", () => {
+  it.effect.each(["eligible", "disabled", "no-connector", "rejected"] as const)(
+    "keeps the native bearer WSS fallback ticketless when QUIC is %s",
+    (scenario) =>
+      Effect.gen(function* () {
+        const requests: Array<{ url: string; init: RequestInit }> = [];
+        const dependencies = yield* makeDependencies({
+          ...(scenario === "disabled"
+            ? {}
+            : {
+                advertisement: {
+                  url: "https://environment.example.test/rpc/custom",
+                  wireVersion: 1,
+                },
+              }),
+          connectorAvailable: scenario !== "no-connector",
+          cookieTicketFailure: scenario === "rejected",
+          primaryBearerToken: "native-token",
+          authorizeBearer: (input) =>
+            Effect.succeed({
+              environmentId: input.expectedEnvironmentId,
+              label: "Native bearer",
+              httpBaseUrl: input.httpBaseUrl,
+              socketUrl: input.wsBaseUrl,
+              httpAuthorization: { _tag: "Bearer", token: input.bearerToken },
+            }),
+          onRequest: (url, init) => {
+            requests.push({ url, init });
+          },
+        });
+        const resolver = yield* ConnectionResolver.ConnectionResolver.pipe(
+          Effect.provide(dependencies),
+        );
+        const prepared = yield* resolver.prepare(catalogEntry(primary));
+        const tickets = requests.filter(({ init }) => init.method === "POST");
+        expect(tickets).toHaveLength(scenario === "eligible" || scenario === "rejected" ? 1 : 0);
+        if (tickets[0])
+          expect(new Headers(tickets[0].init.headers).get("authorization")).toBe(
+            "Bearer native-token",
+          );
+        expect(new URL(prepared.socketUrl).searchParams.has("wsTicket")).toBe(false);
+        expect(prepared.rpcWebTransport !== undefined).toBe(scenario === "eligible");
+      }),
+  );
   const advertisement = { url: "https://environment.example.test:4443/rpc", wireVersion: 1 };
   const primary = new PrimaryConnectionTarget({
     environmentId: ENVIRONMENT_ID,
