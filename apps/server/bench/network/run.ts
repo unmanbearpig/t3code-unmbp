@@ -27,7 +27,10 @@ import {
   prepareLoopback,
   presets,
   validatePacketPhase,
+  validateLinkMtu,
 } from "./impairments.ts";
+import { linkSettings } from "./settings.ts";
+import { ResourceResponse, startProcessMeasurement } from "./resourceUsage.ts";
 import { rpcTransportNames, operationRpcTransportNames } from "./rpcClient.ts";
 import { rpcWorkloads } from "./rpcWorkloads.ts";
 import { runOperation } from "./operationsWorkloads.ts";
@@ -51,6 +54,7 @@ import { http3Environment, type SnapshotHttpProtocol, type SnapshotHttpEncoding 
 import { ensureHttp3Proxy, http3ProxyConfig, waitForHttp3Proxy } from "./http3Proxy.ts";
 import { primePacketPhase, verifyPacketImpairments } from "./packetizationCheck.ts";
 
+const isResourceResponse = Schema.is(ResourceResponse);
 const isRpcClientError = Schema.is(RpcClientError.RpcClientError);
 const decodeOperationControl = Schema.decodeUnknownEffect(
   Schema.toCodecJson(OperationControlResponse),
@@ -73,6 +77,8 @@ const { values } = NodeUtil.parseArgs({
     "http-encoding": { type: "string" },
     "packet-phase": { type: "string" },
     "tcp-initcwnd": { type: "string" },
+    mtu: { type: "string" },
+    resources: { type: "boolean" },
     "dry-run": { type: "boolean" },
     baseline: { type: "string" },
     out: { type: "string" },
@@ -100,6 +106,8 @@ if (values.help) {
   --seed-list INTEGERS  Independent seeds for a rotated manual operation experiment
   --packet-phase N     Prime a periodic profile by N packets before setup
   --tcp-initcwnd N     Attribution control for TCP's initial window inside the namespace
+  --mtu N              Manual namespace link MTU, 1280..65535 (default: 1500)
+  --resources          Record client/server CPU, sampled memory and event-loop delay
   --dry-run             Print the suite manifest without running packets
   --baseline PATH       Compare a suite run with a previous suite result
 Linux only; needs unshare, ip, tc, iptables, ethtool, sysctl, and openssl.
@@ -157,6 +165,8 @@ if (
     "seed-list",
     "packet-phase",
     "tcp-initcwnd",
+    "mtu",
+    "resources",
   ].some((key) => values[key as keyof typeof values] !== undefined)
 )
   throw new Error(
@@ -193,6 +203,9 @@ if (
 )
   throw new Error("--tcp-initcwnd must be between 1 and 200 and requires --layer operations");
 const seedList = values["seed-list"]?.split(",").map(Number);
+const linkMtu = validateLinkMtu(Number(values.mtu ?? linkSettings.mtu));
+if (values.resources && layer !== "operations")
+  throw new Error("--resources requires --layer operations");
 if (
   seedList &&
   (layer !== "operations" ||
@@ -410,7 +423,7 @@ process.once("disconnect", () => {
 });
 
 try {
-  prepareLoopback(tlsDir, usesOperations, tcpInitialWindow);
+  prepareLoopback(tlsDir, usesOperations, tcpInitialWindow, linkMtu);
   if (usesOperations) verifyPacketImpairments();
   // ECDSA and under 14 days: the constraints browsers put on serverCertificateHashes certificates.
   NodeChildProcess.execFileSync(
@@ -483,6 +496,29 @@ try {
     }
   }
 
+  async function serverResources(_tag: "netbench-resource-start" | "netbench-resource-stop") {
+    const child = activeServer!;
+    return new Promise<Record<string, number>>((resolve, reject) => {
+      const finish = (error?: Error, metrics?: Record<string, number>) => {
+        clearTimeout(timer);
+        child.off("message", receive);
+        child.off("exit", exited);
+        if (error) reject(error);
+        else resolve(metrics!);
+      };
+      const receive = (message: unknown) => {
+        if (isResourceResponse(message)) finish(undefined, message.metrics);
+      };
+      const exited = () => finish(new Error("Resource measurement server exited"));
+      const timer = setTimeout(() => finish(new Error("Resource measurement IPC timed out")), 5000);
+      child.on("message", receive);
+      child.once("exit", exited);
+      child.send({ _tag }, (error) => {
+        if (error) finish(error);
+      });
+    });
+  }
+
   interface Row {
     readonly scenario: string;
     readonly layer: "raw" | "rpc" | "operations";
@@ -508,6 +544,8 @@ try {
     hostname: NodeOS.hostname(),
     cpuModel: NodeOS.cpus()[0]?.model,
     cpuCount: NodeOS.cpus().length,
+    ...(values.mtu !== undefined ? { linkMtu } : {}),
+    ...(values.resources ? { resources: "process-cpu-rss50ms-loop10ms-v1" } : {}),
     tc: NodeChildProcess.execFileSync("tc", ["-V"], { encoding: "utf8" }).trim(),
     iptables: NodeChildProcess.execFileSync("iptables", ["-V"], { encoding: "utf8" }).trim(),
     http3: usesOperations
@@ -594,7 +632,18 @@ try {
       await startServer(entry);
       applyScenario(entry.scenario, entry.seed, usesOperations);
       if (entry.packetPhase !== undefined) primePacketPhase(entry.packetPhase);
-      return runCase(entry, tls, record);
+      if (!values.resources) return runCase(entry, tls, record);
+      await serverResources("netbench-resource-start");
+      const clientResources = startProcessMeasurement();
+      try {
+        return await runCase(entry, tls, record);
+      } finally {
+        record.set("resourceWindow", "runCase-including-client-setup-and-state-validation");
+        for (const [key, value] of Object.entries(clientResources.stop()))
+          record.set(`resource.client.${key}`, value);
+        for (const [key, value] of Object.entries(await serverResources("netbench-resource-stop")))
+          record.set(`resource.server.${key}`, value);
+      }
     })().catch((error: unknown) => {
       const detail =
         isRpcClientError(error) && error.reason._tag === "SocketReadError"
@@ -657,7 +706,7 @@ try {
   /** Console view: p50/p99/max per series; the --out JSON keeps every percentile. */
   function format(metrics: Metrics) {
     return Object.entries(metrics)
-      .filter(([key]) => !key.endsWith(".p95"))
+      .filter(([key]) => !key.endsWith(".p95") && !key.startsWith("resource."))
       .map(
         ([key, value]) =>
           `${key}=${typeof value === "number" ? Math.round(value * 10) / 10 : value}`,

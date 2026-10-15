@@ -3,6 +3,8 @@ import * as NodeFS from "node:fs";
 import * as NodeHttp from "node:http";
 import * as NodeHttps from "node:https";
 
+import { makeResourceControl } from "./resourceUsage.ts";
+
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -248,7 +250,10 @@ await Effect.runPromise(
       );
 
       const requests = yield* Queue.unbounded<unknown>();
-      const offer = (message: unknown) => Queue.offerUnsafe(requests, message);
+      const resourceControl = makeResourceControl();
+      const offer = (message: unknown) => {
+        if (!resourceControl(message)) Queue.offerUnsafe(requests, message);
+      };
       process.on("message", offer);
       yield* Effect.addFinalizer(() => Effect.sync(() => process.off("message", offer)));
       process.send?.("ready");

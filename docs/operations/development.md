@@ -216,8 +216,31 @@ cold connect/echo, 128 sequential echoes, one streamed subscription, eight subsc
 and a 4MiB raw response or 2,000-message RPC snapshot with concurrent pings. Use it to
 investigate transport behavior separately from the application operation suite.
 
+For transport implementation comparisons, keep snapshot HTTP protocol, compression
+and pool state equal. A small WSS control that also records process costs is:
+
+```sh
+node apps/server/bench/network/run.ts --layer operations \
+  --transports rpc-wss --workloads sync-five,reconnect-replay,open-long \
+  --scenarios clean,wan,loss2 --seed-list 731,947,1163,1381,1597 \
+  --http-protocol h1 --http-encoding gzip --mtu 1280 --resources \
+  --out ~/codex-tmp/wss-control.json
+```
+
+`--mtu` changes only the private namespace's loopback and impairment device. Both
+manual options are excluded from fixed suites. `--resources` adds separate
+`resource.client.*` and `resource.server.*` metrics to raw JSON. Their window covers
+the entire client case, including setup and state validation, rather than only
+`operationMs`. CPU includes native threads. Memory peaks sample RSS and JS heap
+every 50 ms, including both endpoints, so brief peaks may be missed. Event-loop
+delay samples have 10 ms resolution; an observed p99 appears only with at least
+100 samples. The observer itself adds work. Host load and CPU activity remain
+shared with other worktrees and are recorded to expose contention. These process
+measurements exclude the separate snapshot proxy and curl process. Compare them
+within the same fixture and distinguish them from total system or mobile costs.
+
 These are Node measurements through the shared client state code. They do not measure
-browser/Android rendering, disk cache writes, CPU/battery use, authentication, environment
+browser/Android rendering, disk cache writes, battery use, authentication, environment
 or shell synchronization, automatic reconnect scheduling, relay/tunnel operation, or
 network handoffs. Provider execution and authorization use isolated fixtures. Production
 clients still use WebSocket. The QUIC adapters remain experimental and require native
