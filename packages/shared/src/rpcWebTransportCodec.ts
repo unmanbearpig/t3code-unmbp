@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Clock from "effect/Clock";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import { deflateSync, inflateSync } from "fflate";
+import { deflateSync, inflateSync, Inflate } from "fflate";
 import {
   RPC_WEBTRANSPORT_LIMITS as defaults,
   RPC_WEBTRANSPORT_WIRE_VERSION,
@@ -108,6 +108,32 @@ export const transportTry = <A>(f: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ try: f, catch: transportError });
 
 const protocolFailure = (message: string) => new RpcWebTransportError("protocol", message);
+
+function inflateRecord(encoded: Uint8Array, expected: number, guard: Uint8Array) {
+  const pushBytes = 256;
+  // Tiny compressed inputs already bound synchronous work to one small push. Avoid
+  // streaming history/copy overhead for the common highly compressed 64 KiB record.
+  if (encoded.byteLength > pushBytes) {
+    let decoded = 0;
+    const check = new Inflate((bytes) => {
+      decoded += bytes.byteLength;
+      if (decoded > expected) throw protocolFailure("Deflate decoded length mismatch");
+    });
+    // Public streaming pushes stop a hostile record after its first excess output.
+    // The sync guard alone truncates retained output but still processes the entire bomb.
+    for (let offset = 0; offset < encoded.byteLength; offset += pushBytes) {
+      check.push(
+        encoded.subarray(offset, offset + pushBytes),
+        offset + pushBytes >= encoded.byteLength,
+      );
+    }
+    if (decoded !== expected) throw protocolFailure("Deflate decoded length mismatch");
+  }
+  // Keep the existing sync final-block/truncation validation and fixed output guard.
+  // A valid record now inflates at most its declared <=64 KiB in this second pass.
+  // Both supported APIs ignore trailing compressed bytes within the bounded record.
+  return inflateSync(encoded, { out: guard });
+}
 const json = Schema.fromJsonString(Schema.Unknown);
 const decodeJson = Schema.decodeUnknownEffect(json);
 const encodeJson = Schema.encodeEffect(json);
@@ -323,7 +349,7 @@ export function makeRpcWebTransportFrameChannel(
                 // fflate's supported fixed-output API bounds retained output. It can ignore
                 // trailing compressed bytes within this <=8 KiB record; v1 permits that.
                 const bytes = yield* Effect.try({
-                  try: () => inflateSync(body.bytes, { out: guard }),
+                  try: () => inflateRecord(body.bytes, decoded, guard),
                   catch: () => protocolFailure("Invalid deflate record"),
                 });
                 if (bytes.byteLength !== decoded)

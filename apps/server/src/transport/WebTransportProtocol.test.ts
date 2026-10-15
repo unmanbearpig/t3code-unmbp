@@ -2,6 +2,10 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   RPC_WEBTRANSPORT_LIMITS,
   createTransportByteBudget,
+  makeRpcWebTransportFrameChannel,
+  rpcWebTransportDefaultLimits,
+  transportTry,
+  type TransportByteBudget,
   type RpcWebTransportLimits,
 } from "@t3tools/shared/rpcWebTransport";
 import { memorySessionPair } from "../../../../packages/shared/src/rpcWebTransport.test-support.ts";
@@ -17,6 +21,7 @@ import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as Scope from "effect/Scope";
 import * as TestClock from "effect/testing/TestClock";
 import { Rpc, RpcClient, RpcGroup, RpcMessage, RpcServer } from "effect/rpc";
 import { prepareRpcWebTransportServer } from "./WebTransportProtocol.ts";
@@ -321,5 +326,161 @@ describe("WebTransport Effect protocols", () => {
       yield* Fiber.interrupt(ordinary);
       yield* Fiber.interrupt(subscription);
     }).pipe(Effect.scoped),
+  );
+  it.effect(
+    "preserves control progress while two sessions exhaust the shared listener ceilings",
+    () =>
+      Effect.gen(function* () {
+        const shared = budgets();
+        const inputSessions: TransportByteBudget[] = [];
+        const outputSessions: TransportByteBudget[] = [];
+        const instrument = (
+          budget: TransportByteBudget,
+          sessions: TransportByteBudget[],
+        ): TransportByteBudget => ({
+          ...budget,
+          get usedBytes() {
+            return budget.usedBytes;
+          },
+          child(max) {
+            const child = budget.child(max);
+            sessions.push(child);
+            return child;
+          },
+        });
+        const sharedBudgets = {
+          input: instrument(shared.input, inputSessions),
+          output: instrument(shared.output, outputSessions),
+        };
+        const open = Effect.fnUntraced(function* () {
+          const owner = yield* Scope.make();
+          yield* Effect.addFinalizer((exit) => Scope.close(owner, exit));
+          const pair = memorySessionPair({ neverAcknowledgeClose: true });
+          yield* Effect.addFinalizer(() => Effect.sync(() => pair.client.close(0)));
+          const preparing = yield* prepareRpcWebTransportServer(pair.server, {
+            ...expected,
+            budgets: sharedBudgets,
+          }).pipe(Effect.provideService(Scope.Scope, owner), Effect.forkIn(owner));
+          const stream = yield* transportTry((signal) =>
+            pair.client.openBidirectionalStream(signal),
+          );
+          const control = makeRpcWebTransportFrameChannel(
+            stream,
+            createTransportByteBudget(65536),
+            createTransportByteBudget(65536),
+            rpcWebTransportDefaultLimits,
+          );
+          yield* control.writePreface("control");
+          yield* control.write(
+            {
+              _tag: "Hello",
+              wireVersion: 1,
+              orchestrationProtocolVersion: 1,
+              encodings: ["identity", "deflate"],
+              limits: rpcWebTransportDefaultLimits,
+            },
+            true,
+          );
+          const server = yield* Fiber.join(preparing);
+          yield* server.protocol.run(() => Effect.void).pipe(Effect.forkIn(owner));
+          expect(yield* control.read({ control: true })).toMatchObject({ _tag: "Ready" });
+          return { control, owner, server };
+        });
+        const first = yield* open();
+        const second = yield* open();
+        expect(shared.input.usedBytes).toBe(2 * RPC_WEBTRANSPORT_LIMITS.controlReserveBytes);
+        expect(shared.output.usedBytes).toBe(2 * RPC_WEBTRANSPORT_LIMITS.controlReserveBytes);
+        const leases = [...inputSessions, ...outputSessions].map((budget) =>
+          budget.acquire(budget.maxBytes - RPC_WEBTRANSPORT_LIMITS.controlReserveBytes),
+        );
+        expect(shared.input.usedBytes).toBe(shared.input.maxBytes);
+        expect(shared.output.usedBytes).toBe(shared.output.maxBytes);
+        expect(() => inputSessions[0]!.acquire(1)).toThrow("budget exhausted");
+        for (const session of [first, second]) {
+          yield* session.control.write({ _tag: "Ping" }, true);
+          expect(yield* session.control.read({ control: true })).toEqual({ _tag: "Pong" });
+        }
+        for (const lease of leases) lease.release();
+        yield* first.server.close;
+        yield* Scope.close(first.owner, Exit.void);
+        expect(shared.input.usedBytes).toBe(RPC_WEBTRANSPORT_LIMITS.controlReserveBytes);
+        expect(shared.output.usedBytes).toBe(RPC_WEBTRANSPORT_LIMITS.controlReserveBytes);
+        yield* second.server.close;
+        yield* Scope.close(second.owner, Exit.void);
+        expect(shared.input.usedBytes).toBe(0);
+        expect(shared.output.usedBytes).toBe(0);
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "releases control reservations on rejected Hello and a partial reservation failure",
+    () =>
+      Effect.gen(function* () {
+        const shared = budgets();
+        const pair = memorySessionPair({ neverAcknowledgeClose: true });
+        const preparing = yield* prepareRpcWebTransportServer(pair.server, {
+          ...expected,
+          budgets: shared,
+        }).pipe(Effect.exit, Effect.forkScoped);
+        const stream = yield* transportTry((signal) => pair.client.openBidirectionalStream(signal));
+        const control = makeRpcWebTransportFrameChannel(
+          stream,
+          createTransportByteBudget(65536),
+          createTransportByteBudget(65536),
+          rpcWebTransportDefaultLimits,
+        );
+        yield* control.writePreface("control");
+        yield* control.write(
+          {
+            _tag: "Hello",
+            wireVersion: 1,
+            orchestrationProtocolVersion: 99,
+            encodings: ["identity", "deflate"],
+            limits: rpcWebTransportDefaultLimits,
+          },
+          true,
+        );
+        expect(Exit.isFailure(yield* Fiber.join(preparing))).toBe(true);
+        expect(shared.input.usedBytes).toBe(0);
+        expect(shared.output.usedBytes).toBe(0);
+        const input = createTransportByteBudget(65536);
+        const output = createTransportByteBudget(65535);
+        const failed = yield* prepareRpcWebTransportServer(memorySessionPair().server, {
+          ...expected,
+          budgets: { input, output },
+        }).pipe(Effect.exit);
+        expect(Exit.isFailure(failed)).toBe(true);
+        expect(input.usedBytes).toBe(0);
+        expect(output.usedBytes).toBe(0);
+      }).pipe(Effect.scoped),
+  );
+  it.effect(
+    "releases the reserved capacity when control admission is interrupted without native acknowledgement",
+    () =>
+      Effect.gen(function* () {
+        const shared = budgets();
+        const pair = memorySessionPair({ neverAcknowledgeClose: true });
+        let signal!: () => void;
+        const accepting = new Promise<void>((resolve) => {
+          signal = resolve;
+        });
+        const server = {
+          ...pair.server,
+          acceptBidirectionalStream(abort: AbortSignal) {
+            signal();
+            return pair.server.acceptBidirectionalStream(abort);
+          },
+        };
+        const pending = yield* prepareRpcWebTransportServer(server, {
+          ...expected,
+          budgets: shared,
+        }).pipe(Effect.forkScoped);
+        yield* Effect.promise(() => accepting);
+        expect(shared.input.usedBytes).toBe(RPC_WEBTRANSPORT_LIMITS.controlReserveBytes);
+        expect(shared.output.usedBytes).toBe(RPC_WEBTRANSPORT_LIMITS.controlReserveBytes);
+        yield* Fiber.interrupt(pending);
+        expect(shared.input.usedBytes).toBe(0);
+        expect(shared.output.usedBytes).toBe(0);
+      }).pipe(Effect.scoped),
   );
 });

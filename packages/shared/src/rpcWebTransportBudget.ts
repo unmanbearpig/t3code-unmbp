@@ -16,7 +16,31 @@ export function createTransportByteBudget(maxBytes: number): TransportByteBudget
   return makeBudget(maxBytes);
 }
 
-function makeBudget(maxBytes: number, parent?: TransportByteBudget): TransportByteBudget {
+/** Capacity is held in the parent until all retained control allocations are released. */
+export function reserveTransportByteBudget(parent: TransportByteBudget, maxBytes: number) {
+  const reservation = parent.acquire(maxBytes);
+  let closed = false;
+  const release = () => {
+    if (closed && budget.usedBytes === 0) reservation.release();
+  };
+  const budget = makeBudget(maxBytes, undefined, { isClosed: () => closed, onRelease: release });
+  return {
+    budget,
+    close() {
+      closed = true;
+      release();
+    },
+  };
+}
+
+function makeBudget(
+  maxBytes: number,
+  parent?: TransportByteBudget,
+  lifecycle?: {
+    readonly isClosed: () => boolean;
+    readonly onRelease: () => void;
+  },
+): TransportByteBudget {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
     throw new RangeError("Invalid transport byte budget");
   }
@@ -27,6 +51,8 @@ function makeBudget(maxBytes: number, parent?: TransportByteBudget): TransportBy
       return used;
     },
     acquire(bytes) {
+      if (lifecycle?.isClosed())
+        throw new RpcWebTransportError("aborted", "Transport byte budget closed");
       if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > maxBytes - used) {
         throw new RpcWebTransportError("capacity", "Transport byte budget exhausted");
       }
@@ -39,6 +65,7 @@ function makeBudget(maxBytes: number, parent?: TransportByteBudget): TransportBy
           released = true;
           used -= bytes;
           upstream?.release();
+          lifecycle?.onRelease();
         },
       };
     },
