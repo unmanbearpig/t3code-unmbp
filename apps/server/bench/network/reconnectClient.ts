@@ -4,6 +4,7 @@ import type { OrchestrationV2ShellSnapshot } from "@t3tools/contracts";
 import { Agent } from "undici";
 import * as Clock from "effect/Clock";
 import { observedScope, observedStream } from "./reconnectLifecycle.ts";
+import { backgroundClock } from "./reconnectClock.ts";
 import { workloadPlan } from "./reconnectWorkload.ts";
 import * as NodeTls from "node:tls";
 import NodeWebSocket from "ws";
@@ -104,16 +105,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   track("client-runtime", memoMap);
   let wallOffsetMs = 0;
   const baseClock = yield* Clock.Clock;
-  const clock: Clock.Clock = {
-    ...baseClock,
-    currentTimeMillisUnsafe: () => baseClock.currentTimeMillisUnsafe() + wallOffsetMs,
-    currentTimeMillis: Effect.sync(() => baseClock.currentTimeMillisUnsafe() + wallOffsetMs),
-    currentTimeNanosUnsafe: () =>
-      baseClock.currentTimeNanosUnsafe() + BigInt(wallOffsetMs) * 1000000n,
-    currentTimeNanos: Effect.sync(
-      () => baseClock.currentTimeNanosUnsafe() + BigInt(wallOffsetMs) * 1000000n,
-    ),
-  };
+  const clock = backgroundClock(baseClock, () => wallOffsetMs);
   let start = 0;
   let measurementStartMs = 0;
   let observationStartMs = 0;
@@ -124,6 +116,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   let sockets = 0;
   let events = 0;
   let snapshots = 0;
+  let shellSnapshots = 0;
   let usesHelloHandshake = false;
   let sequence = input.initial.sequence;
   let sequenceError = false;
@@ -200,6 +193,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
         : undefined;
       for (const value of message.values) {
         if (tag === "orchestration.subscribeShell") {
+          if (Predicate.hasProperty(value, "kind") && value.kind === "snapshot") shellSnapshots++;
           if (Predicate.hasProperty(value, "kind") && value.kind === "synchronized")
             stamp("shell-synchronized");
           continue;
@@ -384,15 +378,19 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
         if (start) stages.push({ name, atMs: performance.now() - start, attempt: generation });
       };
       stamp("attempt-start");
-      return observedScope(
-        driver.connect(entry, (progress) =>
-          Effect.sync(() => stamp(`progress:${progress.stage}`)).pipe(
-            Effect.andThen(report(progress)),
+      return Effect.gen(function* () {
+        if ((yield* Clock.Clock) !== clock)
+          return yield* Effect.die(new Error("Reconnect clock was not applied to the attempt"));
+        return yield* observedScope(
+          driver.connect(entry, (progress) =>
+            Effect.sync(() => stamp(`progress:${progress.stage}`)).pipe(
+              Effect.andThen(report(progress)),
+            ),
           ),
-        ),
-        stampAttempt,
-        "release",
-      );
+          stampAttempt,
+          "release",
+        );
+      });
     },
   });
   const route = (index: number) => {
@@ -433,6 +431,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     { initiallyDesired: true },
   ).pipe(
     Effect.provideService(Driver.ConnectionDriver, measuredDriver),
+    Effect.provideService(Clock.Clock, clock),
     Effect.provideService(Connectivity.Connectivity, connectivity),
     Effect.provideService(Wakeups.ConnectionWakeups, wakeupService),
   );
@@ -590,6 +589,8 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       "Network operation"
   )
     return yield* Effect.die(new Error("Incorrect shell fixture after synchronization"));
+  if (shellSnapshots)
+    return yield* Effect.die(new Error("Unexpected socket shell snapshot fallback"));
   const after = linkCounters();
   const error = operationStateError(final, expected, false);
   if (
@@ -659,6 +660,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     bytes: after.bytes - before.bytes,
     packets: after.packets - before.packets,
     events,
+    shellSnapshots,
     sockets,
     correct: true,
   };

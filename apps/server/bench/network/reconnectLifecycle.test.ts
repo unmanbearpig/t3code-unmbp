@@ -2,6 +2,9 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Clock from "effect/Clock";
+import * as Duration from "effect/Duration";
+import { backgroundClock } from "./reconnectClock.ts";
 import * as Stream from "effect/Stream";
 import { observedScope, observedStream } from "./reconnectLifecycle.ts";
 import {
@@ -143,3 +146,46 @@ it("detects real resource reuse across case boundaries", () => {
   expect(() => register("pool", pool)).toThrow("carried across cases");
   expect(register("pool", {})).toBe("pool/2");
 });
+
+it.effect(
+  "advances background wall time and delegates inherited clock methods without changing deadlines",
+  () =>
+    Effect.gen(function* () {
+      const sleeps: number[] = [];
+      class PrototypeClock implements Clock.Clock {
+        currentTimeMillisUnsafe() {
+          return 1000;
+        }
+        get currentTimeMillis() {
+          return Effect.succeed(1000);
+        }
+        currentTimeNanosUnsafe() {
+          return 1000000000n;
+        }
+        get currentTimeNanos() {
+          return Effect.succeed(1000000000n);
+        }
+        monotonicTimeNanosUnsafe() {
+          return 999n;
+        }
+        get monotonicTimeNanos() {
+          return Effect.succeed(999n);
+        }
+        sleep(duration: Duration.Duration) {
+          return Effect.sync(() => {
+            sleeps.push(Duration.toMillis(duration));
+          });
+        }
+      }
+      let offset = 0;
+      const clock = backgroundClock(new PrototypeClock(), () => offset);
+      expect(yield* clock.currentTimeMillis).toBe(1000);
+      offset = 180000;
+      expect(yield* clock.currentTimeMillis).toBe(181000);
+      expect(clock.currentTimeNanosUnsafe()).toBe(181000000000n);
+      expect(yield* clock.monotonicTimeNanos).toBe(999n);
+      expect(clock.monotonicTimeNanosUnsafe()).toBe(999n);
+      yield* Effect.sleep(10).pipe(Effect.provideService(Clock.Clock, clock));
+      expect(sleeps).toEqual([10]);
+    }),
+);

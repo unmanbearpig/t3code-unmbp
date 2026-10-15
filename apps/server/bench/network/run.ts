@@ -56,6 +56,7 @@ const decodeWorker = Schema.decodeUnknownSync(
         bytes: Schema.Number,
         packets: Schema.Number,
         events: Schema.Number,
+        shellSnapshots: Schema.Number,
         sockets: Schema.Number,
         correct: Schema.Boolean,
         simulatedBackgroundMs: Schema.Number,
