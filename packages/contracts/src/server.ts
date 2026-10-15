@@ -5,6 +5,7 @@ import {
   type EnvironmentMachineKind,
   ExecutionEnvironmentDescriptor,
   ServerSelfUpdateMethod,
+  ReconnectResumeCapabilities,
 } from "./environment.ts";
 import { ServerAuthDescriptor } from "./auth.ts";
 import {
@@ -698,15 +699,13 @@ export const ServerConfig = Schema.Struct({
   directEndpoints: Schema.optionalKey(ForwardCompatibleArray(ServerDirectEndpoint)),
   observability: ServerObservability,
   settings: ServerSettings,
-  /** Whether shell subscriptions can emit an opt-in catch-up completion marker. */
-  shellResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),
+  ...ReconnectResumeCapabilities.fields,
   /** Whether shell.openInEditor honors `LaunchEditorInput.reveal` for the
       file-manager editor. */
   shellRevealInFileManager: Schema.optionalKey(Schema.Boolean),
   /** File-manager wording clients should use for reveal actions. */
   shellRevealInFileManagerKind: Schema.optionalKey(FileManagerRevealKind),
-  /** Whether thread subscriptions can emit an opt-in catch-up completion marker. */
-  threadResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),
+
   /**
    * Whether thread detail reads accept a turn window (`turnLimit`/
    * `beforeCursor`) and return `page` metadata. Clients must not send window

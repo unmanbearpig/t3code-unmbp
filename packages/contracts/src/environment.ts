@@ -96,6 +96,8 @@ export const ServerSelfUpdateCapability = Schema.Literals([
 export type ServerSelfUpdateCapability = typeof ServerSelfUpdateCapability.Type;
 
 export const ExecutionEnvironmentCapabilities = Schema.Struct({
+  /** Opt-in server-first hello and bearer frame authentication, handshake version 1. */
+  websocketHello: ForwardCompatibleOptional(Schema.Literal(1)),
   repositoryIdentity: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   connectionProbe: Schema.optionalKey(Schema.Boolean),
   /** Missing on older servers, which still accept inline image attachments. */
@@ -225,6 +227,12 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   serverBrowser: Schema.optionalKey(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
+
+/** Public flags shared by Hello and the authenticated ServerConfig. */
+export const ReconnectResumeCapabilities = Schema.Struct({
+  shellResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),
+  threadResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),
+});
 
 export const ExecutionEnvironmentDescriptor = Schema.Struct({
   environmentId: EnvironmentId,
