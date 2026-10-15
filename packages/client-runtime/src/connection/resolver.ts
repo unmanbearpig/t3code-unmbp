@@ -22,6 +22,7 @@ import {
   SshConnectionProfile,
 } from "./catalog.ts";
 import * as ConnectionCredentialStore from "./credentialStore.ts";
+import * as ConnectionDescriptors from "./descriptors.ts";
 import {
   credentialMissingError,
   environmentMismatchError,
@@ -47,7 +48,6 @@ import {
   orchestrationProtocolCompatibilityError,
 } from "./compatibility.ts";
 import { credentialConnectionId } from "./routes.ts";
-import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
 
 export class ConnectionResolver extends Context.Service<
   ConnectionResolver,
@@ -280,9 +280,7 @@ export const make = Effect.gen(function* () {
           return ssh({ ...entry, target });
       }
     })();
-    const descriptor = yield* fetchRemoteEnvironmentDescriptor({
-      httpBaseUrl: prepared.httpBaseUrl,
-    }).pipe(
+    const descriptor = yield* ConnectionDescriptors.fetch(prepared.httpBaseUrl).pipe(
       Effect.mapError(mapRemoteEnvironmentError),
       Effect.provideService(HttpClient.HttpClient, httpClient),
     );
@@ -335,7 +333,18 @@ export const make = Effect.gen(function* () {
     };
   });
 
-  return ConnectionResolver.of({ prepare, prepareForUpdate: authorize });
+  return ConnectionResolver.of({
+    prepare: (entry) =>
+      prepare(entry).pipe(
+        ConnectionDescriptors.withConnectionDescriptors,
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      ),
+    prepareForUpdate: (entry) =>
+      authorize(entry).pipe(
+        ConnectionDescriptors.withConnectionDescriptors,
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      ),
+  });
 });
 
 export const layer = Layer.effect(ConnectionResolver, make);
