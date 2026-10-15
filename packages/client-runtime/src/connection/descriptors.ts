@@ -15,6 +15,7 @@ export class ConnectionDescriptors extends Context.Service<
     readonly get: (
       httpBaseUrl: string,
     ) => Effect.Effect<ExecutionEnvironmentDescriptor, RemoteEnvironmentRequestError>;
+    readonly has: (httpBaseUrl: string) => Effect.Effect<boolean>;
   }
 >()("@t3tools/client-runtime/connection/descriptors/ConnectionDescriptors") {}
 
@@ -27,7 +28,10 @@ const make = Effect.gen(function* () {
         Effect.provideService(HttpClient.HttpClient, httpClient),
       ),
   });
-  return ConnectionDescriptors.of({ get: (httpBaseUrl) => Cache.get(descriptors, httpBaseUrl) });
+  return ConnectionDescriptors.of({
+    get: (httpBaseUrl) => Cache.get(descriptors, httpBaseUrl),
+    has: (httpBaseUrl) => Cache.has(descriptors, httpBaseUrl),
+  });
 });
 
 const layer = Layer.effect(ConnectionDescriptors, make);

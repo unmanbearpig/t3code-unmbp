@@ -285,12 +285,20 @@ function connectionEntry(routes: ReadonlyArray<ConnectionRoute>): ConnectionCata
 const SSH_TARGET = { alias: "test", hostname: "ssh.example.test", username: "test", port: 22 };
 
 const makeConnectionHarness = Effect.fn("TestConnectionDescriptors.makeHarness")(function* (
-  input: Parameters<typeof makeHarness>[0] & { readonly primaryBearerToken?: string },
+  input: Parameters<typeof makeHarness>[0] & {
+    readonly primaryBearerToken?: string;
+    readonly skipDescriptorOnHttpsReconnect?: boolean;
+  },
 ) {
   const harness = yield* makeHarness(input);
   const opened: Array<PreparedConnection> = [];
   const dependencies = Layer.mergeAll(
     harness.dependencies,
+    input.skipDescriptorOnHttpsReconnect === undefined
+      ? Layer.empty
+      : Layer.succeed(ClientCapabilities.ExperimentalReconnectOptions, {
+          skipDescriptorOnHttpsReconnect: input.skipDescriptorOnHttpsReconnect,
+        }),
     Layer.succeed(ConnectionCredentialStore.ConnectionCredentialStore, {
       get: () => Effect.succeedSome(new BearerConnectionCredential({ token: "bearer-token" })),
       put: () => Effect.void,
@@ -679,6 +687,168 @@ describe("Connection descriptor reuse", () => {
         ...(kind === "primary" ? [] : [`POST ${ENDPOINT.httpBaseUrl}/api/auth/websocket-ticket`]),
       ]);
       expect(harness.opened).toHaveLength(1);
+    }),
+  );
+});
+
+describe("Experimental HTTPS reconnect", () => {
+  it.effect.each([
+    { name: "enabled HTTPS", enabled: true, httpBaseUrl: ENDPOINT.httpBaseUrl, skip: true },
+    { name: "disabled HTTPS", enabled: false, httpBaseUrl: ENDPOINT.httpBaseUrl, skip: false },
+    { name: "default HTTPS", enabled: undefined, httpBaseUrl: ENDPOINT.httpBaseUrl, skip: false },
+    { name: "enabled HTTP", enabled: true, httpBaseUrl: "http://100.64.0.1:3773", skip: false },
+    {
+      name: "enabled HTTPS with insecure WebSocket",
+      enabled: true,
+      httpBaseUrl: ENDPOINT.httpBaseUrl,
+      wsBaseUrl: "ws://environment.example.test",
+      skip: false,
+    },
+    {
+      name: "enabled learned HTTPS",
+      enabled: true,
+      httpBaseUrl: ENDPOINT.httpBaseUrl,
+      learned: true,
+      skip: false,
+    },
+  ])("keeps the expected request sequence for $name", (scenario) =>
+    Effect.gen(function* () {
+      const route = bearerRoute("saved", scenario.httpBaseUrl);
+      const profile = Option.getOrThrow(route.profile);
+      if (profile._tag !== "BearerConnectionProfile") throw new Error("Expected bearer profile.");
+      const harness = yield* makeConnectionHarness({
+        ...(scenario.enabled === undefined
+          ? {}
+          : { skipDescriptorOnHttpsReconnect: scenario.enabled }),
+        responses: [
+          ...(scenario.skip ? [] : [Response.json(DESCRIPTOR)]),
+          websocketTicket("first"),
+          ...(scenario.skip ? [] : [Response.json(DESCRIPTOR)]),
+          websocketTicket("reconnect"),
+        ],
+      });
+      yield* Effect.gen(function* () {
+        const driver = yield* ConnectionDriver.ConnectionDriver;
+        const entry = connectionEntry([
+          {
+            ...route,
+            profile: Option.some(
+              new BearerConnectionProfile({
+                ...profile,
+                ...("wsBaseUrl" in scenario ? { wsBaseUrl: scenario.wsBaseUrl } : {}),
+                ...("learned" in scenario ? { learned: true } : {}),
+              }),
+            ),
+          },
+        ]);
+        yield* driver.connect(entry, () => Effect.void).pipe(Effect.scoped);
+        yield* driver.connect(entry, () => Effect.void).pipe(Effect.scoped);
+      }).pipe(Effect.provide(harness.layer));
+
+      const attempt = [
+        ...(scenario.skip ? [] : [`GET ${scenario.httpBaseUrl}/.well-known/t3/environment`]),
+        `POST ${scenario.httpBaseUrl}/api/auth/websocket-ticket`,
+      ];
+      expect(requestSequence(harness)).toEqual([...attempt, ...attempt]);
+      expect(harness.opened).toHaveLength(2);
+      const socketUrl = new URL(harness.opened[1]!.socketUrl);
+      expect(socketUrl.searchParams.get("wsTicket")).toBe("reconnect");
+      expect(socketUrl.searchParams.get("orchestrationProtocol")).toBe(
+        String(ORCHESTRATION_PROTOCOL_VERSION),
+      );
+      expect(new Headers(harness.fetch.calls.at(-1)?.[1].headers).get("authorization")).toBe(
+        "Bearer bearer-token",
+      );
+    }),
+  );
+
+  it.effect.each([
+    { mismatch: false, incompatible: false },
+    { mismatch: true, incompatible: false },
+    { mismatch: false, incompatible: true },
+  ])(
+    "keeps multi-route checks with mismatch=$mismatch and incompatible=$incompatible",
+    ({ mismatch, incompatible }) =>
+      Effect.gen(function* () {
+        const other = "https://other.example.test";
+        const checked = yield* Deferred.make<void>();
+        const calls: ReturnType<typeof recordedFetch>["calls"] = [];
+        const client = HttpClient.make((request) =>
+          Effect.gen(function* () {
+            calls.push([request.url, { method: request.method, headers: request.headers }]);
+            if (request.method === "GET") {
+              if (calls.length === 2) yield* Deferred.succeed(checked, undefined);
+              yield* Deferred.await(checked);
+            }
+            return HttpClientResponse.fromWeb(
+              request,
+              request.method === "GET"
+                ? Response.json({
+                    ...DESCRIPTOR,
+                    orchestrationProtocolVersion:
+                      ORCHESTRATION_PROTOCOL_VERSION + (incompatible ? 1 : 0),
+                    ...(mismatch && request.url.startsWith(ENDPOINT.httpBaseUrl)
+                      ? { environmentId: "wrong-environment" }
+                      : {}),
+                  })
+                : websocketTicket("ticket"),
+            );
+          }),
+        );
+        const harness = yield* makeConnectionHarness({
+          skipDescriptorOnHttpsReconnect: true,
+          responses: [],
+          httpClient: Layer.succeed(HttpClient.HttpClient, client),
+        });
+        const result = yield* Effect.gen(function* () {
+          const driver = yield* ConnectionDriver.ConnectionDriver;
+          return yield* driver
+            .connect(
+              connectionEntry([bearerRoute("first"), bearerRoute("second", other)]),
+              () => Effect.void,
+            )
+            .pipe(Effect.scoped, Effect.result);
+        }).pipe(Effect.provide(harness.layer));
+
+        const selected = mismatch ? other : ENDPOINT.httpBaseUrl;
+        expect(requestSequence({ fetch: { calls } })).toEqual([
+          `GET ${ENDPOINT.httpBaseUrl}/.well-known/t3/environment`,
+          `GET ${other}/.well-known/t3/environment`,
+          `POST ${selected}/api/auth/websocket-ticket`,
+        ]);
+        if (incompatible) {
+          expect(result).toMatchObject({
+            _tag: "Failure",
+            failure: { _tag: "ConnectionBlockedError", reason: "unsupported" },
+          });
+          expect(harness.opened).toHaveLength(0);
+        } else {
+          expect(result._tag).toBe("Success");
+          expect(harness.opened[0]?.httpBaseUrl).toBe(selected);
+        }
+      }),
+  );
+
+  it.effect("keeps descriptor checks when preparing an outdated host update", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeConnectionHarness({
+        skipDescriptorOnHttpsReconnect: true,
+        responses: [
+          Response.json({ ...DESCRIPTOR, orchestrationProtocolVersion: undefined }),
+          websocketTicket("ticket"),
+        ],
+      });
+      const result = yield* Effect.gen(function* () {
+        const resolver = yield* ConnectionResolver.ConnectionResolver;
+        return yield* resolver.prepareForUpdate(connectionEntry([bearerRoute("saved")]));
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(result.descriptor.environmentId).toBe(ENVIRONMENT_ID);
+      expect(result.prepared.socketUrl).not.toContain("orchestrationProtocol");
+      expect(requestSequence(harness)).toEqual([
+        `GET ${ENDPOINT.httpBaseUrl}/.well-known/t3/environment`,
+        `POST ${ENDPOINT.httpBaseUrl}/api/auth/websocket-ticket`,
+      ]);
     }),
   );
 });

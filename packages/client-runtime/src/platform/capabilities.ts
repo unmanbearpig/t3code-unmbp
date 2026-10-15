@@ -54,6 +54,14 @@ export class PrimaryEnvironmentAuth extends Context.Service<
   }
 >()("@t3tools/client-runtime/platform/capabilities/PrimaryEnvironmentAuth") {}
 
+/** Measurement only, pending a security decision. An absent service keeps the experiment off. */
+export class ExperimentalReconnectOptions extends Context.Service<
+  ExperimentalReconnectOptions,
+  {
+    readonly skipDescriptorOnHttpsReconnect: boolean;
+  }
+>()("@t3tools/client-runtime/platform/capabilities/ExperimentalReconnectOptions") {}
+
 export class SshEnvironmentGateway extends Context.Service<
   SshEnvironmentGateway,
   {
