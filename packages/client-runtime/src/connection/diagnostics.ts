@@ -2,6 +2,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Cause from "effect/Cause";
 import * as HttpClient from "effect/http/HttpClient";
 
 import type {
@@ -115,6 +116,20 @@ export type ConnectionDiagnosticDetail =
     }
   | { readonly kind: "session-closed" }
   | {
+      readonly kind: "cleanup";
+      readonly cleanupId: number;
+      readonly resource: "session" | "subscription";
+      readonly method?: "shell" | "thread" | "other";
+      readonly milestone: "started" | "finished";
+      readonly durationMs: number | null;
+      readonly outcome: "completed" | "failed" | "interrupted" | null;
+    }
+  | {
+      readonly kind: "shell-sync";
+      readonly milestone: "started" | "live" | "failed";
+      readonly completion: "marker" | "legacy";
+    }
+  | {
       readonly kind: "probe";
       readonly result: "started" | "answered" | "failed" | "timeout" | "interrupted";
       readonly route?: DiagnosticRoute;
@@ -139,12 +154,17 @@ export type ConnectionDiagnosticEvent = ConnectionDiagnosticDetail & {
   readonly environmentId: string;
 };
 
-/** Optional platform-owned, local diagnostics. Observers must be cheap and must not throw. */
-export class ConnectionDiagnostics extends Context.Reference<{
+interface DiagnosticObserver {
   readonly record: (event: ConnectionDiagnosticEvent) => void;
-} | null>("@t3tools/client-runtime/connection/ConnectionDiagnostics", {
-  defaultValue: () => null,
-}) {}
+}
+
+/** Optional platform-owned, local diagnostics. Observers must be cheap and must not throw. */
+export class ConnectionDiagnostics extends Context.Reference<DiagnosticObserver | null>(
+  "@t3tools/client-runtime/connection/ConnectionDiagnostics",
+  {
+    defaultValue: () => null,
+  },
+) {}
 
 /** Associates concurrent preparation HTTP requests with their owning connection attempt. */
 export class PreparationDiagnosticContext extends Context.Reference<{
@@ -153,6 +173,75 @@ export class PreparationDiagnosticContext extends Context.Reference<{
 } | null>("@t3tools/client-runtime/connection/PreparationDiagnosticContext", {
   defaultValue: () => null,
 }) {}
+
+let cleanupSequence = 0;
+
+/** Starts a local cleanup observation; its finisher preserves zero and interrupted durations. */
+export const startCleanupObservation = (
+  diagnostics: DiagnosticObserver,
+  detail: Pick<
+    Extract<ConnectionDiagnosticEvent, { kind: "cleanup" }>,
+    "environmentId" | "resource" | "method"
+  >,
+) =>
+  Effect.gen(function* () {
+    const cleanupId = ++cleanupSequence;
+    const started = yield* Clock.monotonicTimeNanos;
+    diagnostics.record({
+      ...detail,
+      cleanupId,
+      kind: "cleanup",
+      milestone: "started",
+      durationMs: null,
+      outcome: null,
+    });
+    return (exit: Exit.Exit<unknown, unknown>) =>
+      Effect.gen(function* () {
+        const ended = yield* Clock.monotonicTimeNanos;
+        diagnostics.record({
+          ...detail,
+          cleanupId,
+          kind: "cleanup",
+          milestone: "finished",
+          durationMs: Number(ended - started) / 1_000_000,
+          outcome: Exit.isSuccess(exit)
+            ? "completed"
+            : Cause.hasInterruptsOnly(exit.cause)
+              ? "interrupted"
+              : "failed",
+        });
+      });
+  });
+
+/** Keeps the same synchronous scope release, observing only its finalizers. */
+export const observeSessionScope = <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+  diagnostics: DiagnosticObserver | null,
+  environmentId: string,
+) =>
+  diagnostics === null
+    ? Effect.scoped(effect)
+    : Effect.gen(function* () {
+        let finish: Effect.Success<ReturnType<typeof startCleanupObservation>> | undefined;
+        let ownerExit: Exit.Exit<unknown, unknown> = Exit.void;
+        return yield* Effect.scoped(
+          effect.pipe(
+            Effect.onExit((exit) =>
+              Effect.gen(function* () {
+                ownerExit = exit;
+                finish = yield* startCleanupObservation(diagnostics, {
+                  environmentId,
+                  resource: "session",
+                });
+              }),
+            ),
+          ),
+        ).pipe(
+          Effect.onExit((exit) =>
+            Effect.suspend(() => finish?.(Exit.isFailure(exit) ? exit : ownerExit) ?? Effect.void),
+          ),
+        );
+      });
 
 export const observePreparationHttp = (client: HttpClient.HttpClient): HttpClient.HttpClient =>
   HttpClient.transform(client, (response, request) =>
