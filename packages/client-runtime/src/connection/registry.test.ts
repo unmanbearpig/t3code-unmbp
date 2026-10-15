@@ -1483,7 +1483,7 @@ describe("EnvironmentRegistry", () => {
         expect(
           Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).httpAuthorization,
         ).toEqual({ _tag: "Bearer", token: "new-bearer" });
-        expect(yield* Ref.get(preparations)).toBe(3);
+        expect(yield* Ref.get(preparations)).toBe(4);
       }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
   );
