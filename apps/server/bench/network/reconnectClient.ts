@@ -4,6 +4,7 @@ import type { OrchestrationV2ShellSnapshot } from "@t3tools/contracts";
 import { Agent } from "undici";
 import * as Clock from "effect/Clock";
 import { observedScope, observedStream } from "./reconnectLifecycle.ts";
+import { isFullShellSnapshot } from "./reconnectObservation.ts";
 import { backgroundClock } from "./reconnectClock.ts";
 import { workloadPlan } from "./reconnectWorkload.ts";
 import * as NodeTls from "node:tls";
@@ -193,7 +194,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
         : undefined;
       for (const value of message.values) {
         if (tag === "orchestration.subscribeShell") {
-          if (Predicate.hasProperty(value, "kind") && value.kind === "snapshot") shellSnapshots++;
+          if (isFullShellSnapshot(value)) shellSnapshots++;
           if (Predicate.hasProperty(value, "kind") && value.kind === "synchronized")
             stamp("shell-synchronized");
           continue;

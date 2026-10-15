@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
+import { isFullShellSnapshot } from "./reconnectObservation.ts";
 import { backgroundClock } from "./reconnectClock.ts";
 import * as Stream from "effect/Stream";
 import { observedScope, observedStream } from "./reconnectLifecycle.ts";
@@ -189,3 +190,26 @@ it.effect(
       expect(sleeps).toEqual([10]);
     }),
 );
+
+it("distinguishes full shell fallback from the production metadata-only resume prefix", () => {
+  expect(
+    isFullShellSnapshot({
+      kind: "snapshot",
+      snapshot: { threads: [{ id: "one" }], archivedThreads: [] },
+    }),
+  ).toBe(true);
+  expect(
+    isFullShellSnapshot({
+      kind: "snapshot",
+      snapshot: { threads: [], archivedThreads: [{ id: "one" }] },
+    }),
+  ).toBe(true);
+  expect(
+    isFullShellSnapshot({
+      kind: "snapshot",
+      snapshot: { threads: [], archivedThreads: [], projects: [{ id: "one" }] },
+      resolvedRepositoryIdentityRoots: ["root"],
+    }),
+  ).toBe(false);
+  expect(isFullShellSnapshot({ kind: "synchronized" })).toBe(false);
+});
