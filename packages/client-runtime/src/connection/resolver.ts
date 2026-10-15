@@ -167,6 +167,7 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
       connectionMethod: "direct",
     });
     return {
+      ...(authorized.handshake === undefined ? {} : { handshake: authorized.handshake }),
       environmentId: authorized.environmentId,
       label: authorized.label,
       httpBaseUrl: authorized.httpBaseUrl,
@@ -288,6 +289,8 @@ export const make = Effect.gen(function* () {
           return ssh({ ...entry, target });
       }
     })();
+    if ("handshake" in prepared && prepared.handshake?._tag === "Hello")
+      return { prepared, descriptor: undefined };
     const descriptor = yield* ConnectionDescriptors.fetch(prepared.httpBaseUrl).pipe(
       Effect.mapError(mapRemoteEnvironmentError),
       Effect.provideService(HttpClient.HttpClient, httpClient),
@@ -305,7 +308,8 @@ export const make = Effect.gen(function* () {
     entry: ConnectionCatalogEntry,
   ) {
     const { prepared, descriptor } = yield* authorize(entry);
-    const compatibilityError = orchestrationProtocolCompatibilityError(descriptor);
+    const compatibilityError =
+      descriptor === undefined ? null : orchestrationProtocolCompatibilityError(descriptor);
     if (compatibilityError !== null) {
       return yield* compatibilityError;
     }
@@ -323,6 +327,17 @@ export const make = Effect.gen(function* () {
       ),
     prepareForUpdate: (entry) =>
       authorize(entry).pipe(
+        Effect.provideService(ClientCapabilities.LegacyReconnectHandshake, true),
+        Effect.flatMap((result) =>
+          result.descriptor === undefined
+            ? Effect.fail(
+                new ConnectionBlockedError({
+                  reason: "configuration",
+                  detail: "Hello is unavailable for update sessions.",
+                }),
+              )
+            : Effect.succeed({ ...result, descriptor: result.descriptor }),
+        ),
         ConnectionDescriptors.withConnectionDescriptors,
         Effect.provideService(HttpClient.HttpClient, httpClient),
       ),

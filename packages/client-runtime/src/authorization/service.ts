@@ -50,6 +50,10 @@ export interface AuthorizedRemoteEnvironment {
   readonly label: string;
   readonly httpBaseUrl: string;
   readonly socketUrl: string;
+  readonly handshake?: Exclude<
+    import("../connection/model.ts").PreparedConnection["handshake"],
+    undefined
+  >;
   readonly httpAuthorization: PreparedHttpAuthorization;
 }
 
@@ -63,6 +67,24 @@ export interface AuthorizedRemoteHttpEnvironment {
 export class RemoteEnvironmentAuthorization extends Context.Service<
   RemoteEnvironmentAuthorization,
   {
+    readonly helloSupport?: {
+      readonly has: (
+        environmentId: EnvironmentId,
+        httpBaseUrl: string,
+        wsBaseUrl: string,
+      ) => boolean;
+      /** Seeds support learned by a previous connection, without treating it as current identity. */
+      readonly remember: (
+        httpBaseUrl: string,
+        wsBaseUrl: string,
+        descriptor: ExecutionEnvironmentDescriptor,
+      ) => void;
+      readonly forget: (
+        environmentId: EnvironmentId,
+        httpBaseUrl: string,
+        wsBaseUrl: string,
+      ) => void;
+    };
     readonly authorizeBearer: (input: {
       readonly expectedEnvironmentId: EnvironmentId;
       readonly httpBaseUrl: string;
@@ -116,6 +138,24 @@ export const make = Effect.gen(function* () {
   const webSocketConstructorWithHeaders = yield* Effect.serviceOption(
     ClientCapabilities.WebSocketConstructorWithHeaders,
   );
+  const helloOption = yield* Effect.serviceOption(ClientCapabilities.ExperimentalReconnectHello);
+  const helloEnabled = Option.isSome(helloOption) && helloOption.value.enabled;
+  const helloCache = new Map<string, ExecutionEnvironmentDescriptor>();
+  const helloKey = (id: EnvironmentId, http: string, ws: string) =>
+    `${id.length}:${id}${http.length}:${http}${ws}`;
+  const helloSupport = {
+    has: (id: EnvironmentId, http: string, ws: string) =>
+      helloEnabled && helloCache.has(helloKey(id, http, ws)),
+    remember: (http: string, ws: string, descriptor: ExecutionEnvironmentDescriptor) => {
+      const key = helloKey(descriptor.environmentId, http, ws);
+      if (helloEnabled && descriptor.capabilities.websocketHello === 1)
+        helloCache.set(key, descriptor);
+      else helloCache.delete(key);
+    },
+    forget: (id: EnvironmentId, http: string, ws: string) => {
+      helloCache.delete(helloKey(id, http, ws));
+    },
+  };
   const tokenStore = yield* TokenStore.RemoteDpopAccessTokenStore;
   const httpClient = yield* HttpClient.HttpClient;
   const tokenLock = yield* Semaphore.make(1);
@@ -199,7 +239,16 @@ export const make = Effect.gen(function* () {
       readonly bearerToken: string;
       readonly connectionMethod: ClientConnectionMethod;
     }) {
-      const descriptor = yield* verifyDirectEndpoint(input);
+      const forceLegacy = yield* ClientCapabilities.LegacyReconnectHandshake;
+      const useHello =
+        !forceLegacy &&
+        helloSupport.has(input.expectedEnvironmentId, input.httpBaseUrl, input.wsBaseUrl);
+      const descriptor = useHello
+        ? helloCache.get(helloKey(input.expectedEnvironmentId, input.httpBaseUrl, input.wsBaseUrl))
+        : yield* verifyDirectEndpoint(input);
+      if (helloEnabled && descriptor !== undefined) {
+        helloSupport.remember(input.httpBaseUrl, input.wsBaseUrl, descriptor);
+      }
       const socketInput = {
         wsBaseUrl: input.wsBaseUrl,
         httpBaseUrl: input.httpBaseUrl,
@@ -207,17 +256,24 @@ export const make = Effect.gen(function* () {
         clientMetadata: presentation.metadata,
         connectionMethod: input.connectionMethod,
       };
-      const socketUrl = Option.isSome(webSocketConstructorWithHeaders)
-        ? remoteWebSocketUrl(socketInput)
-        : yield* resolveRemoteWebSocketConnectionUrl(socketInput).pipe(
-            Effect.mapError(mapRemoteEnvironmentError),
-            Effect.provideService(HttpClient.HttpClient, httpClient),
-          );
+      const rawSocketUrl =
+        useHello || Option.isSome(webSocketConstructorWithHeaders)
+          ? remoteWebSocketUrl(socketInput)
+          : yield* resolveRemoteWebSocketConnectionUrl(socketInput).pipe(
+              Effect.mapError(mapRemoteEnvironmentError),
+              Effect.provideService(HttpClient.HttpClient, httpClient),
+            );
+      const url = new URL(rawSocketUrl);
+      url.searchParams.delete("handshake");
+      if (useHello) url.searchParams.set("handshake", "hello-v1");
       return {
-        environmentId: descriptor.environmentId,
-        label: descriptor.label,
+        handshake: useHello
+          ? { _tag: "Hello" as const, version: 1 as const }
+          : { _tag: "Legacy" as const },
+        environmentId: input.expectedEnvironmentId,
+        label: descriptor?.label ?? "Environment",
         httpBaseUrl: input.httpBaseUrl,
-        socketUrl,
+        socketUrl: url.toString(),
         httpAuthorization: {
           _tag: "Bearer" as const,
           token: input.bearerToken,
@@ -562,6 +618,7 @@ export const make = Effect.gen(function* () {
   });
 
   return RemoteEnvironmentAuthorization.of({
+    helloSupport,
     authorizeBearer,
     authorizeDpop: (input) =>
       authorizeDpop(input).pipe(Effect.withSpan("environment.authorization")),

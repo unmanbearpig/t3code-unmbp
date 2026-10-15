@@ -641,6 +641,49 @@ describe("RpcSessionFactory", () => {
     }),
   );
 
+  it.effect(
+    "uses the platform constructor without upgrade credentials for H and keeps the config gate",
+    () =>
+      Effect.gen(function* () {
+        const { factory, sockets } = yield* makeFactory().pipe(
+          Effect.provideService(ClientCapabilities.WebSocketConstructorWithHeaders, () => {
+            throw new Error("H must not send the bearer during the upgrade.");
+          }),
+        );
+        const session = yield* factory.connect({
+          ...BEARER_PREPARED,
+          handshake: { _tag: "Hello", version: 1 },
+          socketUrl: "wss://environment.example.test/ws?handshake=hello-v1",
+        });
+        const ready = yield* Deferred.make<void>();
+        const readyFiber = yield* session.ready.pipe(
+          Effect.andThen(Deferred.succeed(ready, undefined)),
+          Effect.forkChild,
+        );
+        const socket = yield* awaitSocket(sockets);
+        socket.open();
+        socket.serverMessage(
+          encodeJson({
+            _tag: "Hello",
+            handshakeVersion: 1,
+            environment: {
+              ...SERVER_CONFIG.environment,
+              orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+            },
+            resume: {},
+          }),
+        );
+        // Config RPC is pipelined before Authenticated arrives.
+        yield* awaitRequest(socket, 0);
+        expect(decodeJson(socket.sent[0]!)).toMatchObject({ _tag: "BearerAuth" });
+        expect(yield* Deferred.isDone(ready)).toBe(false);
+        socket.serverMessage(encodeJson({ _tag: "Authenticated", handshakeVersion: 1 }));
+        yield* completeInitialConfig(socket);
+        yield* Fiber.join(readyFiber);
+        expect(yield* Deferred.isDone(ready)).toBe(true);
+      }),
+  );
+
   it.effect("keeps DPoP sockets on the ticket constructor when upgrade headers are available", () =>
     Effect.gen(function* () {
       const { factory, sockets } = yield* makeFactory().pipe(
