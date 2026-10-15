@@ -35,3 +35,27 @@ export function scheduleLanes<T>(
   }
   return result;
 }
+
+/** Fast controls can run alone on the reference CPU before network-dominated parallel work. */
+export function schedulePhases<T>(
+  cases: readonly ReconnectCase[],
+  variants: readonly T[],
+  lanes: number,
+  serialProfiles: readonly string[] = [],
+) {
+  const parallel = scheduleLanes(
+    cases.filter((c) => !serialProfiles.includes(c.profile.name)),
+    variants,
+    lanes,
+  );
+  if (!serialProfiles.length) return [parallel];
+  for (const name of serialProfiles)
+    if (!cases.some((c) => c.profile.name === name))
+      throw new Error(`Unknown serial profile: ${name}`);
+  const serial = scheduleLanes(
+    cases.filter((c) => serialProfiles.includes(c.profile.name)),
+    variants,
+    1,
+  );
+  return [[serial[0]!, ...Array.from({ length: lanes - 1 }, () => [])], parallel];
+}

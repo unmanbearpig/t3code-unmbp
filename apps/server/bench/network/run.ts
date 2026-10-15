@@ -15,7 +15,7 @@ import {
   makeLifecycleManifest,
 } from "./reconnectManifest.ts";
 import { warmupCase } from "./reconnectWarmup.ts";
-import { scheduleLanes } from "./reconnectSchedule.ts";
+import { schedulePhases } from "./reconnectSchedule.ts";
 import { mailbox, stopChild } from "./reconnectProcess.ts";
 import { VariantOptions, defaultVariantOptions } from "./reconnectOptions.ts";
 import { summarize, type ReconnectRow } from "./reconnectComparison.ts";
@@ -83,7 +83,8 @@ const { values } = NodeUtil.parseArgs({
     cpus: { type: "string" },
     coordinator: { type: "boolean" },
     "fresh-workers": { type: "boolean" },
-    warmups: { type: "string", default: "2" },
+    warmups: { type: "string", default: "20" },
+    "serial-profiles": { type: "string" },
     reduced: { type: "boolean" },
     "variant-options": { type: "string" },
     "calibrate-only": { type: "boolean" },
@@ -103,6 +104,8 @@ if (values.help) {
   --lanes N              Independent calibrated namespaces, default 1, maximum 18
   --fresh-workers        Serial reference: restart both processes after each case
   --cpus 0,1;2,3         Optional per-lane CPU sets. Quote the argument in a shell.
+  --serial-profiles good Run these profiles alone on lane 0 before parallel work
+  --warmups N            Per-variant/lane warmups, default 20; fresh workers use none
   --variant-options FILE JSON mapping variant names to switches
   --manifest FILE        Use exactly these frozen inputs
   --variants A=/abs/worktree,B=/abs/worktree  Clean worktrees containing this bench
@@ -200,7 +203,8 @@ const frozenRevisions = new Map(
 for (const variant of variants)
   if (state(variant.path).dirty)
     throw new Error(`Refusing dirty worktree ${variant.name}: ${variant.path}`);
-const assignments = scheduleLanes(manifest.cases, variants, laneCount);
+const serialProfiles = values["serial-profiles"]?.split(",") ?? [];
+const phases = schedulePhases(manifest.cases, variants, laneCount, serialProfiles);
 const cpuSets = values.cpus?.split(";");
 if (cpuSets && (cpuSets.length !== laneCount || cpuSets.some((s) => !/^\d+(?:[-,]\d+)*$/.test(s))))
   throw new Error("--cpus needs one CPU set per lane");
@@ -246,12 +250,22 @@ process.on("message", (message) => {
   if (message === "interrupt") void cleanup().finally(() => process.exit(143));
 });
 const rows: ReconnectRow[] = [];
+const warmupRows: unknown[] = [];
 const write = (name: string, value: unknown) => {
   const target = NodePath.join(out, name);
   NodeFS.writeFileSync(target + ".next", JSON.stringify(value, null, 2) + "\n");
   NodeFS.renameSync(target + ".next", target);
 };
+const append = (name: string, value: unknown) =>
+  NodeFS.appendFileSync(NodePath.join(out, name), JSON.stringify(value) + "\n");
+const finishRows = () => {
+  write("rows.json", rows);
+  write("warmups.json", warmupRows);
+  write("summary.json", summarize(rows));
+};
 try {
+  for (const name of ["rows.jsonl", "warmups.jsonl"])
+    NodeFS.writeFileSync(NodePath.join(out, name), "");
   write("manifest.json", manifest);
   write("environment.json", {
     node: process.version,
@@ -262,6 +276,7 @@ try {
     cpu: NodeOS.cpus()[0]?.model,
     laneCount,
     cpuSets,
+    serialProfiles,
     warmups: Number(values.warmups),
     freshWorkers: values["fresh-workers"] === true,
     variants: variants.map((variant) => ({ ...variant, ...state(variant.path) })),
@@ -293,7 +308,7 @@ try {
   const lanes = active;
   const mailboxes: ReturnType<typeof mailbox>[] = [];
   const calibration = await Promise.all(
-    assignments.map(async (_tasks, lane) => {
+    Array.from({ length: laneCount }, async (_, lane) => {
       const laneScratch = NodePath.join(scratch, `lane-${lane}`);
       NodeFS.mkdirSync(laneScratch);
       for (const name of ["cert.pem", "key.pem"])
@@ -339,68 +354,72 @@ try {
       throw new Error("Calibration failed");
   const calibrationMs = Date.now() - startedAt;
   const caseStart = Date.now();
-  const warmupRows: unknown[] = [];
   const warmupCount = Number(values.warmups);
   if (!Number.isSafeInteger(warmupCount) || warmupCount < 0 || warmupCount > 20)
     throw new Error("warmups must be 0..20");
   if (!values["calibrate-only"]) {
-    await Promise.all(
-      assignments.map(async (tasks, lane) => {
-        const warmed = new Set<string>();
-        for (const [groupIndex, task] of tasks.entries())
-          for (const variant of task.variants) {
-            const provenance = state(variant.path);
-            if (provenance.dirty || provenance.revision !== frozenRevisions.get(variant.path))
-              throw new Error(`Worktree changed during suite: ${variant.name}`);
-            const epoch = `${process.pid}-${lane}-${groupIndex}-${variant.name}`;
-            if (!values["fresh-workers"] && !warmed.has(variant.name)) {
-              for (let warmup = 0; warmup < warmupCount; warmup++) {
-                const entry = warmupCase(lane, variant.name, warmup);
-                lanes[lane]!.send({
-                  path: variant.path,
-                  epoch: `${epoch}-warmup-${warmup}`,
-                  entry,
-                  options: variant.options,
-                });
-                const result = decodeWorker(await mailboxes[lane]!.next(125000));
-                warmupRows.push({ lane, variant: variant.name, entry, ...result });
-                write("warmups.json", warmupRows);
-                if (result.type === "failure") throw new Error(`Warmup failed: ${result.error}`);
+    const warmedLanes = Array.from({ length: laneCount }, () => new Set<string>());
+    for (const [phase, assignments] of phases.entries())
+      await Promise.all(
+        assignments.map(async (tasks, lane) => {
+          const warmed = warmedLanes[lane]!;
+          for (const [groupIndex, task] of tasks.entries())
+            for (const variant of task.variants) {
+              const provenance = state(variant.path);
+              if (provenance.dirty || provenance.revision !== frozenRevisions.get(variant.path))
+                throw new Error(`Worktree changed during suite: ${variant.name}`);
+              const epoch = `${process.pid}-${phase}-${lane}-${groupIndex}-${variant.name}`;
+              if (!values["fresh-workers"] && !warmed.has(variant.name)) {
+                for (let warmup = 0; warmup < warmupCount; warmup++) {
+                  const entry = warmupCase(lane, variant.name, warmup);
+                  lanes[lane]!.send({
+                    path: variant.path,
+                    epoch: `${epoch}-warmup-${warmup}`,
+                    entry,
+                    options: variant.options,
+                  });
+                  const result = decodeWorker(await mailboxes[lane]!.next(125000));
+                  const row = { lane, variant: variant.name, entry, ...result };
+                  warmupRows.push(row);
+                  append("warmups.jsonl", row);
+                  if (result.type === "failure") throw new Error(`Warmup failed: ${result.error}`);
+                }
+                warmed.add(variant.name);
               }
-              warmed.add(variant.name);
+              lanes[lane]!.send({
+                path: variant.path,
+                epoch,
+                entry: task.entry,
+                options: variant.options,
+              });
+              const result = decodeWorker(
+                await mailboxes[lane]!.next(task.entry.timeoutMs + 65000),
+              );
+              const row: ReconnectRow = {
+                variant: variant.name,
+                ...provenance,
+                manifestHash: hash,
+                lane,
+                case: task.entry,
+                ...(result.type === "result"
+                  ? { result: result.result, controller: result.controller, wallMs: result.wallMs }
+                  : { error: result.error }),
+              };
+              const after = state(variant.path);
+              if (after.dirty || after.revision !== provenance.revision)
+                throw new Error(`Variant changed: ${variant.name}`);
+              rows.push(row);
+              append("rows.jsonl", row);
+              console.log(
+                `${rows.length}/${manifest.cases.length * variants.length} lane=${lane} ${variant.name} ${task.entry.id}: ${row.result ? row.result.totalMs.toFixed(1) + " ms" : row.error}`,
+              );
+              if (result.type === "failure")
+                throw new Error(`Poisoned lane ${lane}: ${result.error}`);
             }
-            lanes[lane]!.send({
-              path: variant.path,
-              epoch,
-              entry: task.entry,
-              options: variant.options,
-            });
-            const result = decodeWorker(await mailboxes[lane]!.next(task.entry.timeoutMs + 65000));
-            const row: ReconnectRow = {
-              variant: variant.name,
-              ...provenance,
-              manifestHash: hash,
-              lane,
-              case: task.entry,
-              ...(result.type === "result"
-                ? { result: result.result, controller: result.controller, wallMs: result.wallMs }
-                : { error: result.error }),
-            };
-            const after = state(variant.path);
-            if (after.dirty || after.revision !== provenance.revision)
-              throw new Error(`Variant changed: ${variant.name}`);
-            rows.push(row);
-            write("rows.json", rows);
-            write("summary.json", summarize(rows));
-            console.log(
-              `${rows.length}/${manifest.cases.length * variants.length} lane=${lane} ${variant.name} ${task.entry.id}: ${row.result ? row.result.totalMs.toFixed(1) + " ms" : row.error}`,
-            );
-            if (result.type === "failure")
-              throw new Error(`Poisoned lane ${lane}: ${result.error}`);
-          }
-      }),
-    );
+        }),
+      );
   }
+  finishRows();
   write("runtime.json", {
     startedAt: new Date(startedAt).toISOString(),
     finishedAt: new Date().toISOString(),
@@ -412,6 +431,9 @@ try {
     wallMsPerCase: (Date.now() - caseStart) / rows.length,
   });
   for (const lane of lanes) lane.send({ stop: true });
+} catch (error) {
+  finishRows();
+  throw error;
 } finally {
   await cleanup();
   process.disconnect?.();

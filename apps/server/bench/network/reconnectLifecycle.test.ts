@@ -14,7 +14,7 @@ import {
   makeResourceTracker,
   type IsolationEvidence,
 } from "./reconnectIsolation.ts";
-import { scheduleLanes } from "./reconnectSchedule.ts";
+import { scheduleLanes, schedulePhases } from "./reconnectSchedule.ts";
 import { makeLifecycleManifest, makeManifest } from "./reconnectManifest.ts";
 import { workloadPlan } from "./reconnectWorkload.ts";
 
@@ -89,6 +89,19 @@ it.effect("records stream cancellation around its actual resource finalizer", ()
   }),
 );
 describe("lane scheduling", () => {
+  it("isolates fast controls on the reference lane and retains matched variants and all seeds", () => {
+    const cases = makeManifest(true).cases;
+    const phases = schedulePhases(cases, ["a", "b"], 4, ["good"]);
+    expect(phases).toHaveLength(2);
+    expect(phases[0]!.slice(1).every((lane) => lane.length === 0)).toBe(true);
+    expect(phases[0]![0]!.every((task) => task.entry.profile.name === "good")).toBe(true);
+    expect(phases[1]!.flat().every((task) => task.entry.profile.name !== "good")).toBe(true);
+    const tasks = phases.flat(2);
+    expect(tasks.map((task) => task.entry.id).sort()).toEqual(cases.map((c) => c.id).sort());
+    expect(tasks.every((task) => [...task.variants].sort().join() === "a,b")).toBe(true);
+    expect(schedulePhases(cases, ["a"], 4)).toEqual([scheduleLanes(cases, ["a"], 4)]);
+    expect(() => schedulePhases(cases, ["a"], 4, ["typo"])).toThrow("Unknown serial profile");
+  });
   it("runs every variant exactly once per case on the same lane, balances seeds and variant order", () => {
     const cases = makeManifest().cases.filter(
       (c) =>
