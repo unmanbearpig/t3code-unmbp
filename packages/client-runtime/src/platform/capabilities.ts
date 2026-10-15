@@ -83,3 +83,15 @@ export class SshEnvironmentGateway extends Context.Service<
     ) => Effect.Effect<void, ConnectionAttemptError>;
   }
 >()("@t3tools/client-runtime/platform/capabilities/SshEnvironmentGateway") {}
+
+/** Opt-in benchmark prototype. Support must still be learned from each endpoint. */
+export class ExperimentalReconnectHello extends Context.Service<
+  ExperimentalReconnectHello,
+  { readonly enabled: boolean }
+>()("@t3tools/client-runtime/platform/capabilities/ExperimentalReconnectHello") {}
+
+/** Update sessions and the single rollback retry always perform legacy discovery. */
+export class LegacyReconnectHandshake extends Context.Reference<boolean>(
+  "@t3tools/client-runtime/platform/capabilities/LegacyReconnectHandshake",
+  { defaultValue: () => false },
+) {}

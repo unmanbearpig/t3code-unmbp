@@ -16,7 +16,9 @@ import type {
 import { ConnectionTransientError } from "./model.ts";
 import * as ConnectionResolver from "./resolver.ts";
 import * as ConnectionDescriptors from "./descriptors.ts";
-import { connectionRoutes, routeEntry, routeHttpBaseUrl } from "./routes.ts";
+import { connectionRoutes, routeEntry, routeHttpBaseUrl, routeHelloEndpoint } from "./routes.ts";
+import * as ClientCapabilities from "../platform/capabilities.ts";
+import * as RemoteAuthorization from "../authorization/service.ts";
 import * as RpcSession from "../rpc/session.ts";
 import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
 
@@ -142,6 +144,10 @@ export const make = Effect.gen(function* () {
   const resolver = yield* ConnectionResolver.ConnectionResolver;
   const sessions = yield* RpcSession.RpcSessionFactory;
   const httpClient = yield* HttpClient.HttpClient;
+  const authorization = yield* Effect.serviceOption(
+    RemoteAuthorization.RemoteEnvironmentAuthorization,
+  );
+  const helloSupport = Option.isSome(authorization) ? authorization.value.helloSupport : undefined;
 
   const checkRoute = (
     entry: ConnectionCatalogEntry,
@@ -191,14 +197,53 @@ export const make = Effect.gen(function* () {
     const descriptorScope = yield* Scope.make();
     return yield* connectOverRoutes(
       entry,
-      (route) => checkRoute(entry, route, descriptorScope),
+      (route) => {
+        const endpoint = routeHelloEndpoint(route);
+        return endpoint !== null &&
+          helloSupport?.has(entry.target.environmentId, endpoint.httpBaseUrl, endpoint.wsBaseUrl)
+          ? Effect.succeed<RouteCheck>("unchecked")
+          : checkRoute(entry, route, descriptorScope);
+      },
       Effect.fnUntraced(function* (route) {
-        const prepared = yield* resolver.prepare(routeEntry(entry, route));
-        yield* reportProgress({ stage: "opening", prepared });
-        const session = yield* sessions.connect(prepared);
-        yield* reportProgress({ stage: "synchronizing", prepared });
-        yield* session.ready;
-        return { prepared, session } satisfies EnvironmentConnectionLease;
+        const parent = yield* Scope.Scope;
+        const open = Effect.gen(function* () {
+          const socketScope = yield* Scope.fork(parent);
+          return yield* Effect.gen(function* () {
+            const prepared = yield* resolver.prepare(routeEntry(entry, route));
+            yield* reportProgress({ stage: "opening", prepared });
+            const session = yield* sessions.connect(prepared);
+            yield* reportProgress({ stage: "synchronizing", prepared });
+            yield* session.ready;
+            return { prepared, session } satisfies EnvironmentConnectionLease;
+          }).pipe(
+            Scope.provide(socketScope),
+            Effect.onExit((exit) =>
+              Exit.isSuccess(exit) ? Effect.void : Scope.close(socketScope, exit),
+            ),
+          );
+        });
+        return yield* open.pipe(
+          Effect.catch((error) => {
+            const endpoint = routeHelloEndpoint(route);
+            if (
+              error._tag !== "ConnectionTransientError" ||
+              error.helloFallback !== true ||
+              endpoint === null ||
+              helloSupport === undefined
+            ) {
+              return Effect.fail(error);
+            }
+            helloSupport.forget(
+              entry.target.environmentId,
+              endpoint.httpBaseUrl,
+              endpoint.wsBaseUrl,
+            );
+            // One fallback only. Its discovery refreshes support and retains all legacy checks.
+            return open.pipe(
+              Effect.provideService(ClientCapabilities.LegacyReconnectHandshake, true),
+            );
+          }),
+        );
       }),
     ).pipe(Effect.ensuring(Scope.close(descriptorScope, Exit.void)));
   });
