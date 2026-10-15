@@ -1,9 +1,13 @@
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
-/** A request-owned prefix, consumed once before its RPC's live stream. */
-export function rpcInitialItems<A>(items: ReadonlyArray<A>): Stream.Stream<A> {
-  let pending: ReadonlyArray<A> | undefined = items;
+/** A request-owned prefix; its completion item shares the data's RPC chunk. */
+export function rpcInitialItems<A, B = never>(
+  items: ReadonlyArray<A>,
+  completion?: B,
+): Stream.Stream<A | B> {
+  let pending: ReadonlyArray<A | B> | undefined =
+    completion === undefined ? items : [...items, completion];
   return Stream.unwrap(
     Effect.sync(() => {
       const initial = pending;
