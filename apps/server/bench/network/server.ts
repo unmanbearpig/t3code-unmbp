@@ -128,7 +128,7 @@ async function serveWebTransport() {
   })();
 }
 
-// Level 2: one RpcServer per transport, configured like the app's (ws.ts WS_RPC_SERVER_OPTIONS).
+// Level 2: one RpcServer per transport, configured like the app's (AuthenticatedRpcSession.ts WS_RPC_SERVER_OPTIONS).
 // WebSocket keeps the app's JSON-per-message and permessage-deflate; a WebTransport stream has no
 // message boundaries, so it length-prefixes each JSON message.
 function serveRpc(webTransport: SocketServer.SocketServer["Service"]) {

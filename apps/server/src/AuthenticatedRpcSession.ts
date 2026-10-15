@@ -244,6 +244,29 @@ import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 
+interface SessionInput<A, E> {
+  readonly session: EnvironmentAuth.AuthenticatedSession;
+  readonly protocol: RpcServer.Protocol["Service"];
+  readonly lifetime: Effect.Effect<A, E, Scope.Scope>;
+  readonly origin?: OrchestrationClientOrigin;
+  readonly analyticsProps?: Readonly<Record<string, unknown>>;
+  /** Passive closure may interrupt handler construction before transport startup. */
+  readonly closed?: Effect.Effect<void>;
+  readonly close?: Effect.Effect<void>;
+}
+
+export class AuthenticatedRpcSession extends Context.Service<
+  AuthenticatedRpcSession,
+  {
+    readonly run: <A, E>(
+      input: SessionInput<A, E>,
+    ) => Effect.Effect<
+      A | undefined,
+      E | Config.ConfigError | SessionStore.SessionCredentialVerificationError
+    >;
+  }
+>()("t3/AuthenticatedRpcSession") {}
+
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
 const isProviderUploadFeedbackError = Schema.is(ProviderUploadFeedbackError);
 
@@ -3107,29 +3130,6 @@ export const WS_RPC_SERVER_OPTIONS = {
   disableTracing: true,
   disableFatalDefects: true,
 } as const;
-
-interface SessionInput<A, E> {
-  readonly session: EnvironmentAuth.AuthenticatedSession;
-  readonly protocol: RpcServer.Protocol["Service"];
-  readonly lifetime: Effect.Effect<A, E, Scope.Scope>;
-  readonly origin?: OrchestrationClientOrigin;
-  readonly analyticsProps?: Readonly<Record<string, unknown>>;
-  /** Passive closure may interrupt handler construction before transport startup. */
-  readonly closed?: Effect.Effect<void>;
-  readonly close?: Effect.Effect<void>;
-}
-
-export class AuthenticatedRpcSession extends Context.Service<
-  AuthenticatedRpcSession,
-  {
-    readonly run: <A, E>(
-      input: SessionInput<A, E>,
-    ) => Effect.Effect<
-      A | undefined,
-      E | Config.ConfigError | SessionStore.SessionCredentialVerificationError
-    >;
-  }
->()("t3/AuthenticatedRpcSession") {}
 
 const make = Effect.gen(function* () {
   const serverBrowser = yield* ServerBrowser.ServerBrowser;
