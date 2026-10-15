@@ -39,7 +39,7 @@ import * as History from "../../../../packages/client-runtime/src/state/threadHi
 import * as ShellSnapshot from "../../../../packages/client-runtime/src/state/shellSnapshotHttp.ts";
 import { makeEnvironmentShellState } from "../../../../packages/client-runtime/src/state/shell.ts";
 import { blackholeSocket } from "./reconnectNetwork.ts";
-import { reconnectHelloDescriptor } from "./reconnectHelloFixture.ts";
+import { makeReconnectHelloSupportCache } from "./reconnectHelloFixture.ts";
 import type { VariantOptions } from "./reconnectOptions.ts";
 import { makeEnvironmentThreadState } from "../../../../packages/client-runtime/src/state/threads.ts";
 import {
@@ -103,6 +103,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     input.entry.workload === "short-probe" || input.entry.workload === "network-changed";
   const switches = {
     helloHandshake: input.options.helloHandshake,
+    helloSupportCached: input.options.helloHandshake && input.options.helloSupportCached,
     websocketHeaders:
       input.options.websocketHeaders && "WebSocketConstructorWithHeaders" in Capabilities,
     skipDescriptorOnHttpsReconnect:
@@ -111,6 +112,12 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   };
   if (input.options.skipDescriptorOnHttpsReconnect && !switches.skipDescriptorOnHttpsReconnect)
     return yield* Effect.die(new Error("Requested descriptor switch unavailable"));
+  const helloCache = makeReconnectHelloSupportCache(
+    input.origin,
+    input.entry.routes,
+    switches.helloSupportCached,
+  );
+  let negotiatedExtensions: string | undefined;
   const requestTags = new Map<string, unknown>();
   const stamp = (name: string) => {
     if (start) stages.push({ name, atMs: performance.now() - start });
@@ -180,6 +187,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     activeSocket = socket;
     socket.once("upgrade", (response) => {
       activeSocketPort = response.socket.localPort;
+      negotiatedExtensions = response.headers["sec-websocket-extensions"];
       if (
         input.entry.scheme === "https" &&
         (!(response.socket instanceof NodeTls.TLSSocket) ||
@@ -190,7 +198,10 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     socket.once("open", () => {
       stamp("socket-open");
       const usesHello = new URL(url).searchParams.get("handshake") === "hello-v1";
-      if (socket.extensions.includes("permessage-deflate") === usesHello)
+      if (
+        !socket.extensions.includes("permessage-deflate") ||
+        (usesHello && !negotiatedExtensions?.split(/;\s*/).includes("client_no_context_takeover"))
+      )
         throw new Error("Unexpected compression negotiation");
     });
     socket.on("message", (data) => observe(data.toString(), false));
@@ -210,6 +221,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   const http = observeHttpClient(httpBase, stages, requests, () => performance.now() - start);
   const unused = Effect.die(new Error("Unrelated platform service used by reconnect"));
   const platform = Layer.mergeAll(
+    Layer.mock(Persistence.EnvironmentCacheStore)({ helloSupport: helloCache.store }),
     Layer.succeed(Capabilities.ExperimentalReconnectHello, { enabled: switches.helloHandshake }),
     Layer.succeed(HttpClient.HttpClient, http),
     Layer.succeed(Socket.WebSocketConstructor, socketConstructor),
@@ -277,21 +289,6 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       ),
     };
   };
-  if (switches.helloHandshake) {
-    const remote = Context.get(
-      authorizationContext,
-      RemoteAuthorization.RemoteEnvironmentAuthorization,
-    );
-    for (const index of input.entry.routes === 2 ? [0, 1] : [0]) {
-      const profile = Option.getOrThrow(route(index).profile);
-      // Fixture of previously learned support. No warm HTTP/TLS pool is created.
-      remote.helloSupport!.remember(
-        profile.httpBaseUrl,
-        profile.wsBaseUrl,
-        reconnectHelloDescriptor,
-      );
-    }
-  }
   const network = yield* SubscriptionRef.make<NetworkStatus>("offline");
   const wakeups = yield* PubSub.unbounded<Wakeups.ConnectionWakeup>();
   const connectivity = Connectivity.Connectivity.of({
@@ -358,6 +355,14 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     if (old.readyState !== NodeWebSocket.OPEN)
       return yield* Effect.die(new Error("Socket closed before wakeup"));
   }
+  const helloSupportCachedAtStart =
+    switches.helloHandshake &&
+    helloCache.has(
+      operationServerConfig.environment.environmentId,
+      input.origin,
+      input.origin.replace(/^http/, "ws"),
+    );
+  const usesHello = switches.helloHandshake && helloSupportCachedAtStart;
   const expected = yield* input.advance();
   // Cold long-resume HTTP starts with empty pools. Short-resume retains its real warm pools.
   for (const key of Object.keys(requests)) delete requests[key];
@@ -430,14 +435,14 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       ),
     );
   if (
-    switches.helloHandshake &&
+    usesHello &&
     ((requests["/.well-known/t3/environment"] ?? 0) !== 0 ||
       (requests["/api/auth/websocket-ticket"] ?? 0) !== 0)
   ) {
     return yield* Effect.die(new Error("H performed legacy discovery"));
   }
   const requiredStages = [
-    ...(switches.helloHandshake ? ["hello-received", "auth-sent", "authenticated"] : []),
+    ...(usesHello ? ["hello-received", "auth-sent", "authenticated"] : []),
     "socket-start",
     "socket-open",
     "config-request",
@@ -459,6 +464,8 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     totalMs,
     shellLiveMs,
     switches,
+    helloSupportCachedAtStart,
+    negotiatedExtensions,
     stages,
     requests,
     bytes: after.bytes - before.bytes,

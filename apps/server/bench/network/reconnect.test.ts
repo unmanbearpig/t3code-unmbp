@@ -1,6 +1,10 @@
 // @effect-diagnostics nodeBuiltinImport:off - Exercises the controller parser without changing host networking.
 import * as NodeChildProcess from "node:child_process";
 import * as Schema from "effect/Schema";
+import * as Effect from "effect/Effect";
+import { EnvironmentId } from "@t3tools/contracts";
+import { makeReconnectHelloSupportCache } from "./reconnectHelloFixture.ts";
+import { operationServerConfig } from "./operationsFixture.ts";
 import { VariantOptions } from "./reconnectOptions.ts";
 import { describe, expect, it } from "@effect/vitest";
 import {
@@ -36,9 +40,12 @@ const row = (
     shellLiveMs: totalMs + 20,
     switches: {
       helloHandshake: false,
+      helloSupportCached: false,
       websocketHeaders: false,
       skipDescriptorOnHttpsReconnect: false,
     },
+    helloSupportCachedAtStart: false,
+    negotiatedExtensions: "permessage-deflate",
     serverRequests: [],
     stages,
     requests: { "/.well-known/t3/environment": 2 },
@@ -220,4 +227,29 @@ it("selects H from variant configuration while keeping old option files on B+C",
   const bc = { websocketHeaders: true, skipDescriptorOnHttpsReconnect: false };
   expect(decode(bc).helloHandshake).toBe(false);
   expect(decode({ ...bc, helloHandshake: true }).helloHandshake).toBe(true);
+  expect(decode({ ...bc, helloHandshake: true }).helloSupportCached).toBe(true);
+  expect(
+    decode({ ...bc, helloHandshake: true, helloSupportCached: false }).helloSupportCached,
+  ).toBe(false);
 });
+
+it.effect("seeds only the selected environment and endpoints in the prior-session H fixture", () =>
+  Effect.gen(function* () {
+    const id = operationServerConfig.environment.environmentId;
+    const http = "https://127.0.0.1:1234";
+    const ws = http.replace(/^http/, "ws");
+    const seeded = makeReconnectHelloSupportCache(http, 2, true);
+    expect(yield* seeded.store.load(id, http, ws)).toBe(true);
+    expect(yield* seeded.store.load(id, http.replace(".1:", ".2:"), ws.replace(".1:", ".2:"))).toBe(
+      true,
+    );
+    expect(yield* seeded.store.load(EnvironmentId.make("other"), http, ws)).toBe(false);
+    expect(yield* seeded.store.load(id, http, ws + "/other")).toBe(false);
+    const cold = makeReconnectHelloSupportCache(http, 1, false);
+    expect(yield* cold.store.load(id, http, ws)).toBe(false);
+    yield* cold.store.save(id, http, ws);
+    expect(cold.has(id, http, ws)).toBe(true);
+    yield* cold.store.remove(id, http, ws);
+    expect(cold.has(id, http, ws)).toBe(false);
+  }),
+);

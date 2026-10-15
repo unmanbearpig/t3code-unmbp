@@ -11,6 +11,8 @@ export interface ReconnectRow {
     readonly totalMs: number;
     readonly shellLiveMs: number;
     readonly switches: VariantOptions;
+    readonly helloSupportCachedAtStart?: boolean;
+    readonly negotiatedExtensions?: string | undefined;
     readonly serverRequests: readonly {
       path: string;
       connection: number;
