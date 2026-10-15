@@ -77,7 +77,11 @@ export const reconnectConfig = {
   environment: {
     ...operationServerConfig.environment,
     orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-    capabilities: { ...operationServerConfig.environment.capabilities, connectionProbe: true },
+    capabilities: {
+      ...operationServerConfig.environment.capabilities,
+      connectionProbe: true,
+      websocketHello: 1 as const,
+    },
   },
 };
 const persistence = EventSink.layer.pipe(

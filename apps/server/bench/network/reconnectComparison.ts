@@ -23,6 +23,7 @@ export interface ReconnectRow {
     readonly packets: number;
     readonly events: number;
     readonly sockets: number;
+    readonly connections?: number;
     readonly correct: boolean;
   };
   readonly error?: string;
@@ -79,6 +80,9 @@ export function summarize(rows: readonly ReconnectRow[]) {
       medianBytes: median(results.map((r) => r.bytes)),
       medianPackets: median(results.map((r) => r.packets)),
       requests: results.map((r) => r.requests),
+      connections: results.map(
+        (r) => r.connections ?? new Set(r.serverRequests.map((request) => request.connection)).size,
+      ),
     };
   });
 }

@@ -77,13 +77,15 @@ try {
       ),
     }),
   )(await inspected);
+  const serverRequests = diagnostics.serverRequests
+    .filter((r) => r.atMs >= result.measurementStartMs)
+    .map((r) => ({ ...r, atMs: r.atMs - result.measurementStartMs }));
   process.send?.({
     type: "result",
     result: {
       ...result,
-      serverRequests: diagnostics.serverRequests
-        .filter((r) => r.atMs >= result.measurementStartMs)
-        .map((r) => ({ ...r, atMs: r.atMs - result.measurementStartMs })),
+      serverRequests,
+      connections: new Set(serverRequests.map((r) => r.connection)).size,
     },
     controller: controller.records,
     signalNs: controller.signalNs(),

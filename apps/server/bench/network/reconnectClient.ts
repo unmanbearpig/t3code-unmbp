@@ -39,6 +39,7 @@ import * as History from "../../../../packages/client-runtime/src/state/threadHi
 import * as ShellSnapshot from "../../../../packages/client-runtime/src/state/shellSnapshotHttp.ts";
 import { makeEnvironmentShellState } from "../../../../packages/client-runtime/src/state/shell.ts";
 import { blackholeSocket } from "./reconnectNetwork.ts";
+import { reconnectHelloDescriptor } from "./reconnectHelloFixture.ts";
 import type { VariantOptions } from "./reconnectOptions.ts";
 import { makeEnvironmentThreadState } from "../../../../packages/client-runtime/src/state/threads.ts";
 import {
@@ -101,6 +102,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   const isShort =
     input.entry.workload === "short-probe" || input.entry.workload === "network-changed";
   const switches = {
+    helloHandshake: input.options.helloHandshake,
     websocketHeaders:
       input.options.websocketHeaders && "WebSocketConstructorWithHeaders" in Capabilities,
     skipDescriptorOnHttpsReconnect:
@@ -117,6 +119,10 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     const decoded = decodeFrame(text);
     for (const message of Array.isArray(decoded) ? decoded : [decoded]) {
       if (!Predicate.hasProperty(message, "_tag")) continue;
+      // Only bounded tags are recorded. BearerAuth payloads are never retained.
+      if (!outgoing && message._tag === "Hello") stamp("hello-received");
+      if (outgoing && message._tag === "BearerAuth") stamp("auth-sent");
+      if (!outgoing && message._tag === "Authenticated") stamp("authenticated");
       if (outgoing && message._tag === "Request" && Predicate.hasProperty(message, "tag")) {
         if (Predicate.hasProperty(message, "id")) requestTags.set(String(message.id), message.tag);
         if (message.tag === "orchestration.subscribeShell") stamp("shell-subscribe");
@@ -183,7 +189,9 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     });
     socket.once("open", () => {
       stamp("socket-open");
-      if (!socket.extensions.includes("permessage-deflate")) throw new Error("Deflate missing");
+      const usesHello = new URL(url).searchParams.get("handshake") === "hello-v1";
+      if (socket.extensions.includes("permessage-deflate") === usesHello)
+        throw new Error("Unexpected compression negotiation");
     });
     socket.on("message", (data) => observe(data.toString(), false));
     const send = socket.send.bind(socket);
@@ -202,6 +210,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   const http = observeHttpClient(httpBase, stages, requests, () => performance.now() - start);
   const unused = Effect.die(new Error("Unrelated platform service used by reconnect"));
   const platform = Layer.mergeAll(
+    Layer.succeed(Capabilities.ExperimentalReconnectHello, { enabled: switches.helloHandshake }),
     Layer.succeed(HttpClient.HttpClient, http),
     Layer.succeed(Socket.WebSocketConstructor, socketConstructor),
     ...(switches.websocketHeaders
@@ -226,7 +235,10 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     }),
     Layer.mock(ProfileStore.ConnectionProfileStore)({}),
   );
-  const authorization = RemoteAuthorization.layer.pipe(Layer.provideMerge(platform));
+  const authorizationContext = yield* Layer.build(
+    RemoteAuthorization.layer.pipe(Layer.provideMerge(platform)),
+  );
+  const authorization = Layer.succeedContext(authorizationContext);
   const connectionLayers = Driver.layer.pipe(
     Layer.provide(Resolver.layer),
     Layer.provide(Session.layer({})),
@@ -265,6 +277,21 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       ),
     };
   };
+  if (switches.helloHandshake) {
+    const remote = Context.get(
+      authorizationContext,
+      RemoteAuthorization.RemoteEnvironmentAuthorization,
+    );
+    for (const index of input.entry.routes === 2 ? [0, 1] : [0]) {
+      const profile = Option.getOrThrow(route(index).profile);
+      // Fixture of previously learned support. No warm HTTP/TLS pool is created.
+      remote.helloSupport!.remember(
+        profile.httpBaseUrl,
+        profile.wsBaseUrl,
+        reconnectHelloDescriptor,
+      );
+    }
+  }
   const network = yield* SubscriptionRef.make<NetworkStatus>("offline");
   const wakeups = yield* PubSub.unbounded<Wakeups.ConnectionWakeup>();
   const connectivity = Connectivity.Connectivity.of({
@@ -402,7 +429,15 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
           `Invalid replay: sequenceError=${sequenceError} snapshots=${snapshots} events=${events} sequence=${sequence} sockets=${sockets}`,
       ),
     );
+  if (
+    switches.helloHandshake &&
+    ((requests["/.well-known/t3/environment"] ?? 0) !== 0 ||
+      (requests["/api/auth/websocket-ticket"] ?? 0) !== 0)
+  ) {
+    return yield* Effect.die(new Error("H performed legacy discovery"));
+  }
   const requiredStages = [
+    ...(switches.helloHandshake ? ["hello-received", "auth-sent", "authenticated"] : []),
     "socket-start",
     "socket-open",
     "config-request",

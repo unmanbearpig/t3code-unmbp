@@ -1,5 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Exercises the controller parser without changing host networking.
 import * as NodeChildProcess from "node:child_process";
+import * as Schema from "effect/Schema";
+import { VariantOptions } from "./reconnectOptions.ts";
 import { describe, expect, it } from "@effect/vitest";
 import {
   balancedOrder,
@@ -32,7 +34,11 @@ const row = (
   result: {
     totalMs,
     shellLiveMs: totalMs + 20,
-    switches: { websocketHeaders: false, skipDescriptorOnHttpsReconnect: false },
+    switches: {
+      helloHandshake: false,
+      websocketHeaders: false,
+      skipDescriptorOnHttpsReconnect: false,
+    },
     serverRequests: [],
     stages,
     requests: { "/.well-known/t3/environment": 2 },
@@ -207,4 +213,11 @@ it("keeps every workload and profile in the reduced decision pass", () => {
   expect(new Set(manifest.cases.filter((c) => c.profile.stochastic).map((c) => c.seed)).size).toBe(
     4,
   );
+});
+
+it("selects H from variant configuration while keeping old option files on B+C", () => {
+  const decode = Schema.decodeUnknownSync(VariantOptions);
+  const bc = { websocketHeaders: true, skipDescriptorOnHttpsReconnect: false };
+  expect(decode(bc).helloHandshake).toBe(false);
+  expect(decode({ ...bc, helloHandshake: true }).helloHandshake).toBe(true);
 });

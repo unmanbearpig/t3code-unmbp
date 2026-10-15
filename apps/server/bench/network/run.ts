@@ -53,6 +53,7 @@ const decodeWorker = Schema.decodeUnknownSync(
         packets: Schema.Number,
         events: Schema.Number,
         sockets: Schema.Number,
+        connections: Schema.optionalKey(Schema.Number),
         correct: Schema.Boolean,
       }),
     }),
