@@ -25,10 +25,39 @@ export const authenticated = (source: unknown): boolean => {
   return true;
 };
 
+// ws has no public setter for a connection's payload limit. Both the frame receiver and
+// inflater enforce it independently, so switch both at this Node adapter boundary.
+const setPayloadLimit = (ws: NodeWS.WebSocket, maxPayload: number) => {
+  if (
+    !Predicate.hasProperty(ws, "_receiver") ||
+    !Predicate.hasProperty(ws._receiver, "_maxPayload") ||
+    typeof ws._receiver._maxPayload !== "number"
+  ) {
+    throw new Error("Unsupported ws receiver payload limit");
+  }
+  const receiver = ws._receiver;
+  if (
+    Predicate.hasProperty(receiver, "_extensions") &&
+    Predicate.hasProperty(receiver._extensions, "permessage-deflate")
+  ) {
+    const deflate = receiver._extensions["permessage-deflate"];
+    if (!Predicate.hasProperty(deflate, "_maxPayload") || typeof deflate._maxPayload !== "number") {
+      throw new Error("Unsupported ws inflater payload limit");
+    }
+    deflate._maxPayload = maxPayload;
+  }
+  receiver._maxPayload = maxPayload;
+};
+
 /** Keeps fragmented messages and bursts bounded before the pull-based socket can run. */
 export class HelloWebSocketServer extends NodeWS.WebSocketServer {
   constructor() {
-    super({ noServer: true, maxPayload: RECONNECT_BUFFER_MAX_BYTES, perMessageDeflate: false });
+    super({
+      noServer: true,
+      // The client resets its dictionary after EVERY message, including BearerAuth.
+      // Server compression keeps the production defaults, including context takeover.
+      perMessageDeflate: { clientNoContextTakeover: true },
+    });
   }
 
   override handleUpgrade(
@@ -38,6 +67,9 @@ export class HelloWebSocketServer extends NodeWS.WebSocketServer {
     callback: (client: NodeWS.WebSocket, request: NodeHttp.IncomingMessage) => void,
   ): void {
     super.handleUpgrade(request, socket, head, (ws, upgradedRequest) => {
+      const legacyMaxPayload = this.options.maxPayload;
+      if (legacyMaxPayload === undefined) throw new Error("Missing ws default payload limit");
+      setPayloadLimit(ws, RECONNECT_BUFFER_MAX_BYTES);
       let frames = 0;
       let bufferedBytes = 0;
       let rejected = false;
@@ -67,8 +99,10 @@ export class HelloWebSocketServer extends NodeWS.WebSocketServer {
       };
       Object.defineProperty(upgradedRequest, finishAdmission, {
         value: () => {
+          if (rejected) return false;
+          setPayloadLimit(ws, legacyMaxPayload);
           ws.off("message", onMessage);
-          return !rejected;
+          return true;
         },
       });
       ws.on("message", onMessage);
