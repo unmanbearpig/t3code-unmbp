@@ -36,6 +36,7 @@ export const stageWebTransportPrebuilt = Effect.fn("stageWebTransportPrebuilt")(
     const child = yield* spawner.spawn(
       ChildProcess.make(node, [installer], {
         cwd: packageDir,
+        extendEnv: true,
         env: webTransportInstallEnvironment(input.platform, input.arch),
         stdout: "inherit",
         stderr: "inherit",
