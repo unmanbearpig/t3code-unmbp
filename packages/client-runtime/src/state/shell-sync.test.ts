@@ -640,21 +640,127 @@ describe("environment shell synchronization", () => {
     }),
   );
 
-  it.effect("refreshes when lifecycle proof is missing, including on a later session", () =>
+  it.effect.each(["empty runtime", "disk-restored runtime", "interrupted replay"] as const)(
+    "starts mandatory HTTP refresh before startup proof for $0",
+    (base) =>
+      Effect.gen(function* () {
+        const proofStarted = yield* Deferred.make<void>();
+        const releaseProof = yield* Deferred.make<void>();
+        const loadStarted = yield* Deferred.make<void>();
+        const proofCalls = yield* Ref.make(0);
+        const fresh = { ...LIVE_SHELL_SNAPSHOT, snapshotSequence: 10, threads: [] };
+        const harness = yield* makeReconnectHarness({
+          ...(base === "disk-restored runtime" ? { cached: LIVE_SHELL_SNAPSHOT } : {}),
+          lifecycle: Stream.fromEffect(
+            Ref.updateAndGet(proofCalls, (count) => count + 1).pipe(
+              Effect.flatMap((call) =>
+                base === "interrupted replay" && call <= 2
+                  ? Effect.void
+                  : Deferred.succeed(proofStarted, undefined).pipe(
+                      Effect.andThen(Deferred.await(releaseProof)),
+                    ),
+              ),
+              Effect.as<ServerLifecycleStreamEvent>({
+                version: 1,
+                sequence: 1,
+                type: "ready",
+                payload: { at: SERVER_STARTED_AT, environment: INITIAL_CONFIG.environment },
+              }),
+            ),
+          ),
+          load: (call) =>
+            base === "interrupted replay" && call === 1
+              ? Effect.succeedSome(LIVE_SHELL_SNAPSHOT)
+              : Deferred.succeed(loadStarted, undefined).pipe(Effect.as(Option.some(fresh))),
+        });
+        if (base === "interrupted replay") {
+          const first = yield* Queue.take(harness.requests);
+          yield* harness.complete(first);
+          yield* harness.disconnect(first);
+          yield* harness.reconnect();
+          const replay = yield* Queue.take(harness.requests);
+          expect(yield* Ref.get(harness.loaderCalls)).toBe(1);
+          yield* Queue.offer(replay.events, {
+            kind: "thread.updated",
+            sequence: 2,
+            location: "active",
+            thread: { ...v2ThreadShell, title: "Partial replay" },
+          });
+          yield* harness.waitForState(
+            (value) => Option.isSome(value.snapshot) && value.snapshot.value.snapshotSequence === 2,
+          );
+          yield* harness.disconnect(replay);
+          yield* harness.reconnect();
+        }
+
+        yield* Deferred.await(proofStarted);
+        expect(yield* Deferred.isDone(releaseProof)).toBe(false);
+        expect(yield* Deferred.isDone(loadStarted)).toBe(true);
+        expect(yield* Ref.get(harness.loaderCalls)).toBe(base === "interrupted replay" ? 2 : 1);
+        const refreshed = yield* Queue.take(harness.requests);
+        expect(refreshed.input.afterSequence).toBe(10);
+        const live = yield* harness.complete(refreshed);
+        expect(Option.getOrThrow(live.snapshot)).toEqual(fresh);
+        expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
+
+        // The marker alone cannot certify an unproven base. Proof arriving
+        // afterward may certify the already complete authoritative snapshot.
+        yield* Deferred.succeed(releaseProof, undefined);
+        yield* TestClock.adjust(0);
+        expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(false);
+        yield* harness.disconnect(refreshed);
+        yield* harness.reconnect();
+        const resumed = yield* Queue.take(harness.requests);
+        expect(resumed.input.afterSequence).toBe(10);
+        expect(yield* Ref.get(harness.loaderCalls)).toBe(base === "interrupted replay" ? 2 : 1);
+        yield* harness.complete(resumed);
+      }),
+  );
+
+  it.effect("cancels pending startup proof on session replacement and disposal", () =>
+    Effect.gen(function* () {
+      const proofStarted = yield* Queue.unbounded<void>();
+      const proofStopped = yield* Queue.unbounded<void>();
+      const releaseProof = yield* Deferred.make<ServerLifecycleStreamEvent>();
+      const harness = yield* makeReconnectHarness({
+        lifecycle: Stream.fromEffect(
+          Queue.offer(proofStarted, undefined).pipe(Effect.andThen(Deferred.await(releaseProof))),
+        ).pipe(Stream.ensuring(Queue.offer(proofStopped, undefined))),
+      });
+      yield* Queue.take(proofStarted);
+      const first = yield* Queue.take(harness.requests);
+      yield* harness.complete(first);
+      yield* harness.disconnect(first);
+      yield* Queue.take(proofStopped);
+      yield* harness.reconnect();
+      yield* Queue.take(proofStarted);
+      const replacement = yield* Queue.take(harness.requests);
+      yield* harness.complete(replacement);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
+      expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
+      yield* Scope.close(harness.scope, Exit.void);
+      yield* Queue.take(proofStopped);
+      expect(yield* Deferred.isDone(releaseProof)).toBe(false);
+    }),
+  );
+
+  it.effect("keeps shells usable without lifecycle proof, including on a later session", () =>
     Effect.gen(function* () {
       const harness = yield* makeReconnectHarness({ lifecycle: Stream.never });
       yield* Queue.take(harness.lifecycleRequests);
-      yield* TestClock.adjust("3 seconds");
       const first = yield* Queue.take(harness.requests);
       yield* harness.complete(first);
+      expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
+      yield* TestClock.adjust("3 seconds");
       expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
       yield* harness.disconnect(first);
       yield* harness.reconnect();
       yield* Queue.take(harness.lifecycleRequests);
-      yield* TestClock.adjust("3 seconds");
       const refreshed = yield* Queue.take(harness.requests);
       expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
       yield* harness.complete(refreshed);
+      yield* TestClock.adjust("3 seconds");
+      expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
     }),
   );
 
