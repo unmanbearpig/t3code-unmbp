@@ -1,6 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 import {
+  ClientRequestEnvelopeSchema,
   createTransportByteBudget,
+  decodeTransportEnvelope,
   makeRpcWebTransportFrameChannel,
   rpcWebTransportDefaultLimits,
   transportTry,
@@ -11,8 +13,13 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
+import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import * as Rpc from "effect/rpc/Rpc";
 import * as RpcClient from "effect/rpc/RpcClient";
+import * as RpcGroup from "effect/rpc/RpcGroup";
 import type * as RpcMessage from "effect/rpc/RpcMessage";
 import {
   prepareRpcWebTransportClient,
@@ -29,8 +36,14 @@ const ready = {
   limits: rpcWebTransportDefaultLimits,
 };
 
-const handshake = Effect.fnUntraced(function* (override: Record<string, unknown> = {}) {
-  const pair = memorySessionPair();
+const handshake = Effect.fnUntraced(function* (
+  override: Record<string, unknown> = {},
+  options: {
+    readonly pair?: ReturnType<typeof memorySessionPair>;
+    readonly readControls?: boolean;
+  } = {},
+) {
+  const pair = options.pair ?? memorySessionPair();
   const controls = yield* Queue.make<unknown>();
   const accepted = yield* Effect.gen(function* () {
     const stream = yield* transportTry((signal) => pair.server.acceptBidirectionalStream(signal));
@@ -43,9 +56,10 @@ const handshake = Effect.fnUntraced(function* (override: Record<string, unknown>
     expect(yield* channel.readPreface()).toBe("control");
     expect(yield* channel.read({ first: true, control: true })).toMatchObject({ _tag: "Hello" });
     yield* channel.write({ ...ready, ...override }, true);
-    yield* Effect.gen(function* () {
-      while (true) yield* Queue.offer(controls, yield* channel.read({ control: true }));
-    }).pipe(Effect.ignore, Effect.forkScoped);
+    if (options.readControls !== false)
+      yield* Effect.gen(function* () {
+        while (true) yield* Queue.offer(controls, yield* channel.read({ control: true }));
+      }).pipe(Effect.ignore, Effect.forkScoped);
     return { channel, stream };
   }).pipe(Effect.forkScoped);
   const prepared = yield* prepareRpcWebTransportClient(pair.client, expected).pipe(Effect.exit);
@@ -53,6 +67,111 @@ const handshake = Effect.fnUntraced(function* (override: Record<string, unknown>
 });
 
 describe("WebTransport client negotiation and liveness", () => {
+  it.effect.each(["dispose", "deadline"] as const)(
+    "closes caller-owned subscriptions while Ack, Interrupt and Eof cannot be read: %s",
+    (mode) =>
+      Effect.gen(function* () {
+        const owner = yield* Scope.make();
+        yield* Effect.addFinalizer((exit) => Scope.close(owner, exit));
+        const subscriber = yield* Scope.make();
+        yield* Effect.addFinalizer((exit) => Scope.close(subscriber, exit));
+        const pair = memorySessionPair({ neverAcknowledgeClose: true });
+        const ackStarted = yield* Deferred.make<void>();
+        const eofStarted = yield* Deferred.make<void>();
+        let opened = 0;
+        let observeWrites = false;
+        let controlWrites = 0;
+        const fixture = yield* handshake(
+          {},
+          {
+            readControls: false,
+            pair: {
+              ...pair,
+              client: {
+                ...pair.client,
+                async openBidirectionalStream(signal) {
+                  const stream = await pair.client.openBidirectionalStream(signal);
+                  const control = opened++ === 0;
+                  return {
+                    ...stream,
+                    write(bytes, signal) {
+                      if (observeWrites) {
+                        if (control) {
+                          controlWrites++;
+                          Deferred.doneUnsafe(eofStarted, Effect.void);
+                        } else Deferred.doneUnsafe(ackStarted, Effect.void);
+                      }
+                      return stream.write(bytes, signal);
+                    },
+                  };
+                },
+              },
+            },
+          },
+        ).pipe(Effect.provideService(Scope.Scope, owner));
+        if (Exit.isFailure(fixture.prepared))
+          return yield* Effect.failCause(fixture.prepared.cause);
+        const protocol = yield* makeRpcWebTransportClientProtocol(fixture.prepared.value).pipe(
+          Effect.provideService(Scope.Scope, owner),
+        );
+        const client = yield* RpcClient.make(
+          RpcGroup.make(Rpc.make("listen", { success: Schema.String, stream: true })),
+        ).pipe(
+          Effect.provideService(RpcClient.Protocol, protocol),
+          Effect.provideService(Scope.Scope, owner),
+        );
+        const values = yield* client
+          .listen()
+          .pipe(Stream.toQueue({ capacity: 1 }), Effect.provideService(Scope.Scope, subscriber));
+        const remote = yield* transportTry((signal) =>
+          pair.server.acceptBidirectionalStream(signal),
+        );
+        const channel = makeRpcWebTransportFrameChannel(
+          remote,
+          createTransportByteBudget(1024 * 1024),
+          createTransportByteBudget(1024 * 1024),
+          rpcWebTransportDefaultLimits,
+        );
+        expect(yield* channel.readPreface()).toBe("request");
+        const request = yield* channel
+          .read({ first: true })
+          .pipe(
+            Effect.flatMap((message) =>
+              decodeTransportEnvelope(ClientRequestEnvelopeSchema, message),
+            ),
+          );
+        expect(request).toMatchObject({ _tag: "Request", tag: "listen" });
+        if (request._tag !== "Request") return yield* Effect.die("Expected request");
+        observeWrites = true;
+        // The peer sends a chunk, then reads neither request-direction RPC nor control.
+        yield* channel.write({ _tag: "Chunk", requestId: request.id, values: ["first"] });
+        expect(yield* Queue.take(values)).toBe("first");
+        yield* Deferred.await(ackStarted);
+        yield* Scope.close(subscriber, Exit.void);
+        yield* protocol.send(0, { _tag: "Eof" });
+        yield* protocol.send(0, { _tag: "Eof" });
+        yield* Deferred.await(eofStarted);
+        expect(controlWrites).toBe(1);
+        if (mode === "deadline") {
+          const failures = yield* Queue.make<RpcMessage.FromServerEncoded>();
+          yield* protocol
+            .run(900, (message) => Queue.offer(failures, message).pipe(Effect.asVoid))
+            .pipe(Effect.forkIn(owner));
+          yield* TestClock.adjust(10000);
+          const { channel: control } = yield* Fiber.join(fixture.accepted);
+          // Keep decoded-frame liveness fresh so the send deadline causes closure.
+          yield* control.write({ _tag: "Pong" }, true);
+          yield* TestClock.adjust(5000);
+          const failure = yield* Queue.take(failures);
+          expect(failure._tag).toBe("ClientProtocolError");
+          if (failure._tag === "ClientProtocolError")
+            expect(failure.error.message).toContain("RPC finalizer send stalled");
+        }
+        yield* Scope.close(owner, Exit.void);
+        expect((yield* Effect.promise(() => fixture.client.closed)).category).toBe("closed");
+      }).pipe(Effect.scoped),
+  );
+
   it.effect.each([
     { environmentId: "wrong" },
     { orchestrationProtocolVersion: 18 },

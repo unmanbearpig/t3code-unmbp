@@ -53,93 +53,102 @@ const toRpcError = (cause: RpcWebTransportError) =>
 
 const prepare = Effect.fnUntraced(function* (session: ReliableSession, expected: Expected) {
   const lifetime = yield* makeRpcWebTransportLifetime(session);
-  const limits = yield* resolveRpcWebTransportLimits(expected.limits);
-  const input = createTransportByteBudget(RPC_WEBTRANSPORT_LIMITS.sessionInputBytes);
-  const output = createTransportByteBudget(RPC_WEBTRANSPORT_LIMITS.sessionOutputBytes);
-  const controlInput = createTransportByteBudget(RPC_WEBTRANSPORT_LIMITS.controlReserveBytes);
-  const controlOutput = createTransportByteBudget(RPC_WEBTRANSPORT_LIMITS.controlReserveBytes);
-  const stream = lifetime.own(
-    yield* lifetime.race(transportTry((signal) => session.openBidirectionalStream(signal))),
-  );
-  const control = makeRpcWebTransportFrameChannel(stream, controlInput, controlOutput, limits);
-  yield* lifetime.race(
-    Effect.gen(function* () {
-      yield* control.writePreface("control");
-      yield* control.write(
-        {
-          _tag: "Hello",
-          wireVersion: RPC_WEBTRANSPORT_WIRE_VERSION,
-          orchestrationProtocolVersion: expected.orchestrationProtocolVersion,
-          encodings: ["identity", "deflate"],
-          limits,
-        },
-        true,
-      );
-    }),
-  );
-  const ready = yield* lifetime.race(
-    control
-      .read({ control: true })
-      .pipe(Effect.flatMap((value) => decodeTransportEnvelope(ReadySchema, value))),
-  );
-  if (
-    ready.environmentId !== expected.environmentId ||
-    ready.orchestrationProtocolVersion !== expected.orchestrationProtocolVersion ||
-    ready.wireVersion !== RPC_WEBTRANSPORT_WIRE_VERSION ||
-    ready.encoding !== "deflate"
-  ) {
-    return yield* Effect.fail(
-      new RpcWebTransportError("protocol", "RPC transport identity or protocol mismatch"),
+  return yield* Effect.gen(function* () {
+    const limits = yield* resolveRpcWebTransportLimits(expected.limits);
+    const input = createTransportByteBudget(RPC_WEBTRANSPORT_LIMITS.sessionInputBytes);
+    const output = createTransportByteBudget(RPC_WEBTRANSPORT_LIMITS.sessionOutputBytes);
+    const { controlInput, controlOutput } = yield* lifetime.reserveControlBudgets(input, output);
+    const stream = lifetime.own(
+      yield* lifetime.race(transportTry((signal) => session.openBidirectionalStream(signal))),
     );
-  }
-  const negotiated = lowerRpcWebTransportLimits(limits, ready.limits);
-  const clock = yield* Clock.Clock;
-  let lastFrame = clock.currentTimeMillisUnsafe();
-  let deliverControl: ((message: RpcMessage.FromServerEncoded) => Effect.Effect<void>) | undefined;
-  let attached = false;
-  yield* Effect.gen(function* () {
-    while (true) {
-      const message = yield* control
+    const control = makeRpcWebTransportFrameChannel(stream, controlInput, controlOutput, limits);
+    yield* lifetime.race(
+      Effect.gen(function* () {
+        yield* control.writePreface("control");
+        yield* control.write(
+          {
+            _tag: "Hello",
+            wireVersion: RPC_WEBTRANSPORT_WIRE_VERSION,
+            orchestrationProtocolVersion: expected.orchestrationProtocolVersion,
+            encodings: ["identity", "deflate"],
+            limits,
+          },
+          true,
+        );
+      }),
+    );
+    const ready = yield* lifetime.race(
+      control
         .read({ control: true })
-        .pipe(
-          Effect.flatMap((value) => decodeTransportEnvelope(ServerControlEnvelopeSchema, value)),
-        );
-      lastFrame = clock.currentTimeMillisUnsafe();
-      if (message._tag === "Eof")
-        return yield* lifetime.close(new RpcWebTransportError("network", "RPC session ended"));
-      if (message._tag === "Defect")
-        return yield* lifetime.close(
-          new RpcWebTransportError("protocol", "Server reported an RPC session defect"),
-        );
-      if (message._tag !== "Pong") {
-        if (!deliverControl)
-          return yield* Effect.fail(
-            new RpcWebTransportError("protocol", "Unsolicited message before client registration"),
-          );
-        yield* deliverControl(message);
-      }
+        .pipe(Effect.flatMap((value) => decodeTransportEnvelope(ReadySchema, value))),
+    );
+    if (
+      ready.environmentId !== expected.environmentId ||
+      ready.orchestrationProtocolVersion !== expected.orchestrationProtocolVersion ||
+      ready.wireVersion !== RPC_WEBTRANSPORT_WIRE_VERSION ||
+      ready.encoding !== "deflate"
+    ) {
+      return yield* Effect.fail(
+        new RpcWebTransportError("protocol", "RPC transport identity or protocol mismatch"),
+      );
     }
-  }).pipe(lifetime.race, Effect.catch(lifetime.close), Effect.forkScoped);
-  return {
-    session,
-    lifetime,
-    control,
-    input,
-    output,
-    limits: negotiated,
-    clock,
-    onFrame() {
-      lastFrame = clock.currentTimeMillisUnsafe();
-    },
-    get lastFrame() {
-      return lastFrame;
-    },
-    attach(deliver: (message: RpcMessage.FromServerEncoded) => Effect.Effect<void>) {
-      if (attached) throw new RpcWebTransportError("protocol", "RPC transport already attached");
-      attached = true;
-      deliverControl = deliver;
-    },
-  };
+    const negotiated = lowerRpcWebTransportLimits(limits, ready.limits);
+    const clock = yield* Clock.Clock;
+    let lastFrame = clock.currentTimeMillisUnsafe();
+    let deliverControl:
+      | ((message: RpcMessage.FromServerEncoded) => Effect.Effect<void>)
+      | undefined;
+    let attached = false;
+    yield* Effect.gen(function* () {
+      while (true) {
+        const message = yield* control
+          .read({ control: true })
+          .pipe(
+            Effect.flatMap((value) => decodeTransportEnvelope(ServerControlEnvelopeSchema, value)),
+          );
+        lastFrame = clock.currentTimeMillisUnsafe();
+        if (message._tag === "Eof")
+          return yield* lifetime.close(new RpcWebTransportError("network", "RPC session ended"));
+        if (message._tag === "Defect")
+          return yield* lifetime.close(
+            new RpcWebTransportError("protocol", "Server reported an RPC session defect"),
+          );
+        if (message._tag !== "Pong") {
+          if (!deliverControl)
+            return yield* Effect.fail(
+              new RpcWebTransportError(
+                "protocol",
+                "Unsolicited message before client registration",
+              ),
+            );
+          yield* deliverControl(message);
+        }
+      }
+    }).pipe(lifetime.race, Effect.catch(lifetime.close), Effect.forkScoped);
+    return {
+      session,
+      lifetime,
+      control,
+      input,
+      output,
+      limits: negotiated,
+      clock,
+      onFrame() {
+        lastFrame = clock.currentTimeMillisUnsafe();
+      },
+      get lastFrame() {
+        return lastFrame;
+      },
+      attach(deliver: (message: RpcMessage.FromServerEncoded) => Effect.Effect<void>) {
+        if (attached) throw new RpcWebTransportError("protocol", "RPC transport already attached");
+        attached = true;
+        deliverControl = deliver;
+      },
+    };
+  }).pipe(
+    Effect.tapError(lifetime.close),
+    Effect.onInterrupt(() => lifetime.close()),
+  );
 });
 
 /** Completes discovery-bound control negotiation without winner connection hooks. */
@@ -171,6 +180,7 @@ export const makeRpcWebTransportClientProtocol = Effect.fn("makeRpcWebTransportC
       fiber?: Fiber.Fiber<void>;
       stream?: ReliableByteStream;
       completed?: boolean;
+      interrupted?: boolean;
     }
     const requests = new Map<string | number, RequestEntry>();
     const ordinary = Semaphore.makeUnsafe(state.limits.ordinaryRequestStreams);
@@ -223,6 +233,23 @@ export const makeRpcWebTransportClientProtocol = Effect.fn("makeRpcWebTransportC
         yield* state.control.write({ _tag: "Ping" }, true);
       }
     }).pipe(lifetime.race, Effect.catch(fail), Effect.forkScoped);
+
+    // RpcClient sends these from uninterruptible finalizers. Keep one owned send per
+    // request/session so cancellation can reach its stream without delaying disposal.
+    const sendFinalizer = (send: Effect.Effect<void, RpcWebTransportError>) =>
+      send.pipe(
+        Effect.timeoutOrElse({
+          duration: RPC_WEBTRANSPORT_LIMITS.assemblyIdleTimeoutMs,
+          orElse: () =>
+            Effect.fail(new RpcWebTransportError("network", "RPC finalizer send stalled")),
+        }),
+        lifetime.race,
+        Effect.catch(fail),
+        Effect.interruptible,
+        Effect.forkIn(scope),
+        Effect.asVoid,
+      );
+    let eofSent = false;
 
     const sendRequest = Effect.fnUntraced(function* (
       clientId: number,
@@ -402,14 +429,30 @@ export const makeRpcWebTransportClientProtocol = Effect.fn("makeRpcWebTransportC
           .race(
             Effect.suspend(() => {
               if (message._tag === "Request") return sendRequest(clientId, message);
-              if (message._tag === "Eof" || message._tag === "Ping")
-                return state.control.write(message, true);
+              if (message._tag === "Eof") {
+                if (eofSent) return Effect.void;
+                eofSent = true;
+                return sendFinalizer(state.control.write(message, true));
+              }
+              if (message._tag === "Ping") return state.control.write(message, true);
               const entry = requests.get(message.requestId);
               if (!entry) return Effect.void;
               if (entry.clientId !== clientId)
                 return Effect.fail(new RpcWebTransportError("protocol", "Cross-client request ID"));
-              if (message._tag === "Interrupt" && !entry.stream)
-                return entry.fiber ? Fiber.interrupt(entry.fiber) : Effect.void;
+              if (message._tag === "Interrupt") {
+                if (entry.interrupted) return Effect.void;
+                entry.interrupted = true;
+                return sendFinalizer(
+                  !entry.stream
+                    ? entry.fiber
+                      ? Fiber.interrupt(entry.fiber).pipe(Effect.asVoid)
+                      : Effect.void
+                    : Deferred.await(entry.ready).pipe(
+                        Effect.flatMap((channel) => channel.write(message)),
+                      ),
+                );
+              }
+              if (entry.interrupted) return Effect.void;
               return Deferred.await(entry.ready).pipe(
                 Effect.flatMap((channel) => channel.write(message)),
               );

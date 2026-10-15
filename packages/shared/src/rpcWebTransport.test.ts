@@ -3,7 +3,8 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
-import { deflateSync } from "fflate";
+import { deflateSync, Inflate } from "fflate";
+import { vi } from "vite-plus/test";
 import {
   createTransportByteBudget,
   makeRpcWebTransportFrameChannel,
@@ -11,6 +12,7 @@ import {
   RPC_WEBTRANSPORT_LIMITS as limits,
   RPC_WEBTRANSPORT_PREFACE,
   wrapStandardWebTransportSession,
+  makeRpcWebTransportLifetime,
   type ReliableByteStream,
 } from "./rpcWebTransport.ts";
 import { memorySessionPair, memoryStreamPair } from "./rpcWebTransport.test-support.ts";
@@ -128,13 +130,97 @@ describe("WebTransport records", () => {
       expect(Exit.isFailure(result)).toBe(true);
       const text = '"' + "a".repeat(1000) + '"';
       const compressed = deflateSync(new TextEncoder().encode(text));
-      const trailing = new Uint8Array(compressed.byteLength + 2);
+      const trailing = new Uint8Array(512);
       trailing.set(compressed);
-      trailing.set([0xff, 0xff], compressed.byteLength);
+      trailing.fill(0xff, compressed.byteLength);
       expect(yield* channel(bytesStream(record(trailing, text.length, 3))).read()).toBe(
         "a".repeat(1000),
       );
     }),
+  );
+
+  it.effect("stops a hostile record before feeding its remaining compressed bytes", () =>
+    Effect.gen(function* () {
+      const compressed = deflateSync(new Uint8Array(7_900_000), { level: 9 });
+      const encoded = new Uint8Array(8192);
+      encoded.set(compressed);
+      const pushes = vi.spyOn(Inflate.prototype, "push");
+      const result = yield* channel(bytesStream(record(encoded, 65536, 3)))
+        .read()
+        .pipe(Effect.exit);
+      const fedBytes = pushes.mock.calls.reduce((size, [bytes]) => size + bytes.byteLength, 0);
+      pushes.mockRestore();
+      expect(Exit.isFailure(result)).toBe(true);
+      expect(fedBytes).toBeGreaterThan(0);
+      expect(fedBytes).toBeLessThanOrEqual(256);
+    }),
+  );
+
+  it.effect("rejects every truncated prefix of a valid compressed 64 KiB record", () =>
+    Effect.gen(function* () {
+      let seed = 123456;
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+      const pattern = Array.from({ length: 512 }, () => {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        return alphabet[(seed >>> 16) & 63];
+      }).join("");
+      const value = pattern.repeat(128).slice(0, 65534);
+      const text = '"' + value + '"';
+      const bytes = new TextEncoder().encode(text);
+      const compressed = deflateSync(bytes, { level: 1 });
+      expect(compressed.byteLength).toBeGreaterThan(256);
+      expect(yield* channel(bytesStream(record(compressed, 65536, 3))).read()).toBe(value);
+      yield* Effect.forEach(
+        Array.from({ length: compressed.byteLength - 1 }, (_, index) => index + 1),
+        (length) =>
+          Effect.gen(function* () {
+            const budget = createTransportByteBudget(limits.sessionInputBytes);
+            const outcome = yield* channel(
+              bytesStream(record(compressed.subarray(0, length), 65536, 3)),
+              budget,
+            )
+              .read()
+              .pipe(Effect.exit);
+            expect(Exit.isFailure(outcome), `prefix ${length}/${compressed.byteLength}`).toBe(true);
+            expect(budget.usedBytes).toBe(0);
+          }),
+      );
+    }),
+  );
+
+  it.effect(
+    "counts the control reserve inside the session ceiling until retained allocations drain",
+    () =>
+      Effect.gen(function* () {
+        const listenerInput = createTransportByteBudget(512 * 1024 * 1024);
+        const listenerOutput = createTransportByteBudget(512 * 1024 * 1024);
+        const input = listenerInput.child(limits.sessionInputBytes);
+        const output = listenerOutput.child(limits.sessionOutputBytes);
+        const lifetime = yield* makeRpcWebTransportLifetime(
+          memorySessionPair({ neverAcknowledgeClose: true }).server,
+        );
+        const { controlInput, controlOutput } = yield* lifetime.reserveControlBudgets(
+          input,
+          output,
+        );
+        expect(input.usedBytes).toBe(limits.controlReserveBytes);
+        expect(output.usedBytes).toBe(limits.controlReserveBytes);
+        const ordinary = input.acquire(input.maxBytes - limits.controlReserveBytes);
+        expect(() => input.acquire(1)).toThrow("budget exhausted");
+        const control = controlInput.acquire(8192);
+        expect(listenerInput.usedBytes).toBe(limits.sessionInputBytes);
+        const retainedOutput = controlOutput.acquire(8192);
+        yield* lifetime.close();
+        expect(input.usedBytes).toBe(limits.sessionInputBytes);
+        expect(output.usedBytes).toBe(limits.controlReserveBytes);
+        control.release();
+        retainedOutput.release();
+        ordinary.release();
+        expect(listenerInput.usedBytes).toBe(0);
+        expect(listenerOutput.usedBytes).toBe(0);
+        yield* lifetime.close();
+        expect(() => controlInput.acquire(1)).toThrow("budget closed");
+      }).pipe(Effect.scoped),
   );
 
   it.effect("charges nested shared budgets and releases each lease once", () =>
