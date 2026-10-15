@@ -1,6 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Exercises controller acknowledgements without a namespace or tc.
 import * as NodeChildProcess from "node:child_process";
-import * as NodeEvents from "node:events";
 import { expect, it } from "@effect/vitest";
 import { makeManifest } from "./reconnectManifest.ts";
 import { startController, stopChild } from "./reconnectProcess.ts";
@@ -34,7 +33,7 @@ it.each([false, true])("waits for initial apply acknowledgement, failure=%s", as
     return owned;
   });
   try {
-    const signalled = NodeEvents.once(owned!, "message");
+    const signalled = new Promise<void>((resolve) => owned!.once("message", () => resolve()));
     const started = controller.start();
     expect(
       await Promise.race([
