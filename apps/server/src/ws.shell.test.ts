@@ -47,6 +47,98 @@ const cases = modes.flatMap((mode) =>
 );
 
 describe("shell subscription initial RPC chunks", () => {
+  it.effect("replaces expanded projected replay with an authoritative snapshot", () =>
+    Effect.gen(function* () {
+      const changes = yield* Effect.acquireRelease(
+        PubSub.unbounded<ProjectEnrichmentService.ProjectEnrichmentChange>(),
+        PubSub.shutdown,
+      );
+      let replayClosed = false;
+      const dependencies = Layer.mergeAll(
+        NodeSqliteClient.layer({ filename: ":memory:" }),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          readShellSnapshot: () =>
+            Effect.succeed(
+              Effect.succeed({
+                schemaVersion: ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION,
+                snapshotSequence: 3,
+                threads: [],
+                archivedThreads: [],
+              }),
+            ),
+        }),
+        Layer.mock(ProjectStore.ProjectStoreV2)({ listShells: () => Effect.succeed([project]) }),
+        Layer.mock(ProjectService.ProjectService)({
+          getShell: (id) =>
+            Effect.succeedSome({
+              ...project,
+              id,
+              title: "x".repeat(5 * 1024 * 1024),
+            }),
+        }),
+        Layer.mock(ProjectEnrichmentService.ProjectEnrichmentService)({
+          subscribeChanges: PubSub.subscribe(changes),
+          getAvailable: () =>
+            Effect.succeed({
+              repositoryIdentity: null,
+              faviconPath: null,
+              repositoryIdentityResolved: false,
+            }),
+        }),
+        Layer.mock(OrchestrationEventStore.OrchestrationEventStore)({
+          latestApplicationSequence: Effect.succeed(3),
+          getReplayStats: () => Effect.succeed({ eventCount: 3, rawPayloadBytes: 300 }),
+          readApplicationEvents: () =>
+            Stream.fromIterable(
+              [1, 2, 3].map((sequence) => ({
+                sequence,
+                aggregateKind: "project" as const,
+                aggregateId: ProjectId.make(`project-${sequence}`),
+                eventId: EventId.make(`event-${sequence}`),
+                type: "project.meta-updated" as const,
+                occurredAt: project.updatedAt,
+                commandId: null,
+                causationEventId: null,
+                correlationId: null,
+                metadata: {},
+                payload: {
+                  projectId: ProjectId.make(`project-${sequence}`),
+                  title: "small event",
+                  updatedAt: project.updatedAt,
+                },
+              })),
+            ).pipe(
+              Stream.ensuring(
+                Effect.sync(() => {
+                  replayClosed = true;
+                }),
+              ),
+            ),
+          streamProjectedApplicationEvents: () => Stream.never,
+        }),
+      );
+      const delivered = yield* Stream.unwrap(
+        subscribeOrchestrationV2Shell({
+          afterSequence: 0,
+          requestCompletionMarker: true,
+        }),
+      ).pipe(Stream.take(2), Stream.runCollect, Effect.provide(dependencies));
+      expect(replayClosed).toBe(true);
+      expect(delivered).toEqual([
+        {
+          kind: "snapshot",
+          snapshot: {
+            schemaVersion: ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION,
+            snapshotSequence: 3,
+            projects: [project],
+            threads: [],
+            archivedThreads: [],
+          },
+        },
+        { kind: "synchronized" },
+      ]);
+    }),
+  );
   it.effect.each(cases)(
     "$mode, completion marker $requestCompletionMarker",
     ({ mode, requestCompletionMarker }) =>

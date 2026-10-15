@@ -1,3 +1,5 @@
+import type { OrchestrationV2ShellStreamItem } from "@t3tools/contracts";
+import * as NodeBuffer from "node:buffer";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Context from "effect/Context";
@@ -565,6 +567,7 @@ const ServerRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
 // snapshot instead. Replaying each intervening event costs a shell refetch;
 // past this gap a single O(active-threads) snapshot is cheaper and bounded.
 // Matches the event store's default page size (DEFAULT_READ_FROM_SEQUENCE_LIMIT).
+const encodeShellReplayItem = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const SHELL_RESUME_MAX_GAP = 1_000;
 // Row count alone does not bound replay memory: a few events with large tool
 // payloads can decode to gigabytes. Before replaying, sum the serialized
@@ -901,7 +904,6 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
           threadId: input.threadId,
           afterSequence: input.afterSequence,
           throughSequence: highWater,
-          skipUnknownEventTypes: true,
           maxEvents: THREAD_RESUME_MAX_REPLAY_EVENTS,
         })
         .pipe(
@@ -1155,8 +1157,31 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
         }),
       );
       if (completionMarker !== undefined) {
-        // Collect the bounded replay so metadata, deltas and completion share one RPC chunk.
-        const replayItems = yield* Stream.runCollect(replay);
+        // Projected shells can be much larger than their stored events. Bound
+        // accumulation before retaining another item, then take a fresh snapshot.
+        const replayItems: Array<OrchestrationV2ShellStreamItem> = [];
+        let projectedBytes = 0;
+        let oversized = false;
+        yield* Stream.runForEachWhile(replay, (item) =>
+          Effect.sync(() => {
+            projectedBytes += NodeBuffer.Buffer.byteLength(encodeShellReplayItem(item));
+            if (projectedBytes > ORCHESTRATION_REPLAY_PAYLOAD_BUDGET_BYTES) {
+              oversized = true;
+              replayItems.length = 0;
+              return false;
+            }
+            replayItems.push(item);
+            return true;
+          }),
+        );
+        if (oversized) {
+          const refreshed = yield* loadSnapshot();
+          return composeShellStreamWithEnrichment({
+            initial: initialSnapshotItems(refreshed),
+            tail: liveFrom(refreshed.snapshot.snapshotSequence),
+            enrichment: enrichmentRefreshes,
+          });
+        }
         return composeShellStreamWithEnrichment({
           initial: rpcInitialItems([...initial, ...replayItems], completionMarker),
           tail: liveFrom(highWater),
