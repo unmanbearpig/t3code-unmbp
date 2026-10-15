@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
 import * as HttpClient from "effect/http/HttpClient";
 
@@ -14,6 +15,7 @@ import type {
 } from "./model.ts";
 import { ConnectionTransientError } from "./model.ts";
 import * as ConnectionResolver from "./resolver.ts";
+import * as ConnectionDescriptors from "./descriptors.ts";
 import { connectionRoutes, routeEntry, routeHttpBaseUrl } from "./routes.ts";
 import * as RpcSession from "../rpc/session.ts";
 import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
@@ -141,17 +143,31 @@ export const make = Effect.gen(function* () {
   const sessions = yield* RpcSession.RpcSessionFactory;
   const httpClient = yield* HttpClient.HttpClient;
 
-  const checkRoute = (entry: ConnectionCatalogEntry, route: ConnectionRoute) => {
+  const checkRoute = (
+    entry: ConnectionCatalogEntry,
+    route: ConnectionRoute,
+    descriptorScope?: Scope.Scope,
+  ) => {
     const httpBaseUrl = routeHttpBaseUrl(route);
     if (httpBaseUrl === null) return Effect.succeed<RouteCheck>("unchecked");
     // The descriptor is public, so this sends no credential to whatever
     // answers at a saved LAN address on a different network.
-    return fetchRemoteEnvironmentDescriptor({
-      httpBaseUrl,
-      timeoutMs: ROUTE_CHECK_TIMEOUT_MS,
-    }).pipe(
+    const descriptor =
+      descriptorScope === undefined
+        ? fetchRemoteEnvironmentDescriptor({ httpBaseUrl, timeoutMs: ROUTE_CHECK_TIMEOUT_MS }).pipe(
+            Effect.asSome,
+          )
+        : ConnectionDescriptors.fetch(httpBaseUrl).pipe(
+            // Keep the request alive for a silent route's later connection attempt.
+            Effect.forkIn(descriptorScope),
+            Effect.flatMap(Fiber.join),
+            Effect.timeoutOption(ROUTE_CHECK_TIMEOUT_MS),
+          );
+    return descriptor.pipe(
       Effect.map((descriptor): RouteCheck =>
-        descriptor.environmentId === entry.target.environmentId ? "answered" : "silent",
+        Option.isSome(descriptor) && descriptor.value.environmentId === entry.target.environmentId
+          ? "answered"
+          : "silent",
       ),
       Effect.orElseSucceed((): RouteCheck => "silent"),
       Effect.provideService(HttpClient.HttpClient, httpClient),
@@ -172,9 +188,10 @@ export const make = Effect.gen(function* () {
       "connection.route.count": connectionRoutes(entry).length,
     });
     yield* reportProgress({ stage: "preparing" });
+    const descriptorScope = yield* Scope.make();
     return yield* connectOverRoutes(
       entry,
-      (route) => checkRoute(entry, route),
+      (route) => checkRoute(entry, route, descriptorScope),
       Effect.fnUntraced(function* (route) {
         const prepared = yield* resolver.prepare(routeEntry(entry, route));
         yield* reportProgress({ stage: "opening", prepared });
@@ -183,23 +200,39 @@ export const make = Effect.gen(function* () {
         yield* session.ready;
         return { prepared, session } satisfies EnvironmentConnectionLease;
       }),
-    );
+    ).pipe(Effect.ensuring(Scope.close(descriptorScope, Exit.void)));
   });
 
   const preflight = (entry: ConnectionCatalogEntry, route: ConnectionRoute) =>
-    checkRoute(entry, route).pipe(
-      Effect.flatMap((check) =>
-        check === "answered"
-          ? resolver.prepare(routeEntry(entry, route)).pipe(
-              Effect.as(true),
-              Effect.orElseSucceed(() => false),
-            )
-          : Effect.succeed(false),
-      ),
+    Effect.scoped(
+      Effect.gen(function* () {
+        const descriptorScope = yield* Scope.Scope;
+        return yield* checkRoute(entry, route, descriptorScope).pipe(
+          Effect.flatMap((check) =>
+            check === "answered"
+              ? resolver.prepare(routeEntry(entry, route)).pipe(
+                  Effect.as(true),
+                  Effect.orElseSucceed(() => false),
+                )
+              : Effect.succeed(false),
+          ),
+        );
+      }),
+    ).pipe(
+      ConnectionDescriptors.withConnectionDescriptors,
+      Effect.provideService(HttpClient.HttpClient, httpClient),
       Effect.withSpan("ConnectionDriver.preflight"),
     );
 
-  return ConnectionDriver.of({ connect, checkRoute, preflight });
+  return ConnectionDriver.of({
+    connect: (entry, reportProgress) =>
+      connect(entry, reportProgress).pipe(
+        ConnectionDescriptors.withConnectionDescriptors,
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      ),
+    checkRoute,
+    preflight,
+  });
 });
 
 export const layer = Layer.effect(ConnectionDriver, make);
