@@ -57,6 +57,9 @@ private let quicCallback: T3QuicCallback = { context, _, status, handle, bytes, 
 }
 
 public final class T3QuicModule: Module {
+  // Expo queues these bodies during the JS call. Share a serial queue so cancel
+  // cannot run before submit has registered its native operation.
+  private let operationQueue = DispatchQueue(label: "expo.modules.t3-quic.operations")
   private let ownerLock = NSLock()
   private var owners = Set<UInt64>()
   private var destroyed = false
@@ -109,13 +112,15 @@ public final class T3QuicModule: Module {
         resolve(pending, status: status < 0 ? status : -4)
       }
     }
+    .runOnQueue(operationQueue)
 
-    Function("cancel") { (ownerValue: Double, operationValue: Double) in
+    AsyncFunction("cancel") { (ownerValue: Double, operationValue: Double) in
       guard let owner = nativeIdentifier(ownerValue),
         let operation = nativeIdentifier(operationValue), self.owns(owner)
       else { return }
       t3_quic_cancel(owner, operation)
     }
+    .runOnQueue(operationQueue)
 
     Function("close") { (ownerValue: Double, code: Int) in
       guard let owner = nativeIdentifier(ownerValue), let nativeCode = UInt32(exactly: code)
