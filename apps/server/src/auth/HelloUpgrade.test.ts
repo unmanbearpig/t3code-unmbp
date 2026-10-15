@@ -51,7 +51,7 @@ const upgrade = (compressed = false, legacy = false) => {
     },
   };
 };
-const connect = async (offer = "permessage-deflate; client_max_window_bits") => {
+const connect = async (offer: string | false = "permessage-deflate; client_max_window_bits") => {
   const server = new HelloWebSocketServer();
   const http = NodeHttp.createServer();
   let clientTransport: NodeStream.Duplex;
@@ -72,7 +72,8 @@ const connect = async (offer = "permessage-deflate; client_max_window_bits") => 
   const connected = new Promise<{ ws: NodeWS.WebSocket; request: NodeHttp.IncomingMessage }>(
     (resolve) => {
       http.once("upgrade", (request, socket, head) => {
-        request.headers["sec-websocket-extensions"] = offer;
+        if (offer === false) delete request.headers["sec-websocket-extensions"];
+        else request.headers["sec-websocket-extensions"] = offer;
         server.handleUpgrade(request, socket, head, (ws) => resolve({ ws, request }));
       });
     },
@@ -80,7 +81,7 @@ const connect = async (offer = "permessage-deflate; client_max_window_bits") => 
   http.emit("connection", serverTransport);
   const client = new NodeWS.WebSocket("ws://test/ws?handshake=hello-v1", {
     createConnection: () => clientTransport,
-    perMessageDeflate: true,
+    perMessageDeflate: offer !== false,
   });
   let extensions: string | undefined;
   client.on("upgrade", (response) => {
@@ -137,6 +138,38 @@ describe("H Node admission", () => {
       const reply = NodeEvents.EventEmitter.once(h.client, "message");
       h.ws.send("snapshot".repeat(1024));
       expect((await reply)[0].toString()).toBe("snapshot".repeat(1024));
+    } finally {
+      h.cleanup();
+    }
+  });
+  // RN 0.88 uses OkHttp 4.9.2 on Android, which offers bare permessage-deflate and
+  // accepts client_no_context_takeover, but rejects client_max_window_bits responses.
+  // Its iOS SocketRocket 0.7.1 does not offer compression at all.
+  it("accepts clients that do not offer compression, including iOS SocketRocket", async () => {
+    const h = await connect(false);
+    try {
+      expect(h.extensions).toBeUndefined();
+      expect(h.ws.extensions).toBe("");
+      expect(h.client.extensions).toBe("");
+      expect(authenticated(h.request)).toBe(true);
+      const message = NodeEvents.EventEmitter.once(h.ws, "message");
+      h.client.send("x".repeat(65537));
+      expect((await message)[0].byteLength).toBe(65537);
+    } finally {
+      h.cleanup();
+    }
+  });
+  it("enforces the auth-frame limit after decompression and reassembly", async () => {
+    const h = await connect();
+    try {
+      const rejection = NodeEvents.EventEmitter.once(h.client, "message");
+      h.client.send("x".repeat(4096), { fin: false, compress: true });
+      h.client.send("x".repeat(4097), { fin: true, compress: true });
+      expect(JSON.parse((await rejection)[0].toString())).toMatchObject({
+        _tag: "HandshakeError",
+        code: "limit_exceeded",
+      });
+      expect(authenticated(h.request)).toBe(false);
     } finally {
       h.cleanup();
     }
