@@ -77,6 +77,7 @@ interface ShellSubscription {
   readonly session: RpcSession;
   environment: ServerConfig["environment"] | undefined;
   serverStartedAt: string | undefined;
+  startupProof: Effect.Effect<void> | undefined;
   supportsCompletionMarker: boolean;
   awaitingCompletion: boolean;
   authoritative: boolean;
@@ -447,6 +448,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           session,
           environment: undefined,
           serverStartedAt: undefined,
+          startupProof: undefined,
           supportsCompletionMarker: false,
           awaitingCompletion: false,
           authoritative: false,
@@ -467,10 +469,33 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         // Checking it also catches a reset whose new head passed our cursor.
         // If an older/broken server cannot provide it, keep the HTTP path.
         if (supportsCompletionMarker) {
-          subscription.serverStartedAt =
-            previous?.session === session && previous.serverStartedAt !== undefined
-              ? previous.serverStartedAt
-              : yield* getSessionServerStartedAt(session);
+          const readStartupProof = Effect.gen(function* () {
+            const serverStartedAt = yield* getSessionServerStartedAt(session);
+            if (
+              subscription !== activeSubscription ||
+              subscription.failed ||
+              Option.getOrNull(yield* SubscriptionRef.get(supervisor.session)) !== session
+            )
+              return;
+            subscription.serverStartedAt = serverStartedAt;
+            if (
+              !subscription.awaitingCompletion &&
+              subscription.authoritative &&
+              serverStartedAt !== undefined
+            ) {
+              subscription.synchronized = true;
+            }
+          });
+          if (previous?.session === session && previous.serverStartedAt !== undefined) {
+            subscription.serverStartedAt = previous.serverStartedAt;
+          } else if (previous?.synchronized === true) {
+            yield* readStartupProof;
+          } else {
+            // Cold/interrupted bases require HTTP regardless of startup identity.
+            // Read proof alongside the shell stream so neither HTTP nor usable
+            // shell state waits for it. Late proof can certify a completed base.
+            subscription.startupProof = readStartupProof;
+          }
         }
 
         // A cursor is safe only above a complete base loaded in this runtime
@@ -567,7 +592,15 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       }),
       (_session, stream) => {
         const subscription = activeSubscription;
-        return stream.pipe(
+        const source =
+          subscription?.startupProof === undefined
+            ? stream
+            : stream.pipe(
+                Stream.merge(Stream.fromEffect(subscription.startupProof).pipe(Stream.drain), {
+                  haltStrategy: "left",
+                }),
+              );
+        return source.pipe(
           Stream.map((item) => ({ subscription, item })),
           Stream.tapCause((cause) => {
             // Closing a socket or cancelling a subscription after completion
