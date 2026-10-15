@@ -1,6 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { makeManifest, manifestHash, validateManifest, variantOrder } from "./reconnectManifest.ts";
-import { distribution, summarize, type ReconnectRow } from "./reconnectComparison.ts";
+import {
+  compareProbeCohorts,
+  distribution,
+  summarize,
+  type ReconnectRow,
+} from "./reconnectComparison.ts";
 import { directionCommands, controllerPlan } from "./reconnectNetwork.ts";
 
 const manifest = makeManifest();
@@ -18,7 +23,9 @@ const row = (
   result: {
     totalMs,
     shellLiveMs: totalMs + 20,
-    selectedTransport: "wss",
+    selectedTransport: "websocket",
+    selections: [{ transport: "websocket", atMs: 0 }],
+    nativeEvidence: null,
     serverRequests: [],
     stages: [],
     requests: {},
@@ -38,6 +45,9 @@ describe("bounded reconnect plan", () => {
     expect(new Set(manifest.cases.map((c) => c.workload)).size).toBe(4);
     expect(manifest.mtu).toBe(1280);
     expect(makeManifest(true).cases).toHaveLength(60);
+    expect(makeManifest(true, "operations").cases).toHaveLength(45);
+    expect(makeManifest(true, "fallback").cases).toHaveLength(15);
+    expect(makeManifest(true, "overlap").cases).toHaveLength(30);
     expect(manifestHash(makeManifest())).toBe(manifestHash(manifest));
     expect(new Set(makeManifest(true).cases.map((c) => c.id)).size).toBe(60);
   });
@@ -74,6 +84,74 @@ describe("bounded reconnect plan", () => {
 });
 
 describe("paired completion evidence", () => {
+  it("compares the same twelve arrivals and separately matches only early common-active indices", () => {
+    const baseline = {
+      ...row("a", 85).result!,
+      probeSamples: Array.from({ length: 12 }, (_, index) => ({
+        index,
+        startedMs: index * 20,
+        completedMs: index * 20 + (index < 5 ? 10 : 100),
+        rttMs: index < 5 ? 10 : 100,
+      })),
+    };
+    const candidate = {
+      ...row("b", 400).result!,
+      probeSamples: Array.from({ length: 12 }, (_, index) => ({
+        index,
+        startedMs: index * 20 + 5,
+        completedMs: index * 20 + 25,
+        rttMs: 20,
+      })),
+    };
+    expect(compareProbeCohorts(baseline, candidate)).toMatchObject({
+      indexSource: "explicit-schedule-index",
+      all12: {
+        indices: Array.from({ length: 12 }, (_, index) => index),
+        baselineMs: { n: 12, median: 100 },
+        candidateMs: { n: 12, median: 20 },
+        medianDeltaMs: -80,
+      },
+      commonActive: {
+        commonEndMs: 85,
+        indices: [0, 1, 2, 3, 4],
+        baselineMs: { n: 5, median: 10 },
+        candidateMs: { n: 5, median: 20 },
+        medianDeltaMs: 10,
+      },
+    });
+    const incomplete = { ...candidate, probeSamples: candidate.probeSamples.slice(0, 11) };
+    expect(compareProbeCohorts(baseline, incomplete)?.all12).toBeNull();
+    const duplicate = {
+      ...candidate,
+      probeSamples: [candidate.probeSamples[0]!, candidate.probeSamples[0]!],
+    };
+    expect(() => compareProbeCohorts(baseline, duplicate)).toThrow("Duplicate");
+  });
+
+  it("keeps per-run resource and probe sample counts separate and excludes failed runs", () => {
+    const first = row("a", 10);
+    const second = row("a", 20, { case: { ...entry, id: "second", repetition: 2 } });
+    const failed = row("a", 1, { case: { ...entry, id: "failed" }, error: "timeout" });
+    const observed = [first, second, failed].map((sample, index) => ({
+      ...sample,
+      result: {
+        ...sample.result!,
+        operationMetrics: {
+          operation: "bulk-overlap",
+          probeSamples: index + 10,
+          probeMedianMs: index + 1,
+        },
+        resources: { window: "whole-case", client: { cpuUserMs: (index + 1) * 10 }, server: {} },
+      },
+    }));
+    expect(summarize(observed, "a")[0]).toMatchObject({
+      attempted: 3,
+      completed: 2,
+      selectedTransportCounts: { websocket: 2, webtransport: 0 },
+      operationMetrics: { probeSamples: { n: 2, min: 10, median: 10.5, max: 11 } },
+      resources: { windows: ["whole-case"], client: { cpuUserMs: { n: 2, median: 15 } } },
+    });
+  });
   it("reports paired deltas for equal successful inputs while retaining failures", () => {
     const failedCase = { ...entry, id: "second", seed: 947, repetition: 2 };
     const groups = summarize(

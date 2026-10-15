@@ -5,6 +5,18 @@ import * as Schema from "effect/Schema";
 import { controllerPlan } from "./reconnectNetwork.ts";
 import type { ReconnectCase } from "./reconnectManifest.ts";
 
+export function benchmarkLockArguments(
+  waitForLock: boolean,
+  lockPath: string,
+  command: readonly string[],
+) {
+  return [
+    ...(waitForLock ? ["--exclusive"] : ["-n", "--conflict-exit-code", "75"]),
+    lockPath,
+    ...command,
+  ];
+}
+
 export async function stopChild(child: NodeChildProcess.ChildProcess | undefined) {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolve) => {

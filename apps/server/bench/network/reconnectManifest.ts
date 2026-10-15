@@ -32,13 +32,20 @@ const profile = (name: string, delayMs: number, loss?: string): Profile => ({
 });
 export const profiles = [profile("clean", 0), profile("wan", 25), profile("loss2", 25, "2%")];
 export const workloads = ["idle", "replay-50", "short-probe", "network-changed"] as const;
+export const operationWorkloads = ["sync-five", "reconnect-replay", "open-long"] as const;
+export const overlapWorkloads = ["bulk-overlap", "terminal-overlap"] as const;
 export const seeds = [731, 947, 1163, 1381, 1597] as const;
 export const ReconnectCase = Schema.Struct({
   id: Schema.String,
   profile: Profile,
   scheme: Schema.Literals(["http", "https"]),
   routes: Schema.Literals([1, 2]),
-  workload: Schema.Literals(workloads),
+  workload: Schema.Literals([
+    ...workloads,
+    ...operationWorkloads,
+    ...overlapWorkloads,
+    "blocked-udp",
+  ]),
   repetition: Schema.Number,
   seed: Schema.Number,
   phaseMs: Schema.Number,
@@ -46,10 +53,10 @@ export const ReconnectCase = Schema.Struct({
 });
 export type ReconnectCase = typeof ReconnectCase.Type;
 export const Manifest = Schema.Struct({
-  version: Schema.Literal("rpc-reconnect-v1"),
+  version: Schema.Literal("rpc-reconnect-v3"),
   mtu: Schema.Number,
   queuePackets: Schema.Number,
-  fixture: Schema.Literal("100-cached-messages-50-new-domain-events"),
+  fixture: Schema.Literal("isolated-thread-shell-v1"),
   cases: Schema.Array(ReconnectCase),
 });
 export type Manifest = typeof Manifest.Type;
@@ -109,21 +116,31 @@ export function validateManifest(input: unknown): Manifest {
 }
 
 /** Four integration cases by default; the optional measurement plan has sixty paired inputs. */
-export function makeManifest(measure = false): Manifest {
+export function makeManifest(
+  measure = false,
+  group: "resume" | "operations" | "fallback" | "overlap" = "resume",
+): Manifest {
   const selectedProfiles = measure ? profiles : profiles.filter((p) => p.name === "wan");
   const selectedSeeds = measure ? seeds : seeds.slice(0, 1);
   return validateManifest({
-    version: "rpc-reconnect-v1",
+    version: "rpc-reconnect-v3",
     mtu: 1280,
     queuePackets: 100000,
-    fixture: "100-cached-messages-50-new-domain-events",
+    fixture: "isolated-thread-shell-v1",
     cases: selectedProfiles.flatMap((profile) =>
-      workloads.flatMap((workload) =>
+      (group === "operations"
+        ? operationWorkloads
+        : group === "fallback"
+          ? ["blocked-udp" as const]
+          : group === "overlap"
+            ? overlapWorkloads
+            : workloads
+      ).flatMap((workload) =>
         selectedSeeds.map((seed, index) => ({
-          id: [profile.name, "https", 2, workload, seed].join("/"),
+          id: [profile.name, "https", 1, workload, seed].join("/"),
           profile,
           scheme: "https",
-          routes: 2,
+          routes: 1,
           workload,
           seed,
           repetition: index + 1,

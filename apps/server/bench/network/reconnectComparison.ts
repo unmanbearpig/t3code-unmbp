@@ -8,10 +8,51 @@ const Stage = Schema.Struct({
   bytes: Schema.optionalKey(Schema.Number),
   outcome: Schema.optionalKey(Schema.Literals(["succeeded", "failed"])),
 });
+export const TerminalProtocol = Schema.Struct({
+  requests: Schema.Number,
+  chunks: Schema.Number,
+  wireAcks: Schema.Number,
+  interrupts: Schema.Number,
+  maxPendingChunks: Schema.Number,
+});
 export const ReconnectResult = Schema.Struct({
+  terminalProtocol: Schema.optionalKey(TerminalProtocol),
   totalMs: Schema.Number,
+  faultModel: Schema.optionalKey(Schema.String),
+  probeSamples: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        index: Schema.optionalKey(Schema.Number),
+        startedMs: Schema.Number,
+        completedMs: Schema.Number,
+        rttMs: Schema.Number,
+      }),
+    ),
+  ),
+  operationMetrics: Schema.optionalKey(
+    Schema.Record(Schema.String, Schema.Union([Schema.Number, Schema.String])),
+  ),
   shellLiveMs: Schema.Number,
-  selectedTransport: Schema.Literal("wss"),
+  selectedTransport: Schema.Literals(["websocket", "webtransport"]),
+  selections: Schema.Array(
+    Schema.Struct({
+      transport: Schema.optionalKey(Schema.Literals(["websocket", "webtransport"])),
+      atMs: Schema.Number,
+    }),
+  ),
+  nativeEvidence: Schema.NullOr(
+    Schema.Struct({
+      constructed: Schema.Number,
+      connectReady: Schema.Number,
+      controlStreamsOpened: Schema.Number,
+      requestStreamsOpened: Schema.Number,
+      closedByOwner: Schema.Number,
+      aborted: Schema.Number,
+      admissionPath: Schema.String,
+      ticketPresent: Schema.Boolean,
+      reliability: Schema.String,
+    }),
+  ),
   serverRequests: Schema.Array(
     Schema.Struct({
       path: Schema.String,
@@ -43,6 +84,7 @@ export interface ReconnectRow {
   readonly result?: ReconnectResult;
   readonly error?: string;
   readonly controller?: unknown;
+  readonly diagnostics?: unknown;
 }
 export function distribution(values: readonly number[]) {
   if (!values.length) return null;
@@ -65,6 +107,57 @@ const cell = (row: ReconnectRow) =>
     row.case.phaseMs,
   ].join("/");
 const successful = (row: ReconnectRow) => row.error === undefined && row.result?.correct === true;
+function numericDistributions(records: readonly Readonly<Record<string, number | string>>[]) {
+  const values = new Map<string, number[]>();
+  for (const record of records)
+    for (const [key, value] of Object.entries(record)) {
+      if (typeof value === "number" && Number.isFinite(value))
+        values.set(key, [...(values.get(key) ?? []), value]);
+    }
+  return Object.fromEntries([...values].map(([key, samples]) => [key, distribution(samples)]));
+}
+
+/** Compare identical scheduled arrivals, keeping the fixed cohort separate from early overlap. */
+export function compareProbeCohorts(baseline: ReconnectResult, candidate: ReconnectResult) {
+  const indexed = (result: ReconnectResult) => {
+    const samples = result.probeSamples?.toSorted((a, b) => a.startedMs - b.startedMs) ?? [];
+    const probes = new Map(samples.map((sample, position) => [sample.index ?? position, sample]));
+    if (probes.size !== samples.length) throw new Error("Duplicate overlap probe index");
+    return probes;
+  };
+  const before = indexed(baseline),
+    after = indexed(candidate);
+  if (!before.size || !after.size) return null;
+  const cohort = (indices: readonly number[]) => {
+    const baselineMs = distribution(indices.map((index) => before.get(index)!.rttMs));
+    const candidateMs = distribution(indices.map((index) => after.get(index)!.rttMs));
+    return {
+      indices,
+      baselineMs,
+      candidateMs,
+      medianDeltaMs: baselineMs && candidateMs ? candidateMs.median - baselineMs.median : null,
+      pairedProbeDeltaMs: distribution(
+        indices.map((index) => after.get(index)!.rttMs - before.get(index)!.rttMs),
+      ),
+    };
+  };
+  const indices = Array.from({ length: 12 }, (_, index) => index);
+  const commonEndMs = Math.min(baseline.totalMs, candidate.totalMs);
+  const commonIndices = indices.filter((index) => {
+    const a = before.get(index),
+      b = after.get(index);
+    return a && b && a.startedMs <= commonEndMs && b.startedMs <= commonEndMs;
+  });
+  return {
+    indexSource: [...(baseline.probeSamples ?? []), ...(candidate.probeSamples ?? [])].every(
+      (sample) => sample.index !== undefined,
+    )
+      ? "explicit-schedule-index"
+      : "legacy-start-order",
+    all12: indices.every((index) => before.has(index) && after.has(index)) ? cohort(indices) : null,
+    commonActive: { commonEndMs, ...cohort(commonIndices) },
+  };
+}
 
 /** Only successful, identical case IDs enter paired deltas. Failures remain visible separately. */
 export function summarize(rows: readonly ReconnectRow[], baselineVariant: string) {
@@ -110,12 +203,30 @@ export function summarize(rows: readonly ReconnectRow[], baselineVariant: string
         .filter((row) => !successful(row))
         .map((row) => ({ caseId: row.case.id, error: row.error ?? "incorrect state" })),
       selectedTransports: [...new Set(completed.map((row) => row.result!.selectedTransport))],
+      selectedTransportCounts: Object.fromEntries(
+        ["websocket", "webtransport"].map((transport) => [
+          transport,
+          completed.filter((row) => row.result!.selectedTransport === transport).length,
+        ]),
+      ),
+      operationMetrics: numericDistributions(
+        completed.map((row) => row.result!.operationMetrics ?? {}),
+      ),
+      resources: {
+        windows: [...new Set(completed.map((row) => row.result!.resources.window))],
+        client: numericDistributions(completed.map((row) => row.result!.resources.client)),
+        server: numericDistributions(completed.map((row) => row.result!.resources.server)),
+      },
       completionMs: distribution(completed.map((row) => row.result!.totalMs)),
       shellLiveMs: distribution(completed.map((row) => row.result!.shellLiveMs)),
       bytes: distribution(completed.map((row) => row.result!.bytes)),
       packets: distribution(completed.map((row) => row.result!.packets)),
       pairedAgainst: baselineVariant,
       pairedN: paired.length,
+      pairedProbeCohorts: paired.flatMap(({ row, baseline }) => {
+        const comparison = compareProbeCohorts(baseline.result!, row.result!);
+        return comparison ? [{ caseId: row.case.id, ...comparison }] : [];
+      }),
       pairedDeltaMs: distribution(
         paired.map(({ row, baseline }) => row.result!.totalMs - baseline.result!.totalMs),
       ),

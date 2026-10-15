@@ -4,10 +4,12 @@ import * as NodeHttp from "node:http";
 import * as NodeHttps from "node:https";
 import * as NodeCrypto from "node:crypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import {
   AuthStandardClientScopes,
+  ServerConfig as ServerConfigSchema,
   EnvironmentAuthorizationError,
   EventId,
   ProjectId,
@@ -21,16 +23,22 @@ import {
   OrchestrationV2RpcSchemas,
   WsRpcGroup as ServerWsRpcGroup,
   WsSubscribeServerConfigRpc,
+  TerminalAttachStreamEvent,
+  TerminalObserveInput,
+  TerminalError,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
+import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
+import { HttpRouter } from "effect/http";
 import * as HttpApi from "effect/http-api/HttpApi";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import { Rpc, RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
@@ -53,8 +61,27 @@ import * as ServerConfig from "../../src/config.ts";
 import * as AnalyticsService from "../../src/telemetry/AnalyticsService.ts";
 import * as RpcAuthorization from "../../src/auth/RpcAuthorization.ts";
 import { guardHttpResponseWriteErrors } from "../../src/httpResponseErrorGuard.ts";
-import * as SessionStore from "../../src/auth/SessionStore.ts";
+import * as AuthenticatedRpcSession from "../../src/AuthenticatedRpcSession.ts";
+import * as RpcSessionLifetime from "../../src/RpcSessionLifetime.ts";
+import { makeRpcSessionProtocol } from "../../src/RpcSessionProtocol.ts";
+import * as BackgroundPolicy from "../../src/background/BackgroundPolicy.ts";
+import * as HostPowerMonitor from "../../src/background/HostPowerMonitor.ts";
+import * as ServerSettings from "../../src/serverSettings.ts";
+import * as ServerRuntimeStartup from "../../src/serverRuntimeStartup.ts";
+import * as WebTransportAvailability from "../../src/transport/WebTransportAvailability.ts";
+import * as WebTransportListener from "../../src/transport/WebTransportListener.ts";
+import * as WebTransportBackend from "../../src/transport/WebTransportBackend.ts";
+import * as Ws from "../../src/ws.ts";
+import { withTerminalOutputWindow } from "../../src/terminal/OutputProtocol.ts";
+import { wallClockMs } from "./protocol.ts";
+import {
+  buildBoundedThreadProjection,
+  THREAD_HISTORY_PAGE_POLICY,
+  THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,
+} from "../../src/orchestration-v2/threadHistoryPaging.ts";
 import { makeResourceControl } from "./resourceUsage.ts";
+import { makeReconnectDiagnostics } from "./reconnectDiagnostics.ts";
+import { installNativeDiagnostics } from "./reconnectNativeDiagnostics.ts";
 import {
   subscribeOrchestrationV2Thread,
   subscribeOrchestrationV2Shell,
@@ -70,10 +97,57 @@ import {
   OperationControlResponse,
 } from "./operationsFixture.ts";
 
-const [scheme, portText, certPath, keyPath, scratch] = process.argv.slice(2);
+const [scheme, portText, certPath, keyPath, scratch, workload] = process.argv.slice(2);
 if (!scratch || !certPath || !keyPath || !portText || !["http", "https"].includes(scheme!))
   throw new Error("reconnectServer.ts http|https port cert key scratch");
 const port = Number(portText);
+const trace =
+  process.env.RPC_RECONNECT_TRACE === "1" ? makeReconnectDiagnostics("server") : undefined;
+const diagnosticBackend = Layer.effect(
+  WebTransportBackend.WebTransportBackend,
+  Effect.gen(function* () {
+    const backend = yield* WebTransportBackend.WebTransportBackend;
+    const platform = yield* HostProcess.Platform;
+    const arch = yield* HostProcess.Architecture;
+    return {
+      load: backend.load.pipe(
+        Effect.tap(() =>
+          trace
+            ? Effect.promise(() => installNativeDiagnostics(trace, platform, arch))
+            : Effect.void,
+        ),
+        Effect.map(({ Http3Server }) => ({
+          Http3Server: new Proxy(Http3Server, {
+            construct(target, args, newTarget) {
+              const server: InstanceType<typeof Http3Server> = Reflect.construct(
+                target,
+                args,
+                newTarget,
+              );
+              return new Proxy(server, {
+                get(native, property) {
+                  const method: unknown = Reflect.get(native, property, native);
+                  if (property === "sessionStream" && typeof method === "function")
+                    return (...parameters: readonly unknown[]) =>
+                      trace!.sessionSource(Reflect.apply(method, native, parameters));
+                  return typeof method === "function" ? method.bind(native) : method;
+                },
+              });
+            },
+          }),
+        })),
+      ),
+    };
+  }),
+).pipe(Layer.provide(WebTransportBackend.layer));
+const quicListener = trace
+  ? Layer.effectDiscard(
+      Effect.gen(function* () {
+        const listener = yield* WebTransportListener.WebTransportListener;
+        yield* listener.listen.pipe(Effect.forkScoped);
+      }),
+    ).pipe(Layer.provide(WebTransportListener.layer), Layer.provide(diagnosticBackend))
+  : WebTransportListener.layerListening;
 export const reconnectConfig = {
   ...operationServerConfig,
   environment: {
@@ -137,21 +211,56 @@ const fixtureServices = management.pipe(
   Layer.provideMerge(NodeServices.layer),
 );
 
+const encodeListenerConfig = Schema.encodeSync(
+  Schema.fromJsonString(
+    Schema.Struct({
+      url: Schema.String,
+      host: Schema.String,
+      port: Schema.Number,
+      certPath: Schema.String,
+      keyPath: Schema.String,
+    }),
+  ),
+);
 const serverConfig = Layer.effect(
   ServerConfig.ServerConfig,
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
-    return { ...config, devUrl: undefined, devAuthToken: undefined, port, host: "0.0.0.0" };
+    return {
+      ...config,
+      devUrl: undefined,
+      devAuthToken: undefined,
+      port,
+      host: "0.0.0.0",
+      rpcWebTransport: encodeListenerConfig({
+        url: `https://127.0.0.1:${port}/rpc`,
+        host: "0.0.0.0",
+        port,
+        certPath,
+        keyPath,
+      }),
+    };
   }),
 ).pipe(Layer.provide(ServerConfig.layerTest(process.cwd(), scratch)));
 const environment = Layer.mergeAll(
   Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
     getEnvironmentId: Effect.succeed(reconnectConfig.environment.environmentId),
   }),
-  Layer.succeed(ServerEnvironment.ServerEnvironment, {
-    getEnvironmentId: Effect.succeed(reconnectConfig.environment.environmentId),
-    getDescriptor: Effect.succeed(reconnectConfig.environment),
-  }),
+  Layer.effect(
+    ServerEnvironment.ServerEnvironment,
+    Effect.gen(function* () {
+      const availability = yield* WebTransportAvailability.WebTransportAvailability;
+      return {
+        getEnvironmentId: Effect.succeed(reconnectConfig.environment.environmentId),
+        getDescriptor: availability.get.pipe(
+          Effect.map((endpoint) => ({
+            ...reconnectConfig.environment,
+            ...(Option.isSome(endpoint) ? { rpcWebTransport: endpoint.value } : {}),
+          })),
+        ),
+      };
+    }),
+  ),
 );
 const secrets = Layer.mock(ServerSecretStore.ServerSecretStore)({
   // Only the signing key is needed. Keep it in memory along with the sessions database.
@@ -172,6 +281,18 @@ const auth = EnvironmentAuth.layer.pipe(
   Layer.provideMerge(Layer.mock(AnalyticsService.AnalyticsService)({ record: () => Effect.void })),
 );
 const group = RpcGroup.make(
+  Rpc.make(WS_METHODS.serverGetConfig, { payload: Schema.Struct({}), success: ServerConfigSchema }),
+  Rpc.make(WS_METHODS.terminalObserve, {
+    payload: TerminalObserveInput,
+    success: TerminalAttachStreamEvent,
+    error: TerminalError,
+    stream: true,
+  }),
+  Rpc.make(ORCHESTRATION_V2_WS_METHODS.getThreadProjection, {
+    payload: OrchestrationV2RpcSchemas.getThreadProjection.input,
+    success: OrchestrationV2RpcSchemas.getThreadProjection.output,
+    error: OrchestrationV2GetThreadProjectionError,
+  }),
   Rpc.make(WS_METHODS.serverProbe, {
     payload: Schema.Struct({}),
     success: Schema.Struct({}),
@@ -207,6 +328,23 @@ const handlers = Layer.effectContext(
       ),
     );
     const measured = yield* group.toHandlers({
+      [WS_METHODS.serverGetConfig]: () => Effect.succeed(reconnectConfig),
+      [WS_METHODS.terminalObserve]: () =>
+        Stream.fromIterable(
+          Array.from({ length: 256 }, (_, index) => ({
+            type: "output" as const,
+            threadId: operationThreadId,
+            terminalId: "benchmark-terminal",
+            sequence: index,
+            data: operationMessageText(index),
+          })),
+        ).pipe(Stream.rechunk(1)),
+      [ORCHESTRATION_V2_WS_METHODS.getThreadProjection]: () =>
+        Effect.map(ProjectionStore.ProjectionStoreV2, (store) => store).pipe(
+          Effect.flatMap((store) => store.getThreadSnapshot(operationThreadId)),
+          Effect.map((snapshot) => projectThreadProjectionForWire(snapshot.projection)),
+          Effect.orDie,
+        ),
       [WS_METHODS.serverProbe]: () => Effect.succeed({}),
       [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input) =>
         Stream.unwrap(subscribeOrchestrationV2Shell(input)),
@@ -225,32 +363,111 @@ const handlers = Layer.effectContext(
     return Context.merge(fallback, measured);
   }),
 );
-const ws = HttpRouter.add(
-  "GET",
-  "/ws",
+// Only application handlers are fixture-owned. Admission, protocol preparation,
+// session ownership/revocation, shutdown and terminal flow control are production code.
+const terminalProtocol = {
+  requests: 0,
+  chunks: 0,
+  wireAcks: 0,
+  interrupts: 0,
+  maxPendingChunks: 0,
+};
+function observeTerminalProtocol(
+  protocol: RpcServer.Protocol["Service"],
+): RpcServer.Protocol["Service"] {
+  const pending = new Map<string, number>();
+  return {
+    ...protocol,
+    run: (write) =>
+      protocol.run((clientId, message) =>
+        Effect.suspend(() => {
+          trace?.event("app-authenticated-session-run");
+          if (message._tag === "Request" && message.tag === WS_METHODS.terminalObserve) {
+            terminalProtocol.requests++;
+            pending.set(`${clientId}:${message.id}`, 0);
+          } else if (message._tag === "Ack") {
+            const key = `${clientId}:${message.requestId}`;
+            if (pending.has(key)) {
+              terminalProtocol.wireAcks++;
+              pending.set(key, Math.max(0, pending.get(key)! - 1));
+            }
+          } else if (
+            message._tag === "Interrupt" &&
+            pending.has(`${clientId}:${message.requestId}`)
+          ) {
+            terminalProtocol.interrupts++;
+          }
+          return write(clientId, message);
+        }),
+      ),
+    send: (clientId, message, transferables) =>
+      Effect.suspend(() => {
+        if (message._tag === "Chunk") {
+          const key = `${clientId}:${message.requestId}`;
+          if (pending.has(key)) {
+            terminalProtocol.chunks++;
+            const size = pending.get(key)! + 1;
+            pending.set(key, size);
+            terminalProtocol.maxPendingChunks = Math.max(terminalProtocol.maxPendingChunks, size);
+          }
+        }
+        return protocol.send(clientId, message, transferables);
+      }),
+  };
+}
+const applicationSession = Layer.effect(
+  AuthenticatedRpcSession.AuthenticatedRpcSession,
   Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
-    const sessions = yield* SessionStore.SessionStore;
-    const session = yield* serverAuth.authenticateWebSocketUpgrade(request).pipe(Effect.orDie);
-    const { protocol, httpEffect } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket;
-    yield* RpcServer.make(ServerWsRpcGroup, WS_RPC_SERVER_OPTIONS).pipe(
-      Effect.provideService(RpcServer.Protocol, protocol),
-      Effect.provide(RpcAuthorization.layer(session.scopes)),
-      Effect.forkScoped,
-    );
-    return yield* Effect.acquireUseRelease(
-      sessions.markConnected(session.sessionId),
-      () =>
-        Effect.raceFirst(
-          httpEffect,
-          sessions
-            .awaitInvalidation(session.sessionId)
-            .pipe(Effect.as(HttpServerResponse.empty()), Effect.orDie),
+    const lifetime = yield* RpcSessionLifetime.RpcSessionLifetime;
+    const handlerContext =
+      yield* Effect.context<Rpc.ToHandler<RpcGroup.Rpcs<typeof ServerWsRpcGroup>>>();
+    return AuthenticatedRpcSession.AuthenticatedRpcSession.of({
+      run: (input) =>
+        Effect.suspend(() => {
+          const guarded = makeRpcSessionProtocol(observeTerminalProtocol(input.protocol));
+          const shutdown = guarded.close.pipe(
+            Effect.andThen(input.close ?? Effect.void),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                trace?.event("app-authenticated-session-shutdown");
+              }),
+            ),
+          );
+          return lifetime.run(input.session, input.origin ?? {}, input.analyticsProps ?? {}, () => {
+            const connection = Effect.gen(function* () {
+              yield* RpcServer.make(ServerWsRpcGroup, WS_RPC_SERVER_OPTIONS).pipe(
+                Effect.provideService(
+                  RpcServer.Protocol,
+                  withTerminalOutputWindow(guarded.protocol),
+                ),
+                Effect.provide(RpcAuthorization.layer(input.session.scopes)),
+                Effect.provide(handlerContext),
+                Effect.forkScoped,
+              );
+              return yield* input.lifetime;
+            }).pipe(Effect.ensuring(shutdown), Effect.scoped);
+            return Effect.scoped(
+              (input.closed === undefined
+                ? connection
+                : Effect.raceFirst(connection, input.closed.pipe(Effect.as(undefined)))
+              ).pipe(Effect.ensuring(shutdown)),
+            );
+          });
+        }),
+    });
+  }),
+).pipe(
+  Layer.provide(handlers.pipe(Layer.provideMerge(RpcSerialization.layerJson))),
+  Layer.provide(
+    RpcSessionLifetime.layer.pipe(
+      Layer.provide(
+        BackgroundPolicy.layer.pipe(
+          Layer.provide(Layer.effect(HostPowerMonitor.HostPowerMonitor, HostPowerMonitor.make())),
+          Layer.provide(ServerSettings.layerTest()),
         ),
-      () => sessions.markDisconnected(session.sessionId),
-    );
-  }).pipe(Effect.provide(handlers.pipe(Layer.provideMerge(RpcSerialization.layerJson)))),
+      ),
+    ),
+  ),
 );
 class Api extends HttpApi.make("environment").add(
   EnvironmentHttpApi.groups.orchestration,
@@ -258,7 +475,7 @@ class Api extends HttpApi.make("environment").add(
   EnvironmentHttpApi.groups.metadata,
 ) {}
 const routes = Layer.mergeAll(
-  ws,
+  Ws.layer,
   HttpApiBuilder.layer(Api).pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -292,7 +509,29 @@ await Effect.runPromise(
   Effect.scoped(
     Effect.gen(function* () {
       const scope = yield* Effect.scope;
-      const context = yield* Layer.buildWithScope(auth, scope);
+      const published = yield* Deferred.make<void>();
+      const availability = Layer.effect(
+        WebTransportAvailability.WebTransportAvailability,
+        Effect.gen(function* () {
+          const service = yield* WebTransportAvailability.WebTransportAvailability;
+          return {
+            ...service,
+            set: (endpoint: Parameters<typeof service.set>[0]) =>
+              service
+                .set(endpoint)
+                .pipe(
+                  Effect.andThen(
+                    Option.isSome(endpoint) ? Deferred.succeed(published, undefined) : Effect.void,
+                  ),
+                  Effect.asVoid,
+                ),
+          };
+        }),
+      ).pipe(Layer.provide(WebTransportAvailability.layer));
+      const context = yield* Layer.buildWithScope(
+        auth.pipe(Layer.provideMerge(availability)),
+        scope,
+      );
       const sink = Context.get(context, EventSink.EventSinkV2);
       const projections = Context.get(context, ProjectionStore.ProjectionStoreV2);
       const serverAuth = Context.get(context, EnvironmentAuth.EnvironmentAuth);
@@ -349,11 +588,51 @@ await Effect.runPromise(
         };
       });
       yield* sink.write({ events: fixtureEvents });
-      let messages = 100;
+      let messages = workload === "open-long" || workload === "bulk-overlap" ? 2000 : 100;
       yield* sink.write({
         events: [operationThreadCreated, ...operationMessageEvents(0, messages)],
       });
-      const snapshot = yield* projections.getThreadSnapshot(operationThreadId);
+      const controlResponse = Effect.gen(function* () {
+        const snapshot = yield* projections.getThreadSnapshot(operationThreadId);
+        const window = yield* projections.getThreadSnapshotWindow(operationThreadId, {
+          rowLimit: THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,
+          userTurnLimit: THREAD_HISTORY_PAGE_POLICY.maxUserTurns,
+        });
+        const bounded = buildBoundedThreadProjection({
+          ...window,
+          projection: projectThreadProjectionForWire(window.projection),
+        });
+        return {
+          snapshot,
+          windowMessageIds: bounded.projection.messages.map((m) => m.id),
+          windowRunIds: bounded.projection.runs.map((r) => r.id),
+          hasMoreHistory: bounded.hasMoreHistory,
+          latestLocalTurnOrdinal: bounded.latestLocalTurnOrdinal,
+        };
+      });
+      const initial = yield* controlResponse;
+      const applicationContext = yield* Layer.buildWithScope(
+        applicationSession.pipe(Layer.provide(Layer.succeedContext(context))),
+        scope,
+      );
+      // Fixture command readiness follows seeding. Listener publication still
+      // comes only from the production listener after native startup completes.
+      const listening = yield* Layer.buildWithScope(
+        quicListener.pipe(
+          Layer.provide(Layer.succeedContext(Context.merge(context, applicationContext))),
+          Layer.provide(serverConfig),
+          Layer.provide(
+            Layer.mock(ServerRuntimeStartup.ServerRuntimeStartup)({
+              awaitCommandReady: Effect.void,
+            }),
+          ),
+        ),
+        scope,
+      ).pipe(Effect.forkScoped);
+      yield* Effect.raceFirst(
+        Deferred.await(published),
+        Fiber.join(listening).pipe(Effect.andThen(Effect.never)),
+      ).pipe(Effect.timeout("10 seconds"));
       const listener = NodeHttpServer.layer(
         () => {
           const server =
@@ -367,11 +646,13 @@ await Effect.runPromise(
                 });
           let nextConnection = 0;
           const connections = new WeakMap<object, number>();
+          const tracedConnections = new WeakSet<object>();
           const record = (
             request: NodeHttp.IncomingMessage,
             response?: NodeHttp.ServerResponse,
           ) => {
             if (!connections.has(request.socket)) connections.set(request.socket, ++nextConnection);
+            response?.setHeader("x-netbench-protocol", `HTTP/${request.httpVersion}`);
             const row = {
               path: new URL(request.url!, "http://bench").pathname,
               connection: connections.get(request.socket)!,
@@ -380,6 +661,27 @@ await Effect.runPromise(
             };
             serverRequests.push(row);
             const socket = request.socket;
+            if (trace && !tracedConnections.has(socket)) {
+              tracedConnections.add(socket);
+              const progress = () =>
+                trace.event("socket-progress", {
+                  connection: row.connection,
+                  bytesRead: socket.bytesRead,
+                  bytesWritten: socket.bytesWritten,
+                });
+              socket.on("data", progress);
+              socket.once("close", (hadError) => {
+                progress();
+                trace.event("app-tcp-close", { connection: row.connection, hadError });
+              });
+              socket.once("error", (error) =>
+                trace.event("app-tcp-error", {
+                  connection: row.connection,
+                  name: error.name,
+                  message: error.message,
+                }),
+              );
+            }
             const before = socket.bytesWritten;
             response?.once("finish", () => {
               row.bytes = socket.bytesWritten - before;
@@ -399,7 +701,7 @@ await Effect.runPromise(
       yield* Layer.buildWithScope(
         HttpRouter.serve(routes, { disableListenLog: true }).pipe(
           Layer.provide(listener),
-          Layer.provide(Layer.succeedContext(context)),
+          Layer.provide(Layer.succeedContext(Context.merge(context, applicationContext))),
         ),
         scope,
       );
@@ -416,40 +718,49 @@ await Effect.runPromise(
           bearer: paired.access_token,
           initial: {
             startedAt: 0,
-            sequence: snapshot.snapshotSequence,
+            sequence: initial.snapshot.snapshotSequence,
             messages,
-            windowMessageIds: [],
-            windowRunIds: [],
-            hasMoreHistory: false,
-            latestLocalTurnOrdinal: null,
-            initialSnapshot: {
-              snapshotSequence: snapshot.snapshotSequence,
-              projection: projectThreadProjectionForWire(snapshot.projection),
-            },
+            windowMessageIds: initial.windowMessageIds,
+            windowRunIds: initial.windowRunIds,
+            hasMoreHistory: initial.hasMoreHistory,
+            latestLocalTurnOrdinal: initial.latestLocalTurnOrdinal,
+            ...(workload === "open-long"
+              ? {}
+              : {
+                  initialSnapshot: {
+                    snapshotSequence: initial.snapshot.snapshotSequence,
+                    projection: projectThreadProjectionForWire(initial.snapshot.projection),
+                  },
+                }),
           },
         }),
       );
       for (;;) {
         const raw = yield* Queue.take(requests);
         if (typeof raw === "object" && raw !== null && "inspect" in raw) {
-          process.send?.({ serverRequests });
+          process.send?.({
+            serverRequests,
+            terminalProtocol,
+            ...(trace ? { transportTrace: trace.snapshot() } : {}),
+          });
           continue;
         }
         const request = decodeRequest(raw);
+        const startedAt = wallClockMs();
         if (request.count) {
           yield* sink.write({ events: operationMessageEvents(messages, request.count) });
           messages += request.count;
         }
-        const full = yield* projections.getThreadSnapshot(operationThreadId);
+        const full = yield* controlResponse;
         process.send?.(
           encodeResponse({
-            startedAt: 0,
-            sequence: full.snapshotSequence,
+            startedAt,
+            sequence: full.snapshot.snapshotSequence,
             messages,
-            windowMessageIds: [],
-            windowRunIds: [],
-            hasMoreHistory: false,
-            latestLocalTurnOrdinal: null,
+            windowMessageIds: full.windowMessageIds,
+            windowRunIds: full.windowRunIds,
+            hasMoreHistory: full.hasMoreHistory,
+            latestLocalTurnOrdinal: full.latestLocalTurnOrdinal,
           }),
         );
       }
