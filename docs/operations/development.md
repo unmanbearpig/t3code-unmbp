@@ -35,195 +35,93 @@ Read ports from the `[dev-runner]` output. Worktrees derive stable preferences f
 but occupied ports can shift them. `T3CODE_PORT_OFFSET` or `T3CODE_DEV_INSTANCE` can select a
 different preference when needed.
 
-### Comparing network transports
+### Benchmarking mobile reconnects
 
-The Linux network benchmark measures thread operations using the production SQL
-projection, HTTP snapshot routes, persisted replay, live streams, and shared web/mobile
-thread state. It compares WebSocket/TCP with experimental WebTransport over QUIC/UDP.
-Run it after `vp i`, with `unshare`, `ip`, `tc`, `iptables`, `ethtool`, `sysctl`,
-`openssl`, `python3`, and an HTTP/3-enabled libcurl development installation available. Rootless
-user namespaces must be enabled. Build the benchmark's native client against that
-libcurl if its downloaded prebuild lacks HTTP/3:
+`vp run bench:network` measures a long mobile resume through the production shared
+client supervisor, route driver, resolver, bearer authorization, RPC session, and
+thread state. It starts from a verified 100-message offline cache with no socket.
+`idle` has no missed events; `replay-50` applies exactly 50 missed domain events,
+representing 20 more fixture messages. Timing ends when the completion marker has
+arrived and the correct thread state is live and applied.
 
-```sh
-npm_config_build_from_source=true npm_config_curl_config_bin=/usr/bin/curl-config \
-  vp rebuild node-libcurl
-```
-
-This suite compares prototype transport stacks. Snapshot requests use libcurl
-and pass through Caddy on both the H1 and H3 paths, then reach the production Node
-handler over a Unix socket. Caddy's H3 server uses Go's quic-go; WebTransport RPC
-uses a separate native C++ QUIC implementation. These timings include those
-implementations and do not establish the performance of a production T3 HTTP/3
-integration. The production Node HTTP endpoint without Caddy is not an HTTP
-snapshot control in this matrix. Caddy is launched only by the benchmark.
-
-The first run downloads checksum-verified Caddy 2.11.7 into
-`~/codex-tmp/network-bench-tools`; later runs reuse it. Other Linux architectures
-can supply that version through `NETBENCH_CADDY`.
+Install with `vp i`. Linux needs rootless user/network/PID namespaces, `flock`,
+`ip`, `tc`, IFB support, `ethtool`, `sysctl`, `openssl`, `stdbuf`, and `python3`.
+No dev server or real T3 home is used. One benchmark holds the process lock at a
+time. Impairments remain inside a private namespace and refuse the host namespace.
+Scratch files live below `~/codex-tmp` and are removed on exit; results remain.
 
 ```sh
-vp run bench:network
+# Show the full matrix without sending packets.
 vp run bench:network --dry-run
+# Run calibration only, then a small baseline matrix. Each invocation calibrates.
+vp run bench:network --calibrate-only --out ~/codex-tmp/reconnect-calibration
+vp run bench:network --smoke --out ~/codex-tmp/reconnect-smoke
+# Freeze one manifest and compare clean worktrees in interleaved order.
+node apps/server/bench/network/run.ts --write-manifest ~/codex-tmp/reconnect-manifest.json
+node apps/server/bench/network/run.ts --manifest ~/codex-tmp/reconnect-manifest.json \
+  --variants baseline=/absolute/baseline,descriptor-once=/absolute/variant \
+  --out ~/codex-tmp/reconnect-comparison
 ```
 
-The fixed `operations-v6` suite runs 1,062 cases across six operations, nine network
-profiles, and four RPC transport variants. Messages contain 2,000 characters
-of deterministic, distinct text. Each user/assistant pair has a completed run and
-visible conversation items. The manifest fixes independent netem seeds and rotates transport order.
-Most cells use three seeds. For `sync-five`, `open-new`, and `reconnect-replay`, the
-TLS WebSocket and single-stream QUIC cells use 20 seeds under 2%/5% loss and all 20
-phases of the every-twentieth-packet drop. The every-third-packet delay covers all
-three phases. Critical WSS/QUIC pairs alternate their first transport evenly.
-Additional thread opens use warm HTTP pools under clean, WAN, and high-latency
-profiles. Snapshot controls compare gzip and production's existing Brotli encoding
-over H1/H3 with WSS fixed. Each response must use the requested encoding; its
-compressed body bytes are recorded. The runner
-sets a 60-second deadline per case including setup, and starts a fresh server with an
-in-memory database. Setup and teardown contribute to suite duration but are excluded
-from the operation timing. Workload settings cannot be overridden in suite mode.
-The complete manifest and its SHA-256 hash are saved with results. The earlier
-`operations-v4` inputs remain available through the runner's `--suite-name` flag;
-results from different suite versions cannot be compared automatically.
+Each worktree must contain this benchmark and be committed and clean. The runner
+checks revision and dirty state before and after every case. It runs one case per
+variant before moving to the next case, rotating forward and reverse variant order.
+Every row records variant, revision, dirty flag, manifest hash, network inputs,
+request counts, event counts, socket count, IP bytes/packets, and timestamps.
+`rows.json` retains failures; `summary.json` separates profile, workload, HTTP/TLS,
+and saved-route count. It reports counts, median total time, per-stage completion
+and duration medians, and nearest-rank observed p90 only with 20 successful samples.
+These are observations, not confidence intervals. Compare failure counts before timings.
 
-| Operation            | Starting state and action                                                                                | Timing ends when                                                                                      |
-| -------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `sync-five`          | Live subscription with all 100 messages loaded; persist five additional messages                         | Shared client state has all 105 messages and their conversation items                                 |
-| `open-new`           | Ready session, uncached 100-message thread; load its bounded HTTP snapshot and subscribe from its cursor | Latest history window is correct and the server completion marker has made state live                 |
-| `open-long`          | Same operation with 2,000 messages in server history                                                     | Same completion condition; current policy loads the latest 20 messages                                |
-| `reconnect-idle`     | Offline client with 100 cached messages; make no changes; create a new session                           | Client receives the completion marker and retains the same 100 messages                               |
-| `reconnect-replay`   | Offline client with 100 cached messages; add 50 messages; create a new session                           | All 150 messages and 125 missed domain events have been applied and state is live                     |
-| `reconnect-snapshot` | Offline client with 100 cached messages; add 200 messages, exceeding replay limits                       | Client replaces its state with a correct bounded snapshot of the latest conversation and becomes live |
+The full matrix has 960 cases per variant. Both HTTP and verified TLS 1.3 use one
+Node listener and one TCP port, with the production response-write guard and
+permessage-deflate settings. TLS is a stand-in for tailscaled's TLS terminator.
+The measured path includes the real descriptor and ticket HTTP handlers,
+in-memory bearer pairing/session verification, authenticated production WebSocket
+upgrade, production SQL projection/replay, and shared thread-state application.
+Unrelated providers, configuration discovery, analytics, and platform persistence
+are fixed fixtures. The old proxy-backed operation runner is retired. No measured
+request passes through a proxy, Unix socket, or forwarding hop.
 
-`operationMs` is milliseconds from starting the operation to the completion above.
-Incremental sync starts immediately before the server persists the batch, so it includes
-SQL commit, publication, transfer, decoding, and client application. It excludes IPC
-fixture triggering. Uncached opens start after the session has received configuration;
-connection setup is recorded separately as `connectionReadyMs`. Reconnect timing starts
-when opening the replacement transport, after the simulated offline activity has
-committed. It includes the handshake and configuration subscription, but excludes outage
-detection and retry backoff.
+The matrix crosses two workloads, one/two saved direct routes, and HTTP/TLS with:
 
-`linkTxBytes` and `linkTxPackets` are loopback transmission counter deltas over the
-operation interval. They include both directions, HTTP, RPC framing, TCP/UDP/QUIC
-headers, acknowledgements, and retransmissions that reach the interface. Packets dropped
-after transmission are included in these counters. Reads stop at client
-completion, so late acknowledgements or connection-close traffic can fall outside the
-interval. These are transfer-cost measurements, not exact application payload sizes.
-`events`, `socketSnapshots`, `httpSnapshots`, `syncMode`, `loadedMessages`, and
-`totalMessages` explain the path taken. Incremental sync and reconnect start with a full 100-message memory cache copied
-from the isolated projection. Reconnect cases verify that cache while offline and open
-only the measured connection, so a previous socket cannot send teardown traffic or
-receive the offline writes. They do not refetch that history during setup. The corrected
-completion and reconnect boundaries, HTTP/3 snapshots, and packet shaping after UDP
-segmentation require a new baseline. Earlier operation suites cannot be compared with
-this suite.
+| Profile                      | One-way settings                                    | Repetitions           |
+| ---------------------------- | --------------------------------------------------- | --------------------- |
+| good                         | 10 ms                                               | 4                     |
+| cellular                     | 35 ms, 7 ms in-order jitter                         | 4                     |
+| high-latency                 | 150 ms                                              | 4                     |
+| latency-spikes               | Cellular, delay rises to 1 s for 500 ms             | 4 at each of 8 phases |
+| loss-1 / loss-3              | Cellular, seeded 1% / 3% loss                       | 20 seeds each         |
+| burst-loss                   | Cellular, seeded Gilbert-Elliott loss               | 20 seeds              |
+| slow-start-500 / 1500 / 3000 | Drop all packets for 0.5 / 1.5 / 3 s, then cellular | 4 each                |
+| constrained                  | Cellular, 1 Mbit/s download, 512 kbit/s upload      | 4                     |
 
-The runner checks message IDs, ordering, contents, roles, run membership, visible
-conversation items, history metadata, event sequences, subscription cursors, expected
-replay/snapshot behavior, and completion markers. Missing or corrupted state produces an
-error outcome even if the measured time looks fast. A bounded window is checked against
-the real server projection and must include the newest message. It is not treated as a
-fully downloaded long thread.
+The smoke matrix has 22 cases, one HTTPS/two-route idle and replay case per profile
+and outage duration. The full matrix is estimated at about 1.5 hours per variant,
+plus roughly two minutes of calibration per invocation. That is a planning estimate;
+loss/retry behavior and process startup change it. The conservative 60-second case
+plus 30-second setup deadline gives a much larger failure bound. For six variants,
+plan roughly nine hours. Use the smoke matrix for integration checks first.
 
-Results default to a new directory below `~/codex-tmp/network-suite`. Record a baseline,
-then rerun the same suite after a change on the same host:
+MTU is 1280 and offloads are disabled. Loopback ingress redirects to IFB after
+segmentation. A two-band priority qdisc separates source-port-matched downloads
+from uploads; both have independent netem rate/queue settings and a pfifo child
+that preserves enqueue order through jitter and spike release. Queues allow
+100,000 packets. The ordinary rate ceiling is 100 Mbit/s in each direction.
+A separate Python controller uses monotonic deadlines and one long-lived
+`tc -batch -` process. It records submission and netlink-acknowledged application
+times. Outages use a priority-1 matchall drop ahead of the IFB redirect.
 
-```sh
-vp run bench:network --out ~/codex-tmp/network-before.json
-vp run bench:network --baseline ~/codex-tmp/network-before.json \
-  --out ~/codex-tmp/network-after.json
-```
+Calibration runs once before any measured case. Numbered UDP echoes check base
+RTT, ordering, recovery, spikes, and outages. TCP bulk checks each constrained
+rate. `calibration.json` preserves samples, controller timing, and configuration;
+a failed calibration prevents the matrix from running. A fixed seed fixes netem
+random draws, but variants can consume draws with different packetization.
 
-The comparison rejects different suite versions, settings, host/runtime fingerprints,
-incomplete files, missing cases, and duplicate cases. It writes a `.comparison.json`
-file. Fewer successful repetitions are a regression. Timing and transfer cost are compared
-only when both revisions finish all repetitions and deliver the same message counts.
-Changed delivered state requires review and cannot qualify as a speedup. A change of at least 10% and one unit
-whose repetition ranges do not overlap gets a review signal. Overlapping ranges are
-inconclusive; these checks are not statistical confidence intervals. Three operation
-repetitions do not estimate p99. Cells with 20 observations also report p90. Compare each operation and profile separately. A smaller
-transfer or faster ping does not compensate for slower catch-up or failed sync.
-
-A completion regression or timing/transfer regression signal returns exit code 1. Without
-a baseline, exit code 0 means the matrix finished; inspect individual error/timeout
-outcomes. Results are saved atomically after every case, with case and suite durations.
-
-The nine profiles cover clean traffic, WAN delay, high latency, mobile jitter/loss,
-2% and 5% random loss, burst loss, every-third-packet delay, and every-twentieth-packet
-drop. The operation suite applies `tc` ingress actions and `netem` through an IFB after
-segmentation, so batching by QUIC stacks cannot turn one loss decision into several
-lost datagrams. This includes TCP retransmissions and handshakes. It runs in a private
-network namespace with MTU 1500 and disabled TCP/UDP offloads. A preflight sends ten
-datagrams in one UDP segmentation batch and checks that exactly datagrams 3, 6, and 9
-are dropped or delayed, including shifted phases. Periodic cases prime the ingress
-counter with UDP datagrams and drain them before connection setup.
-Counters for periodic impairment cover both directions together, including acknowledgements.
-A 150ms one-way delay adds about 300ms RTT. The every-third-packet profile adds another
-300ms to selected packets. A fixed seed repeats netem's random sequence, but scheduling
-and packetization can change which packet consumes each draw. Different transports can
-therefore lose different application packets under the same seed. The fixed suite is a
-regression probe. Its independent seeds reduce reliance on one loss pattern, but
-deployment decisions still need real client measurements.
-
-`rpc-ws` uses production deflate over plain TCP, `rpc-wss` adds verified TLS 1.3,
-and both operation controls use the same Node `ws` client. `rpc-ws-raw` remains
-available for manual controls. `rpc-wt` uses one
-ordered QUIC stream, and `rpc-wt-multi` opens a QUIC stream per request. Both operation
-WebTransport variants compress substantial RPC frames with a per-stream dictionary
-and retain raw JSON for tiny control messages. They require QUIC over UDP and reject
-HTTP/2 fallback; their RPC streams still deliver data reliably. Compare complete operations
-with production WebSocket deflate when judging the proposed implementation; the
-synthetic transport suite retains its uncompressed controls. Uncached thread
-snapshots use HTTPS/HTTP/1.1 for the WebSocket variants and HTTP/3 for WebTransport.
-Both use libcurl, the same fixture certificate, Caddy, and production compression
-over a Unix socket. This avoids an additional counted TCP hop, but Caddy's HTTP,
-TLS and QUIC implementations remain part of the measured path. The client
-forces the protocol and verifies it at both ends; HTTP/3 never silently falls back.
-Each case owns its connection pool. HTTP handshake, first-byte, and total request
-times are saved alongside the complete operation time. Warm cases first load the
-same snapshot through that client's pool without applying it to thread state.
-That warms connection and server caches; its time is recorded separately, and the
-measured request must reuse the connection. The thread itself remains uncached.
-Operation framing and compression follow the transport implementation under test;
-`rpcCompression` records the mode. This lets the same workload measure implementation
-improvements while continuing to verify the complete delivered state.
-
-The HTTP/3 snapshot and WebTransport RPC use separate QUIC connections. This suite
-measures that implementation, not a browser sharing one QUIC connection. It remains
-an experimental benchmark path; production clients still use their existing transports.
-For a snapshot comparison within this Caddy fixture, keep the RPC transport unchanged and rerun
-a manual experiment with `--http-protocol h1` and `--http-protocol h3`.
-Manual `--http-encoding br`, `--http-pool warm` opens, independent `--seed-list` runs, and
-`--tcp-initcwnd 32` attribution controls are recorded separately. The TCP window
-control changes only the private namespace's route and does not tune the fixed suite.
-The `operations-v6-controls` suite contains the 432 balanced critical-pair and
-compression-control cases for targeted confirmation. `operations-v5` remains
-available with its original 990-case manifest.
-
-For a targeted experiment, call the runner directly. Manual flags do not change the fixed
-suite:
-
-```sh
-node apps/server/bench/network/run.ts --layer operations --seed 104729 \
-  --scenarios 'slow:delay=150,jitter=15,loss=2%,nthDrop=20' \
-  --workloads sync-five,reconnect-replay --transports rpc-ws,rpc-wt-multi --timeout 60
-```
-
-The original 1,080-case `network-v1` transport suite and its existing baselines remain
-available through `vp run bench:network:transport`. Its five synthetic workloads measure
-cold connect/echo, 128 sequential echoes, one streamed subscription, eight subscriptions,
-and a 4MiB raw response or 2,000-message RPC snapshot with concurrent pings. Use it to
-investigate transport behavior separately from the application operation suite.
-
-These are Node measurements through the shared client state code. They do not measure
-browser/Android rendering, disk cache writes, CPU/battery use, authentication, environment
-or shell synchronization, automatic reconnect scheduling, relay/tunnel operation, or
-network handoffs. Provider execution and authorization use isolated fixtures. Production
-clients still use WebSocket. The QUIC adapters remain experimental and require native
-mobile support, authentication, heartbeat/reconnect integration, relay support, and TCP
-fallback before a production migration. Temporary certificates and namespace lock files
-live below `~/codex-tmp` and are removed on exit.
+These measurements use the host Linux TCP stack, including its SYN retry timers
+and initial window. They do not run WireGuard or DERP, reproduce radio wake or
+phone suspension, or measure rendering. Client, server, and controller share host
+CPU. A real-device resume log is still needed to validate the reconnect change.
 
 ### Sharing and remote debugging
 

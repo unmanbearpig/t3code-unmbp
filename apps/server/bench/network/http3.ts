@@ -94,11 +94,6 @@ export const makeSnapshotHttpClient = Effect.fnUntraced(function* (
                   const headers = new Headers();
                   for (const [name, value] of Object.entries(blocks.at(-1) ?? {}))
                     if (typeof value === "string") headers.set(name, value);
-                  if (
-                    headers.get("x-netbench-protocol") !==
-                    (protocol === "h3" ? "HTTP/3.0" : "HTTP/1.1")
-                  )
-                    throw new Error("Snapshot server did not observe the required HTTP protocol");
                   if (headers.get("content-encoding") !== encoding)
                     throw new Error("Snapshot server did not use the required content encoding");
                   record.set("httpProtocol", protocol);

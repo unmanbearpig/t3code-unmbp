@@ -133,7 +133,7 @@ export function describeScenario(scenario: Scenario) {
 // iptables-legacy locks /run/xtables.lock, which an unprivileged namespace cannot open.
 let lockfile: string | undefined;
 
-function assertIsolated() {
+export function assertIsolated() {
   if (
     !process.env.NETBENCH_HOST_NETNS ||
     NodeFS.readlinkSync("/proc/self/ns/net") === process.env.NETBENCH_HOST_NETNS
@@ -163,10 +163,15 @@ export const operationPacketSettings = {
   offloads: ["tso", "gso", "gro", "tx-udp-segmentation", "tx-gso-list"],
 } as const;
 
-export function prepareLoopback(scratchDir: string, ingress = false, tcpInitialWindow?: number) {
+export function prepareLoopback(
+  scratchDir: string,
+  ingress = false,
+  tcpInitialWindow?: number,
+  mtu: number = linkSettings.mtu,
+) {
   assertIsolated();
   lockfile = NodePath.join(scratchDir, "xtables.lock");
-  sh("ip", ["link", "set", "lo", "up", "mtu", String(linkSettings.mtu)]);
+  sh("ip", ["link", "set", "lo", "up", "mtu", String(mtu)]);
   if (tcpInitialWindow !== undefined) {
     // The host route wins over 127/8. Changing only the subnet leaves real sockets unchanged.
     sh("ip", [
@@ -203,14 +208,7 @@ export function prepareLoopback(scratchDir: string, ingress = false, tcpInitialW
   if (ingress) {
     sh("ethtool", ["-K", "lo", "tx-udp-segmentation", "off", "tx-gso-list", "off"]);
     sh("ip", ["link", "add", operationPacketSettings.device, "type", "ifb"]);
-    sh("ip", [
-      "link",
-      "set",
-      operationPacketSettings.device,
-      "up",
-      "mtu",
-      String(linkSettings.mtu),
-    ]);
+    sh("ip", ["link", "set", operationPacketSettings.device, "up", "mtu", String(mtu)]);
     sh("ethtool", ["-K", operationPacketSettings.device, "tso", "off", "gso", "off", "gro", "off"]);
   }
   // Without this Linux reuses cwnd/ssthresh learned by the previous run against the same address.

@@ -6,7 +6,6 @@ import { operationPacketSettings, presets, type Scenario } from "./impairments.t
 import { quicFlowControl } from "./protocol.ts";
 import { rpcTransportNames } from "./rpcClient.ts";
 import { operationNames, operationSettings } from "./operationsFixture.ts";
-import { http3ProxySettings } from "./http3Proxy.ts";
 import {
   linkSettings,
   rpcHeartbeatTimeout,
@@ -148,7 +147,7 @@ export function makeOperationSuitePlan() {
     reconnectSetup: "verified-offline-cache-with-no-prior-transport",
     packetization: operationPacketSettings,
     snapshots: {
-      proxy: http3ProxySettings,
+      retired: true,
       websocket: "https-http1.1",
       webTransport: "http3-only",
       client: "node-libcurl-5.1.2",

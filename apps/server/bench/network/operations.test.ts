@@ -240,7 +240,7 @@ function operationResults(value = 100): SuiteResults {
 it("uses independent loss draws, every critical drop phase, TLS controls, and warm pools", () => {
   const plan = makeOperationSuiteV5Plan();
   assert.deepEqual(plan, makeOperationSuiteV5Plan());
-  assert.equal(plan.hash, "2b84bed34fac359a825e6cd2cc94849cccc3d152bbe4c35b9f9ac59755520c4c");
+  assert.equal(plan.hash, "3648803fcf7b45721d773f4ed121fe11dff4847653f27f6ca66921a33e4cbb67");
   assert.equal(plan.cases.length, 990);
   assert.equal(new Set(plan.cases.map(caseId)).size, 990);
   for (const scenario of ["loss2", "loss5", "nth20-drop"]) {

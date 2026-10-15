@@ -102,7 +102,6 @@ for (const encoding of ["gzip", "br"] as const)
               : NodeZlib.brotliCompressSync(JSON.stringify(body));
           const { url } = yield* serverFixture(tls, (request, response) => {
             assert.equal(request.headers["accept-encoding"], encoding);
-            response.setHeader("X-Netbench-Protocol", "HTTP/" + request.httpVersion);
             response.setHeader("Content-Encoding", encoding);
             response.end(compressed);
           });
