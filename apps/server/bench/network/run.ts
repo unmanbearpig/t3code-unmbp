@@ -45,6 +45,7 @@ const decodeWorker = Schema.decodeUnknownSync(
           Schema.Struct({
             name: Schema.String,
             attempt: Schema.optionalKey(Schema.Number),
+            phase: Schema.optionalKey(Schema.Literals(["measurement", "cleanup"])),
             atMs: Schema.Number,
             endMs: Schema.optionalKey(Schema.Number),
             bytes: Schema.optionalKey(Schema.Number),
@@ -62,6 +63,7 @@ const decodeWorker = Schema.decodeUnknownSync(
         simulatedBackgroundMs: Schema.Number,
         backgroundHttpPoolExpired: Schema.Boolean,
         oldSocketStateAtActive: Schema.Number,
+        oldSocketStateAtCompletion: Schema.Number,
         clientPeakSockets: Schema.Number,
         falseReplacements: Schema.Number,
         extraRequests: Schema.Number,

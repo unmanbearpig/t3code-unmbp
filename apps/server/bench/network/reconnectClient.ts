@@ -55,6 +55,7 @@ import type { ReconnectCase } from "./reconnectManifest.ts";
 export interface Stage {
   readonly name: string;
   readonly attempt?: number;
+  readonly phase?: "measurement" | "cleanup";
   readonly atMs: number;
   readonly endMs?: number;
   readonly bytes?: number;
@@ -85,6 +86,7 @@ const decodeFrame = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknow
 export const runReconnect = Effect.fnUntraced(function* (input: {
   readonly entry: ReconnectCase;
   readonly environmentId: import("@t3tools/contracts").EnvironmentId;
+  readonly lifecycle: { cleanupStarted: boolean };
   readonly registerResource: (kind: string, resource: object) => string;
   readonly registerSocket: (socket: NodeWebSocket) => void;
   readonly queuePackets: number;
@@ -164,7 +166,13 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       }),
   };
   const stamp = (name: string) => {
-    if (start) stages.push({ name, atMs: performance.now() - start, attempt });
+    if (start)
+      stages.push({
+        name,
+        atMs: performance.now() - start,
+        attempt,
+        phase: input.lifecycle.cleanupStarted ? "cleanup" : "measurement",
+      });
   };
   const observe = (text: string, outgoing: boolean, requestTags: Map<string, unknown>) => {
     const decoded = decodeFrame(text);
@@ -239,7 +247,17 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     socket.on("error", () => stamp("socket-error"));
     if (start) Deferred.doneUnsafe(preparationStarted, Effect.void);
     const old = activeSocket === undefined;
-    socket.once("close", () => stamp(old && plan.establishOld ? "old-close" : "socket-close"));
+    socket.once("close", () =>
+      stamp(
+        input.lifecycle.cleanupStarted
+          ? old && plan.establishOld
+            ? "cleanup-old-close"
+            : "cleanup-socket-close"
+          : old && plan.establishOld
+            ? "old-close"
+            : "socket-close",
+      ),
+    );
     activeSocket = socket;
     socket.once("upgrade", (response) => {
       activeSocketPort = response.socket.localPort;
@@ -335,7 +353,12 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
               const sessionAttempt = attempt;
               const stampSession = (name: string) => {
                 if (start)
-                  stages.push({ name, atMs: performance.now() - start, attempt: sessionAttempt });
+                  stages.push({
+                    name,
+                    atMs: performance.now() - start,
+                    attempt: sessionAttempt,
+                    phase: input.lifecycle.cleanupStarted ? "cleanup" : "measurement",
+                  });
               };
               return {
                 ...session,
@@ -376,7 +399,13 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       attempt++;
       const generation = attempt;
       const stampAttempt = (name: string) => {
-        if (start) stages.push({ name, atMs: performance.now() - start, attempt: generation });
+        if (start)
+          stages.push({
+            name,
+            atMs: performance.now() - start,
+            attempt: generation,
+            phase: input.lifecycle.cleanupStarted ? "cleanup" : "measurement",
+          });
       };
       stamp("attempt-start");
       return Effect.gen(function* () {
@@ -643,6 +672,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     simulatedBackgroundMs: plan.simulatedBackgroundMs,
     backgroundHttpPoolExpired: plan.warm,
     oldSocketStateAtActive,
+    oldSocketStateAtCompletion: oldSocket?.readyState ?? -1,
     clientPeakSockets: peakSockets,
     falseReplacements: plan.keep ? sockets : 0,
     extraRequests: plan.keep

@@ -76,6 +76,7 @@ try {
   for (;;) {
     const { entry, options, epoch } = decodeCommand(await inbox.next(3600000));
     const sockets: NodeWebSocket[] = [];
+    const lifecycle = { cleanupStarted: false };
     const wallStart = performance.now();
     try {
       // Replacing all queues drops queued packets and all flow-specific blackholes.
@@ -94,6 +95,7 @@ try {
             entry,
             environmentId: ready.environmentId,
             queuePackets,
+            lifecycle,
             registerResource,
             registerSocket: (socket) => sockets.push(socket),
             origin: `${entry.scheme}://127.0.0.1:${serverPort}`,
@@ -104,8 +106,18 @@ try {
             options,
             startController: controller.start,
           }).pipe(
+            Effect.tap((result) =>
+              Effect.sync(() =>
+                result.stages.push({
+                  name: "case-cleanup-start",
+                  atMs: Number(process.hrtime.bigint()) / 1e6 - result.measurementStartMs,
+                  phase: "cleanup",
+                }),
+              ),
+            ),
             Effect.ensuring(
               Effect.sync(() => {
+                lifecycle.cleanupStarted = true;
                 for (const socket of sockets) socket.terminate();
               }),
             ),
