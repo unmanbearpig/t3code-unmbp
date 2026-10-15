@@ -357,6 +357,19 @@ const target = join(root, 'build_' + process.platform + '_' + process.arch);
 require(join(existsSync(target) ? target : join(root, 'build'), 'Release/webtransport.node'));
 const wrapper = require(join(process.cwd(), 'node_modules/@fails-components/webtransport/lib/index.node.js'));
 if (typeof wrapper.Http3Server !== 'function') process.exit(42);
+await wrapper.quicheLoaded;
+const {Http3WebTransportServerSocket} = require(entry);
+const socket = new Http3WebTransportServerSocket({});
+let destroyed = false;
+socket.cobj = {
+  destroy() { if (destroyed) throw new Error('native destroyed twice'); destroyed = true; },
+  processBufferedChlos() { throw new Error('buffered work after native stop'); }
+};
+socket.socketInt = {close() {}};
+socket.stopServer();
+socket.doProcessBufferedChlos();
+socket.stopServer();
+if (!destroyed || !socket.closed) process.exit(43);
 console.log('staged native preflight and wrapper import passed');
 `,
       ],

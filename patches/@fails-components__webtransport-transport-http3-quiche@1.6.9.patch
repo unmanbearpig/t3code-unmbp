@@ -10,6 +10,65 @@ diff --git a/package.json b/package.json
      "dobuild": "node build.js build",
      "rebuild": "node build.js rebuild",
      "rebuild-debug": "node build.js rebuild-debug -D",
+diff --git a/lib/socket.js b/lib/socket.js
+--- a/lib/socket.js
++++ b/lib/socket.js
+@@ -111,4 +111,5 @@
+   doProcessBufferedChlos() {
++    this.chlosSched = false
++    if (this.closed) return
+     this.cobj.processBufferedChlos()
+-    this.chlosSched = false
+   }
+diff --git a/lib/serversocket.js b/lib/serversocket.js
+--- a/lib/serversocket.js
++++ b/lib/serversocket.js
+@@ -31,2 +31,3 @@
+       .then((result) => {
++        if (this.closed) return
+         this.address = result
+@@ -58,2 +59,3 @@
+         this.socketInt.on('message', (msg, rinfo) => {
++          if (this.closed) return
+           // console.log('srv msg', msg, rinfo)
+@@ -80,5 +82,8 @@
+   stopServer() {
++    if (this.closed) return
++    // Native destruction sends close frames while the UDP socket is still open.
+     this.cobj.destroy()
++    this.closed = true
++    this.chlosSched = false
+     this.socketInt.close()
+-    this.closed = true
+     // TODO call close on all sessions
+diff --git a/lib/clientsocket.js b/lib/clientsocket.js
+--- a/lib/clientsocket.js
++++ b/lib/clientsocket.js
+@@ -30,2 +30,3 @@
+       .then((result) => {
++        if (this.closed) return
+         this.address = result
+@@ -51,2 +52,3 @@
+         this.socketInt.on('message', (msg, rinfo) => {
++          if (this.closed) return
+           this.cobj.recvPaket({
+@@ -58,3 +60,5 @@
+         this.socketInt.bind(this.localPort)
+-        setImmediate(() => this.cobj.onCanWrite())
++        setImmediate(() => {
++          if (!this.closed) this.cobj.onCanWrite()
++        })
+       })
+@@ -72,2 +76,3 @@
+     process.nextTick(() => {
++      if (this.closed) return
+       // TODO call close on all sessions
+@@ -75,4 +80,4 @@
+       // close socket after sending close frames
++      this.closed = true
+       this.socketInt.close()
+-      this.closed = true
+     })
 diff --git a/install-prebuilt.js b/install-prebuilt.js
 new file mode 100644
 --- /dev/null
