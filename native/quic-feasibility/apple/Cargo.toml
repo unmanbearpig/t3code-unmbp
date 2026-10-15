@@ -1,0 +1,16 @@
+[package]
+name = "t3-apple-webtransport-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "t3_apple_webtransport_probe"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+anyhow = "1.0"
+tokio = { version = "1.48", features = ["rt-multi-thread", "time", "macros"] }
+wtransport = { version = "=0.7.2", default-features = false, features = ["ring"] }
+
+[workspace]

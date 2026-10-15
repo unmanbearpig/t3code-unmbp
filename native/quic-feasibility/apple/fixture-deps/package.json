@@ -1,0 +1,9 @@
+{
+  "name": "t3-apple-webtransport-probe-fixture",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@fails-components/webtransport": "1.6.9",
+    "@fails-components/webtransport-transport-http3-quiche": "1.6.9"
+  }
+}
