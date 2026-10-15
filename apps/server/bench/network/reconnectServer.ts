@@ -105,15 +105,45 @@ const management = Layer.unwrap(
     });
   }),
 );
+let pendingShellReplay = false;
 const enrichment = Layer.unwrap(
   Effect.gen(function* () {
     const changes = yield* PubSub.unbounded<never>();
+    const sink = yield* EventSink.EventSinkV2;
     return Layer.mock(ProjectEnrichmentService.ProjectEnrichmentService)({
       getAvailable: () =>
-        Effect.succeed({
-          repositoryIdentity: null,
-          faviconPath: null,
-          repositoryIdentityResolved: true,
+        Effect.gen(function* () {
+          // HTTP captures its consistent shell snapshot before enrichment. A
+          // shell-only write here forces real replay after that captured sequence.
+          if (pendingShellReplay) {
+            pendingShellReplay = false;
+            if (operationThreadCreated.type !== "thread.created")
+              throw new Error("Fixture changed");
+            const id = ThreadId.make("bench-shell-thread-0");
+            yield* sink
+              .write({
+                events: [
+                  {
+                    id: EventId.make("round3-shell-replay"),
+                    type: "thread.metadata-updated",
+                    threadId: ThreadId.make("bench-shell-thread-0"),
+                    occurredAt: operationThreadCreated.occurredAt,
+                    payload: {
+                      ...operationThreadCreated.payload,
+                      id,
+                      title: "Round 3 shell replay",
+                      lineage: {
+                        parentThreadId: null,
+                        relationshipToParent: null,
+                        rootThreadId: id,
+                      },
+                    },
+                  },
+                ],
+              })
+              .pipe(Effect.orDie);
+          }
+          return { repositoryIdentity: null, faviconPath: null, repositoryIdentityResolved: true };
         }),
       subscribeChanges: PubSub.subscribe(changes),
     });
@@ -406,6 +436,7 @@ await Effect.runPromise(
         if (request.count) {
           yield* sink.write({ events: operationMessageEvents(messages, request.count) });
           messages += request.count;
+          pendingShellReplay = true;
         }
         const full = yield* projections.getThreadSnapshot(operationThreadId);
         process.send?.(
