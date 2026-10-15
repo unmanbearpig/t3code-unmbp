@@ -203,6 +203,27 @@ export const issueRemoteDpopWebSocketTicket = Effect.fn(
   );
 });
 
+export const remoteWebSocketUrl = (
+  input: {
+    readonly wsBaseUrl: string;
+    readonly clientMetadata?: AuthClientPresentationMetadata;
+    readonly connectionMethod?: ClientConnectionMethod;
+  },
+  ticket?: string,
+): string => {
+  const url = new URL(input.wsBaseUrl);
+  if (url.pathname === "" || url.pathname === "/") {
+    url.pathname = "/ws";
+  }
+  // A saved URL must not let a stale ticket override upgrade header auth.
+  url.searchParams.delete("wsTicket");
+  if (ticket !== undefined) {
+    url.searchParams.set("wsTicket", ticket);
+  }
+  appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod);
+  return url.toString();
+};
+
 export const resolveRemoteWebSocketConnection = Effect.fn(
   "clientRuntime.authorization.resolveRemoteWebSocketConnection",
 )(function* (input: {
@@ -219,13 +240,10 @@ export const resolveRemoteWebSocketConnection = Effect.fn(
     ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
   });
 
-  const url = new URL(input.wsBaseUrl);
-  if (url.pathname === "" || url.pathname === "/") {
-    url.pathname = "/ws";
-  }
-  url.searchParams.set("wsTicket", issued.ticket);
-  appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod);
-  return { socketUrl: url.toString(), rpcTicket: prepareRpcTicket(issued) };
+  return {
+    socketUrl: remoteWebSocketUrl(input, issued.ticket),
+    rpcTicket: prepareRpcTicket(issued),
+  };
 });
 
 export const resolveRemoteDpopWebSocketConnection = Effect.fn(
@@ -245,13 +263,10 @@ export const resolveRemoteDpopWebSocketConnection = Effect.fn(
     dpopProof: input.dpopProof,
     ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
   });
-  const url = new URL(input.wsBaseUrl);
-  if (url.pathname === "" || url.pathname === "/") {
-    url.pathname = "/ws";
-  }
-  url.searchParams.set("wsTicket", issued.ticket);
-  appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod);
-  return { socketUrl: url.toString(), rpcTicket: prepareRpcTicket(issued) };
+  return {
+    socketUrl: remoteWebSocketUrl(input, issued.ticket),
+    rpcTicket: prepareRpcTicket(issued),
+  };
 });
 
 const prepareRpcTicket = (issued: AuthWebSocketTicketResult): PreparedRpcTicket => ({

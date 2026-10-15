@@ -33,6 +33,7 @@ import * as RpcSerialization from "effect/rpc/RpcSerialization";
 import * as Socket from "effect/socket/Socket";
 
 import { makeWsRpcProtocolClient, PING_TIMEOUT, type WsRpcProtocolClient } from "./protocol.ts";
+import { makeWebSocketLayer } from "./webSocket.ts";
 import { appendClientConnectionParams } from "../authorization/remote.ts";
 import { RpcWebTransportConnector } from "../platform/rpcWebTransport.ts";
 import { makeRpcWebTransportCooldown } from "./webTransportCooldown.ts";
@@ -57,8 +58,6 @@ import {
   withoutEnvironmentThemes,
 } from "../state/serverConfigProjection.ts";
 import { environmentMismatchError } from "../connection/errors.ts";
-
-const SOCKET_OPEN_TIMEOUT = "15 seconds";
 
 export interface RpcSession {
   /** Selected protocol, for runtime diagnostics without exposing admission URLs. */
@@ -178,7 +177,7 @@ function closeReliableSession(session: ReliableSession) {
 export const make = Effect.fn("RpcSessionFactory.make")(function* (
   options: RpcSessionOptions = {},
 ) {
-  const webSocketConstructor = yield* Socket.WebSocketConstructor;
+  const webSocketLayer = yield* makeWebSocketLayer;
   const webTransportConnector = yield* Effect.serviceOption(RpcWebTransportConnector);
   const cooldown = yield* makeRpcWebTransportCooldown;
   const serverConfigInput: ServerConfigSubscriptionInput = {
@@ -321,9 +320,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     const protocolContext =
       selected ??
       (yield* Effect.gen(function* () {
-        const layerSocket = Socket.layerWebSocket(connection.socketUrl, {
-          openTimeout: SOCKET_OPEN_TIMEOUT,
-        }).pipe(Layer.provide(Layer.succeed(Socket.WebSocketConstructor, webSocketConstructor)));
+        const layerSocket = webSocketLayer(connection);
         const layerProtocol = Layer.effect(
           RpcClient.Protocol,
           RpcClient.makeProtocolSocket({
