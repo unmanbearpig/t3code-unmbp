@@ -983,8 +983,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
       const attempt = failureCount + 1;
       const nextGeneration = generation + 1;
-      const outcome: AttemptOutcome = yield* Effect.scoped(
+      const outcome: AttemptOutcome = yield* Diagnostics.observeSessionScope(
         runAttempt(attempt, nextGeneration, latestFailure, pendingRetry, replacing),
+        diagnostics,
+        target.environmentId,
       );
       replacing = false;
       // Consumed on every iteration so a stale marker can never leak into a

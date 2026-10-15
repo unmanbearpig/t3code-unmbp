@@ -20,6 +20,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import * as EnvironmentRegistry from "../connection/registry.ts";
+import * as Diagnostics from "../connection/diagnostics.ts";
 import { connectionProjectionPhase } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
@@ -73,6 +74,16 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   const snapshotLoader = yield* ShellSnapshotLoader.ShellSnapshotLoader;
   const wakeups = yield* Effect.serviceOption(ConnectionWakeups.ConnectionWakeups);
   const environmentId = supervisor.target.environmentId;
+  const diagnostics = yield* Diagnostics.ConnectionDiagnostics;
+  let diagnosticSyncActive = false;
+  let diagnosticCompletion: "marker" | "legacy" = "legacy";
+  const observeSync = (milestone: "started" | "live" | "failed") =>
+    diagnostics?.record({
+      environmentId,
+      kind: "shell-sync",
+      milestone,
+      completion: diagnosticCompletion,
+    });
   const cached = yield* cache.loadShell(environmentId).pipe(
     Effect.catch((error) =>
       Effect.logWarning("Could not load cached environment shell.").pipe(
@@ -237,6 +248,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       yield* Ref.set(latestLiveSnapshot, next.snapshot);
     }
     yield* SubscriptionRef.set(state, next);
+    if (diagnosticSyncActive && next.status === "live") {
+      diagnosticSyncActive = false;
+      observeSync("live");
+    }
     if (receivedSnapshot) {
       const session = yield* Ref.get(activeSubscriptionSession);
       if (session !== null) {
@@ -340,6 +355,9 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         );
         yield* Ref.set(awaitingCompletion, supportsCompletionMarker);
         yield* setSynchronizing;
+        diagnosticSyncActive = diagnostics !== null;
+        diagnosticCompletion = supportsCompletionMarker ? "marker" : "legacy";
+        observeSync("started");
 
         // Foreground resubscriptions on the same live session can resume from
         // the in-memory cursor. A new session reloads the authoritative HTTP
@@ -397,6 +415,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
             status: "live" as const,
             error: Option.none(),
           }));
+          if (diagnosticSyncActive) {
+            diagnosticSyncActive = false;
+            observeSync("live");
+          }
         }
         return {
           afterSequence: current.snapshot.value.snapshotSequence,
@@ -404,7 +426,13 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         };
       }),
       {
-        onExpectedFailure: (cause) => setStreamError(Cause.squash(cause)),
+        onExpectedFailure: (cause) => {
+          if (diagnosticSyncActive) {
+            diagnosticSyncActive = false;
+            observeSync("failed");
+          }
+          return setStreamError(Cause.squash(cause));
+        },
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },

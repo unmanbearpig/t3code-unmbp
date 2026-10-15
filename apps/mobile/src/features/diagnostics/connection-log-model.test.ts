@@ -34,6 +34,203 @@ const route = {
 } as const;
 
 describe("connection log assembly", () => {
+  it.each(["preparing", "opening", "synchronizing"] as const)(
+    "continues a pre-active %s attempt with its existing route, HTTP and stage time",
+    (stage) => {
+      const h = harness();
+      h.log.record({ kind: "attempt-start", environmentId });
+      h.log.record({ kind: "stage", environmentId, stage, route });
+      h.log.record({
+        kind: "http",
+        environmentId,
+        path: "/:redacted",
+        durationMs: 10,
+        status: 200,
+        outcome: "response",
+      });
+      const original = h.latest();
+      h.at(100);
+      h.log.wakeup({
+        launch: "resume",
+        wakeup: "application-active-reconnect",
+        backgroundMs: 300000,
+        at: 1_800_000_000_100,
+        monotonic: 100,
+      });
+      h.log.record({
+        kind: "wakeup",
+        environmentId,
+        reason: "application-active-reconnect",
+        hasSession: false,
+        desired: true,
+      });
+      expect(h.latest()).toMatchObject({
+        launch: "resume",
+        continuedFrom: original.id,
+        route,
+        attempts: [
+          { id: original.attempts[0]!.id, startedAfterMs: -100, stagesMs: { [stage]: 100 } },
+        ],
+        http: original.http,
+      });
+      expect(h.records()[0]?.outcome).toBe("superseded");
+      h.at(140);
+      h.log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
+      expect(h.latest()).toMatchObject({
+        durationMs: 40,
+        sessionId: original.attempts[0]!.id,
+        attempts: [{ stagesMs: { [stage]: 140 }, outcome: "connected" }],
+      });
+      expect(h.records()[0]?.attempts[0]?.stagesMs[stage]).toBe(100);
+      const exported = formatConnectionLog(h.records(), {
+        version: "1",
+        build: "2",
+        platform: "ios",
+      });
+      expect(exported).not.toMatch(/private-environment|private-thread/);
+      expect(readConnectionLog(JSON.stringify(h.records())).at(-1)).toEqual(h.latest());
+    },
+  );
+
+  it("keeps the connected session context for a healthy wakeup without inventing another attempt", () => {
+    const h = harness();
+    h.log.record({ kind: "attempt-start", environmentId });
+    h.log.record({ kind: "stage", environmentId, stage: "opening", route });
+    h.log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
+    const sessionId = h.latest().sessionId;
+    h.at(100);
+    h.log.record({
+      kind: "wakeup",
+      environmentId,
+      reason: "application-active-probe",
+      hasSession: true,
+      desired: true,
+    });
+    expect(h.latest()).toMatchObject({ sessionId, route, attempts: [], continuedFrom: null });
+  });
+
+  it("keeps shell, visible thread and config readiness separate", () => {
+    const h = harness();
+    h.log.visible({ environmentId, threadId });
+    h.log.record({ kind: "attempt-start", environmentId });
+    h.at(10);
+    h.log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
+    expect(h.latest()).toMatchObject({
+      outcome: "connected",
+      shell: { outcome: "waiting", liveAfterMs: null },
+      visibleThread: { outcome: "waiting" },
+    });
+    h.at(30);
+    h.log.record({ kind: "shell-sync", environmentId, milestone: "live", completion: "marker" });
+    expect(h.latest()).toMatchObject({
+      shell: { outcome: "live", liveAfterMs: 30, completion: "marker" },
+      visibleThread: { outcome: "waiting" },
+    });
+    h.at(40);
+    h.log.record({
+      kind: "thread-sync",
+      environmentId,
+      threadId,
+      milestone: "live",
+      mode: "replay",
+      completion: "marker",
+    });
+    expect(h.latest()).toMatchObject({
+      shell: { liveAfterMs: 30 },
+      visibleThread: { liveAfterMs: 40 },
+    });
+  });
+
+  it("carries in-flight teardown across active and preserves zero and interrupted cleanup", () => {
+    const h = harness();
+    h.log.record({ kind: "attempt-start", environmentId });
+    h.log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
+    h.at(10);
+    h.log.record({
+      kind: "cleanup",
+      environmentId,
+      cleanupId: 1,
+      resource: "session",
+      milestone: "started",
+      durationMs: null,
+      outcome: null,
+    });
+    h.at(20);
+    h.log.record({
+      kind: "wakeup",
+      environmentId,
+      reason: "application-active-reconnect",
+      hasSession: false,
+      desired: true,
+    });
+    expect(h.latest().cleanup).toMatchObject([
+      { id: 1, startedAfterMs: -10, durationMs: null, outcome: null },
+    ]);
+    h.log.record({
+      kind: "cleanup",
+      environmentId,
+      cleanupId: 1,
+      resource: "session",
+      milestone: "finished",
+      durationMs: 10,
+      outcome: "completed",
+    });
+    h.log.record({
+      kind: "cleanup",
+      environmentId,
+      cleanupId: 2,
+      resource: "subscription",
+      method: "shell",
+      milestone: "started",
+      durationMs: null,
+      outcome: null,
+    });
+    h.log.record({
+      kind: "cleanup",
+      environmentId,
+      cleanupId: 2,
+      resource: "subscription",
+      method: "shell",
+      milestone: "finished",
+      durationMs: 0,
+      outcome: "interrupted",
+    });
+    expect(h.latest().cleanup).toEqual([
+      {
+        id: 1,
+        resource: "session",
+        method: null,
+        startedAfterMs: -10,
+        durationMs: 10,
+        outcome: "completed",
+      },
+      {
+        id: 2,
+        resource: "subscription",
+        method: "shell",
+        startedAfterMs: 0,
+        durationMs: 0,
+        outcome: "interrupted",
+      },
+    ]);
+    expect(readConnectionLog(JSON.stringify(h.records())).at(-1)?.cleanup).toEqual(
+      h.latest().cleanup,
+    );
+    for (let id = 3; id < 45; id++)
+      h.log.record({
+        kind: "cleanup",
+        environmentId,
+        cleanupId: id,
+        resource: "subscription",
+        method: "other",
+        milestone: "started",
+        durationMs: null,
+        outcome: null,
+      });
+    expect(h.latest().cleanup).toHaveLength(40);
+    expect(h.latest().detailsTruncated).toBe(true);
+  });
+
   it("classifies a fresh process, measures each stage and waits for the visible thread", () => {
     const h = harness();
     h.log.visible({ environmentId, threadId });
@@ -237,6 +434,48 @@ it("restores only bounded, validated, redacted records and marks unfinished proc
     ),
   ).toEqual([]);
   expect(readConnectionLog("broken")).toEqual([]);
+});
+
+it("reads older stored records without claiming unmeasured shell or cleanup data", () => {
+  const h = harness();
+  h.log.record({ kind: "attempt-start", environmentId });
+  const {
+    shell: _shell,
+    cleanup: _cleanup,
+    sessionId: _sessionId,
+    continuedFrom: _continuedFrom,
+    ...record
+  } = h.latest();
+  const old = {
+    ...record,
+    attempts: record.attempts.map(({ id: _id, startedAfterMs: _started, ...attempt }) => attempt),
+  };
+  expect(readConnectionLog(JSON.stringify([old]))[0]).toMatchObject({
+    shell: { outcome: "unknown", liveAfterMs: null },
+    cleanup: [],
+    sessionId: null,
+    continuedFrom: null,
+    attempts: [{ id: null, startedAfterMs: null }],
+  });
+  expect(
+    readConnectionLog(
+      JSON.stringify([
+        {
+          ...h.latest(),
+          cleanup: [
+            {
+              id: 1,
+              resource: "subscription",
+              method: "secret",
+              startedAfterMs: 0,
+              durationMs: 0,
+              outcome: "completed",
+            },
+          ],
+        },
+      ]),
+    ),
+  ).toEqual([]);
 });
 
 it("keeps resume metadata when a network change arrives before the supervisor consumes the wakeup", () => {

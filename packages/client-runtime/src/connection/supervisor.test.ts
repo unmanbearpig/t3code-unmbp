@@ -162,6 +162,7 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
   readonly probe?: (attempt: number) => Effect.Effect<void, ConnectionAttemptError>;
   readonly initialConfig?: (attempt: number) => Effect.Effect<ServerConfig, ConnectionAttemptError>;
   readonly checkRoute?: (route: ConnectionRoute) => Effect.Effect<ConnectionDriver.RouteCheck>;
+  readonly release?: (attempt: number) => Effect.Effect<void>;
 }) {
   const networkStatus = yield* SubscriptionRef.make<NetworkStatus>(
     options?.networkStatus ?? "online",
@@ -218,7 +219,10 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
         probe: options?.probe?.(attempt) ?? Effect.void,
         closed: Deferred.await(closed),
       } satisfies RpcSession.RpcSession),
-      () => Ref.update(releaseCount, (count) => count + 1),
+      () =>
+        Ref.update(releaseCount, (count) => count + 1).pipe(
+          Effect.andThen(options?.release?.(attempt) ?? Effect.void),
+        ),
     );
 
     yield* reportProgress({ stage: "synchronizing", prepared });
@@ -1275,6 +1279,49 @@ describe("EnvironmentSupervisor", () => {
       expect(yield* Ref.get(harness.releaseCount)).toBe(0);
       expect((yield* SubscriptionRef.get(supervisor.state)).phase).toBe("connected");
     }),
+  );
+
+  it.effect("times old session release before starting the replacement attempt", () =>
+    Effect.gen(function* () {
+      const releasing = yield* Deferred.make<void>();
+      const finishRelease = yield* Deferred.make<void>();
+      const observations: Diagnostics.ConnectionDiagnosticEvent[] = [];
+      const harness = yield* makeHarness({
+        release: (attempt) =>
+          attempt === 1
+            ? Deferred.succeed(releasing, undefined).pipe(
+                Effect.andThen(Deferred.await(finishRelease)),
+              )
+            : Effect.void,
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(
+        Effect.provide(harness.dependencies),
+        Effect.provideService(Diagnostics.ConnectionDiagnostics, {
+          record: (event) => observations.push(event),
+        }),
+      );
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.wake("application-active-reconnect");
+      yield* Deferred.await(releasing);
+      const duringRelease = [...observations];
+      const attemptsDuringRelease = yield* Ref.get(harness.prepareCount);
+      yield* TestClock.adjust(29);
+      yield* Deferred.succeed(finishRelease, undefined);
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+      expect(attemptsDuringRelease).toBe(1);
+      expect(duringRelease.filter((event) => event.kind === "cleanup")).toMatchObject([
+        { resource: "session", milestone: "started", durationMs: null },
+      ]);
+      expect(observations.filter((event) => event.kind === "cleanup")).toMatchObject([
+        { resource: "session", milestone: "started", durationMs: null },
+        { resource: "session", milestone: "finished", durationMs: 29, outcome: "completed" },
+      ]);
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("immediately replaces a mobile session after a long background resume", () =>
