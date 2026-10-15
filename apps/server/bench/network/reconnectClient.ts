@@ -147,6 +147,15 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       const tag = Predicate.hasProperty(message, "requestId")
         ? requestTags.get(String(message.requestId))
         : undefined;
+      if (tag === "orchestration.subscribeShell") {
+        stamp("shell-chunk");
+        if (
+          message.values.some(
+            (v) => Predicate.hasProperty(v, "kind") && v.kind === "thread.updated",
+          )
+        )
+          stamp("shell-replay-batch");
+      }
       for (const value of message.values) {
         if (tag === "orchestration.subscribeShell") {
           if (Predicate.hasProperty(value, "kind") && value.kind === "synchronized")
@@ -418,6 +427,13 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       "Network operation"
   )
     return yield* Effect.die(new Error("Incorrect shell fixture after synchronization"));
+  if (
+    input.entry.workload !== "idle" &&
+    (finalShell.snapshot.value.threads.find((t) => t.id === "bench-shell-thread-0")?.title !==
+      "Round 3 shell replay" ||
+      !stages.some((s) => s.name === "shell-replay-batch"))
+  )
+    return yield* Effect.die(new Error("Shell replay fixture was not delivered"));
   const after = linkCounters();
   const error = operationStateError(final, expected, false);
   if (
