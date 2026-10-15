@@ -1,3 +1,5 @@
+import * as Diagnostics from "./diagnostics.ts";
+import * as Queue from "effect/Queue";
 import { AuthStandardClientScopes, EnvironmentId, type ServerConfig } from "@t3tools/contracts";
 import { RelayClientTracer } from "@t3tools/shared/relayTracing";
 import { describe, expect, it } from "@effect/vitest";
@@ -1236,6 +1238,7 @@ describe("EnvironmentSupervisor", () => {
 
   it.effect("probes the active session without reconnecting on application activation", () =>
     Effect.gen(function* () {
+      const observations = yield* Queue.unbounded<Diagnostics.ConnectionDiagnosticEvent>();
       const probeCount = yield* Ref.make(0);
       const probeCalled = yield* Deferred.make<void>();
       const harness = yield* makeHarness({
@@ -1246,11 +1249,26 @@ describe("EnvironmentSupervisor", () => {
       });
       const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
         initiallyDesired: true,
-      }).pipe(Effect.provide(harness.dependencies));
+      }).pipe(
+        Effect.provide(harness.dependencies),
+        Effect.provideService(Diagnostics.ConnectionDiagnostics, {
+          record: (event) => {
+            Queue.offerUnsafe(observations, event);
+          },
+        }),
+      );
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
       yield* harness.wake("application-active");
       yield* Deferred.await(probeCalled);
+      const answered = yield* Queue.take(observations).pipe(
+        Effect.repeat({ until: (event) => event.kind === "probe" && event.result === "answered" }),
+      );
+      expect(answered).toMatchObject({
+        kind: "probe",
+        result: "answered",
+        environmentId: TARGET.environmentId,
+      });
 
       expect(yield* Ref.get(probeCount)).toBe(1);
       expect(yield* Ref.get(harness.sessionCount)).toBe(1);
