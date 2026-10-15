@@ -14,7 +14,7 @@ diff --git a/install-prebuilt.js b/install-prebuilt.js
 new file mode 100644
 --- /dev/null
 +++ b/install-prebuilt.js
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,46 @@
 +// Normal installation is optional and prebuilt-only. Explicit upstream build
 +// commands remain available to developers who deliberately compile QUICHE.
 +import { spawn } from 'node:child_process'
@@ -36,9 +36,12 @@ new file mode 100644
 +}
 +
 +try {
-+  const require = createRequire(import.meta.url)
-+  const downloader = require.resolve('prebuild-install/bin.js')
 +  for (const architecture of architectures) {
++    const destination = new URL(`build_${targetPlatform}_${architecture}/Release/`, import.meta.url)
++    // npm runs bundled install scripts even when the target payload is included.
++    if (await access(new URL('webtransport.node', destination)).then(() => true, () => false)) continue
++    const require = createRequire(import.meta.url)
++    const downloader = require.resolve('prebuild-install/bin.js')
 +    await new Promise((resolve, reject) => {
 +      const child = spawn(process.execPath, [downloader,
 +        '--runtime', 'napi', '--target', '6', '--download', '--force',
@@ -51,7 +54,6 @@ new file mode 100644
 +    // binary at the loader's architecture-specific path, including universal macOS.
 +    const source = new URL('build/Release/webtransport.node', import.meta.url)
 +    await access(source)
-+    const destination = new URL(`build_${targetPlatform}_${architecture}/Release/`, import.meta.url)
 +    await mkdir(destination, { recursive: true })
 +    await rename(source, new URL('webtransport.node', destination))
 +  }
