@@ -27,6 +27,7 @@ const decodeWorker = Schema.decodeUnknownSync(
             name: Schema.String,
             atMs: Schema.Number,
             endMs: Schema.optionalKey(Schema.Number),
+            outcome: Schema.optionalKey(Schema.Literals(["succeeded", "failed"])),
           }),
         ),
         requests: Schema.Record(Schema.String, Schema.Number),

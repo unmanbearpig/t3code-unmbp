@@ -41,6 +41,7 @@ import {
   operationThreadId,
   type OperationControlResponse,
 } from "./operationsFixture.ts";
+import { observeHttpClient } from "./reconnectHttp.ts";
 import { operationStateError, waitForOperationState } from "./operationsWorkloads.ts";
 import type { ReconnectCase } from "./reconnectManifest.ts";
 
@@ -48,6 +49,7 @@ export interface Stage {
   readonly name: string;
   readonly atMs: number;
   readonly endMs?: number;
+  readonly outcome?: "succeeded" | "failed";
 }
 export function linkCounters() {
   const row = NodeFS.readFileSync("/proc/net/dev", "utf8")
@@ -72,7 +74,6 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   let start = 0;
   const stages: Stage[] = [];
   const requests: Record<string, number> = {};
-  let descriptors = 0;
   let sockets = 0;
   let events = 0;
   let snapshots = 0;
@@ -155,48 +156,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     return socket;
   };
   const httpBase = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
-  const http = HttpClient.transform(httpBase, (effect, request) =>
-    Effect.gen(function* () {
-      const parent = yield* Effect.currentParentSpan.pipe(Effect.option);
-      let span = Option.getOrUndefined(parent);
-      let routeCheck = false;
-      while (span) {
-        if (span._tag !== "Span") break;
-        if (span.name === "ConnectionDriver.checkRoute") routeCheck = true;
-        span = Option.getOrUndefined(span.parent);
-      }
-      const path = new URL(request.url).pathname;
-      requests[path] = (requests[path] ?? 0) + 1;
-      const descriptorIndex = path === "/.well-known/t3/environment" ? ++descriptors : 0;
-      const name =
-        path === "/.well-known/t3/environment"
-          ? `descriptor-${descriptorIndex}`
-          : path === "/api/auth/websocket-ticket"
-            ? "ticket"
-            : `http:${path}`;
-      const atMs = performance.now() - start;
-      return yield* Effect.map(effect, (response) => {
-        // Observe after the response body is consumed by the real descriptor/ticket decoder.
-        const arrayBuffer = response.arrayBuffer.pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              stages.push({ name, atMs, endMs: performance.now() - start });
-              if (routeCheck)
-                stages.push({
-                  name: `route-check-${descriptorIndex}`,
-                  atMs,
-                  endMs: performance.now() - start,
-                });
-            }),
-          ),
-        );
-        return new Proxy(response, {
-          get: (target, key, receiver) =>
-            key === "arrayBuffer" ? arrayBuffer : Reflect.get(target, key, receiver),
-        });
-      });
-    }),
-  );
+  const http = observeHttpClient(httpBase, stages, requests, () => performance.now() - start);
   const unused = Effect.die(new Error("Unrelated platform service used by reconnect"));
   const platform = Layer.mergeAll(
     Layer.succeed(HttpClient.HttpClient, http),
