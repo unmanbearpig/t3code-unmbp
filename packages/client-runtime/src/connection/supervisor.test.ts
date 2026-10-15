@@ -1196,45 +1196,43 @@ describe("EnvironmentSupervisor", () => {
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  for (const wallTime of [180_000, -1]) {
-    it.effect(
-      `restarts a suspended attempt after wall time changes to ${wallTime} without advancing monotonic time`,
-      () =>
-        Effect.gen(function* () {
-          let now = 0;
-          const clock = yield* Clock.Clock;
-          const preparing = yield* Deferred.make<void>();
-          const canceled = yield* Deferred.make<void>();
-          const harness = yield* makeHarness({
-            prepare: (attempt) =>
-              attempt === 1
-                ? Deferred.succeed(preparing, undefined).pipe(
-                    Effect.andThen(Effect.never),
-                    Effect.ensuring(Deferred.succeed(canceled, undefined)),
-                  )
-                : Effect.succeed(PREPARED_CONNECTION),
-          });
-          const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
-            initiallyDesired: true,
-          }).pipe(
-            Effect.provide(harness.dependencies),
-            Effect.provideService(Clock.Clock, {
-              ...clock,
-              currentTimeMillisUnsafe: () => now,
-              currentTimeMillis: Effect.sync(() => now),
-            }),
-          );
-          yield* Deferred.await(preparing);
-          now = wallTime;
-          yield* harness.wake("application-active-reconnect");
-          yield* awaitState(supervisor.state, (state) => state.phase === "connected");
-          expect(yield* Deferred.isDone(canceled)).toBe(true);
-          expect(yield* Ref.get(harness.prepareCount)).toBe(2);
-          expect(yield* Ref.get(harness.sessionCount)).toBe(1);
-          expect(yield* Clock.monotonicTimeNanos).toBe(0n);
-        }).pipe(Effect.provide(TestClock.layer())),
-    );
-  }
+  it.effect.each([180_000, -1])(
+    "restarts a suspended attempt after wall time changes to %s without advancing monotonic time",
+    (wallTime) =>
+      Effect.gen(function* () {
+        let now = 0;
+        const clock = yield* Clock.Clock;
+        const preparing = yield* Deferred.make<void>();
+        const canceled = yield* Deferred.make<void>();
+        const harness = yield* makeHarness({
+          prepare: (attempt) =>
+            attempt === 1
+              ? Deferred.succeed(preparing, undefined).pipe(
+                  Effect.andThen(Effect.never),
+                  Effect.ensuring(Deferred.succeed(canceled, undefined)),
+                )
+              : Effect.succeed(PREPARED_CONNECTION),
+        });
+        const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+          initiallyDesired: true,
+        }).pipe(
+          Effect.provide(harness.dependencies),
+          Effect.provideService(Clock.Clock, {
+            ...clock,
+            currentTimeMillisUnsafe: () => now,
+            currentTimeMillis: Effect.sync(() => now),
+          }),
+        );
+        yield* Deferred.await(preparing);
+        now = wallTime;
+        yield* harness.wake("application-active-reconnect");
+        yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+        expect(yield* Deferred.isDone(canceled)).toBe(true);
+        expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+        expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+        expect(yield* Clock.monotonicTimeNanos).toBe(0n);
+      }).pipe(Effect.provide(TestClock.layer())),
+  );
 
   it.effect("probes the active session without reconnecting on application activation", () =>
     Effect.gen(function* () {
