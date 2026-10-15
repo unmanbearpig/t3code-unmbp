@@ -1,7 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Context from "effect/Context";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as Scope from "effect/Scope";
 import * as TestClock from "effect/testing/TestClock";
 import { deflateSync, Inflate } from "fflate";
 import { vi } from "vite-plus/test";
@@ -63,6 +65,48 @@ function channel(
 }
 
 describe("WebTransport records", () => {
+  it.effect("retains cleanup only for live leases during one-byte fragmented reads", () =>
+    Effect.gen(function* () {
+      const value = "a".repeat(16382);
+      const payload = new TextEncoder().encode(JSON.stringify(value));
+      const [header, body] = record(payload);
+      const wire = new Uint8Array(header!.byteLength + body!.byteLength);
+      wire.set(header!);
+      wire.set(body!, header!.byteLength);
+      const decode = Effect.fnUntraced(function* (fragmentBytes: number) {
+        const budget = createTransportByteBudget(1024 * 1024);
+        let offset = 0;
+        let reads = 0;
+        let peakFinalizers = 0;
+        let peakBytes = 0;
+        const stream: ReliableByteStream = {
+          ...bytesStream([]),
+          async read(max) {
+            const fiber = Fiber.getCurrent();
+            if (!fiber) throw new Error("Expected decoder fiber");
+            const scope = Context.getUnsafe(fiber.context, Scope.Scope);
+            if (scope.state._tag === "Open")
+              peakFinalizers = Math.max(peakFinalizers, scope.state.finalizers?.size ?? 1);
+            peakBytes = Math.max(peakBytes, budget.usedBytes);
+            reads++;
+            const chunk = wire.slice(offset, offset + Math.min(fragmentBytes, max));
+            offset += chunk.byteLength;
+            return chunk.byteLength > 0 ? chunk : null;
+          },
+        };
+        expect(yield* channel(stream, budget).read()).toBe(value);
+        expect(budget.usedBytes).toBe(0);
+        return { reads, peakFinalizers, peakBytes };
+      });
+      const normal = yield* decode(65536);
+      const fragmented = yield* decode(1);
+      expect(fragmented.reads).toBe(wire.byteLength);
+      expect(normal.reads).toBe(2);
+      expect(fragmented.peakFinalizers).toBeLessThanOrEqual(normal.peakFinalizers + 1);
+      expect(fragmented.peakBytes).toBeLessThanOrEqual(payload.byteLength * 2);
+    }),
+  );
+
   it.effect("round trips fragmented Unicode and an encoded message above 16 MiB", () =>
     Effect.gen(function* () {
       const chunks: Uint8Array[] = [];
