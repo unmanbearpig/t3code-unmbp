@@ -12,6 +12,7 @@ import type { FoundationHotModule } from "../lib/foundation-fast-refresh";
 import { hotSwappableAtomRuntime } from "../lib/hot-swappable-atom-runtime";
 import * as Runtime from "../lib/runtime";
 import { appAtomRegistry } from "../state/atom-registry";
+import * as MobileConnectionLog from "../features/diagnostics/connection-log";
 import * as BackgroundActivity from "./background-activity";
 import * as ConnectionPlatform from "./platform";
 
@@ -32,7 +33,8 @@ type ConnectionLayerSource =
   | typeof Runtime.layer
   | typeof ConnectionPlatform.layer
   | typeof BackgroundActivity.layerObserver
-  | typeof BackgroundActivity.layerReporter;
+  | typeof BackgroundActivity.layerReporter
+  | typeof MobileConnectionLog.layerObserver;
 
 const layerProvidedClientConnection = layerSnapshotLoader.pipe(
   Layer.provideMerge(
@@ -43,6 +45,7 @@ const layerProvidedClientConnection = layerSnapshotLoader.pipe(
       Runtime.layer,
       layerProvidedConnectionPlatform,
       BackgroundActivity.layerObserver,
+      MobileConnectionLog.layerObserver.pipe(Layer.provide(Runtime.layer)),
     ),
   ),
 );
