@@ -10,6 +10,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
@@ -18,6 +19,7 @@ import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as HttpClient from "effect/http/HttpClient";
 import type * as Rpc from "effect/rpc/Rpc";
 import * as RpcClient from "effect/rpc/RpcClient";
 import * as RpcClientError from "effect/rpc/RpcClientError";
@@ -26,6 +28,8 @@ import * as Socket from "effect/socket/Socket";
 
 import { makeWsRpcProtocolClient, PING_TIMEOUT, type WsRpcProtocolClient } from "./protocol.ts";
 import { makeWebSocketLayer } from "./webSocket.ts";
+import { issueRemoteWebSocketTicket } from "../authorization/remote.ts";
+import * as ClientCapabilities from "../platform/capabilities.ts";
 import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
 import type {
   ConnectionAttemptError,
@@ -41,7 +45,7 @@ import {
   type ServerConfigProjection,
   withoutEnvironmentThemes,
 } from "../state/serverConfigProjection.ts";
-import { environmentMismatchError } from "../connection/errors.ts";
+import { environmentMismatchError, mapRemoteEnvironmentError } from "../connection/errors.ts";
 
 export interface RpcSession {
   readonly client: WsRpcProtocolClient;
@@ -152,6 +156,10 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
   options: RpcSessionOptions = {},
 ) {
   const webSocketLayer = yield* makeWebSocketLayer;
+  const httpClient = yield* HttpClient.HttpClient;
+  const constructorWithHeaders = yield* Effect.serviceOption(
+    ClientCapabilities.WebSocketConstructorWithHeaders,
+  );
   const serverConfigInput: ServerConfigSubscriptionInput = {
     ...(options.environmentThemes === true ? { environmentThemes: true } : {}),
     ...(options.usageLimitSources === true ? { usageLimitSources: true } : {}),
@@ -169,6 +177,37 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
 
     const connected = yield* Deferred.make<void>();
     const disconnected = yield* Deferred.make<never, ConnectionTransientError>();
+    const sessionScope = yield* Effect.scope;
+    let socketOpened = false;
+    const authorization = connection.httpAuthorization;
+    const usesBearerUpgradeHeaders =
+      authorization?._tag === "Bearer" && Option.isSome(constructorWithHeaders);
+    // Native WebSocket failures omit the HTTP rejection. Share one diagnostic
+    // across readiness, config and closure consumers, only before an upgrade opens.
+    // Its fiber belongs to the session so canceling a waiter cannot issue it twice.
+    const diagnostic = yield* Effect.cached(
+      (usesBearerUpgradeHeaders
+        ? issueRemoteWebSocketTicket({
+            httpBaseUrl: connection.httpBaseUrl,
+            bearerToken: authorization.token,
+            timeoutMs: 3_000,
+          }).pipe(
+            Effect.match({
+              onFailure: (error) => Option.some(mapRemoteEnvironmentError(error)),
+              onSuccess: () => Option.none<ConnectionAttemptError>(),
+            }),
+            Effect.provideService(HttpClient.HttpClient, httpClient),
+          )
+        : Effect.succeed(Option.none<ConnectionAttemptError>())
+      ).pipe(Effect.forkIn(sessionScope)),
+    );
+    const diagnoseError = (error: ConnectionAttemptError) =>
+      !usesBearerUpgradeHeaders || socketOpened || error._tag === "ConnectionBlockedError"
+        ? Effect.fail(error)
+        : diagnostic.pipe(
+            Effect.flatMap(Fiber.join),
+            Effect.flatMap((diagnosed) => Effect.fail(Option.getOrElse(diagnosed, () => error))),
+          );
     // Set when the socket closes because the server stopped answering, so the failure says so
     // instead of looking like the server closed the connection.
     const pingTimedOut = yield* Ref.make(false);
@@ -193,7 +232,9 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
         Effect.asVoid,
       ),
     });
-    const layerSocket = webSocketLayer(connection);
+    const layerSocket = webSocketLayer(connection, () => {
+      socketOpened = true;
+    });
     const layerProtocol = Layer.effect(
       RpcClient.Protocol,
       RpcClient.makeProtocolSocket({
@@ -304,6 +345,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
           }),
       ),
       Effect.withSpan("environment.initialSync"),
+      Effect.catch(diagnoseError),
     );
     const serverConfigEvents = Stream.unwrap(
       Effect.gen(function* () {
@@ -387,12 +429,13 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
         Effect.andThen(initialConfig),
         Effect.asVoid,
         Effect.raceFirst(Deferred.await(disconnected)),
+        Effect.catch(diagnoseError),
       ),
       probe,
       closed: Effect.raceFirst(
         Deferred.await(disconnected),
         Deferred.await(configSubscriptionClosed),
-      ),
+      ).pipe(Effect.catch(diagnoseError)),
     } satisfies RpcSession;
   });
 
