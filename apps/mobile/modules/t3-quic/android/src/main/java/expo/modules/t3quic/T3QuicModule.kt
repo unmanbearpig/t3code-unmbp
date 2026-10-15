@@ -4,6 +4,7 @@ import android.os.Build
 import android.os.Process
 import androidx.annotation.Keep
 import expo.modules.kotlin.Promise
+import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
@@ -57,20 +58,23 @@ class T3QuicModule : Module() {
       }
     }
 
+    // Promise bodies do not suspend. The shared Expo Handler queue registers submit before cancel.
     AsyncFunction("submit") {
         owner: Double, operation: Double, kind: Int, handle: Double,
         data: ByteArray, argument: Int, promise: Promise ->
       submit(owner, operation, kind, handle, data, argument, promise)
-    }
+    }.runOnQueue(Queues.DEFAULT)
 
-    Function("cancel") { owner: Double, operation: Double ->
-      if (!isHandle(owner) || !isHandle(operation)) return@Function
-      val completion = synchronized(lock) {
-        val key = Operation(owner.toLong(), operation.toLong())
-        pending[key]?.also { nativeCancel(key.owner, key.id) }
+    AsyncFunction("cancel") { owner: Double, operation: Double, promise: Promise ->
+      if (isHandle(owner) && isHandle(operation)) {
+        synchronized(lock) {
+          val key = Operation(owner.toLong(), operation.toLong())
+          if (pending.containsKey(key)) nativeCancel(key.owner, key.id)
+        }
       }
-      completion?.complete(STATUS_ABORTED, 0, byteArrayOf())
-    }
+      // Native owns the submit callback. A late open must deliver its handle for JS cleanup.
+      promise.resolve()
+    }.runOnQueue(Queues.DEFAULT)
 
     Function("close") { owner: Double, code: Double ->
       if (isHandle(owner) && isCode(code)) release(owner.toLong(), code.toLong().toInt())
