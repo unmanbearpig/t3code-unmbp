@@ -1,8 +1,11 @@
 import {
   EnvironmentId,
   ORCHESTRATION_V2_WS_METHODS,
+  WS_METHODS,
   type OrchestrationV2ShellSnapshot,
   type OrchestrationV2ShellStreamItem,
+  type ServerConfig,
+  type ServerLifecycleStreamEvent,
   ThreadId,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
@@ -18,19 +21,24 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as TestClock from "effect/testing/TestClock";
+import * as HttpClient from "effect/http/HttpClient";
+import * as RpcClientError from "effect/rpc/RpcClientError";
+import * as Socket from "effect/socket/Socket";
 
 import {
   AVAILABLE_CONNECTION_STATE,
   PrimaryConnectionTarget,
   type PreparedConnection,
+  type SupervisorConnectionState,
 } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
 import * as Persistence from "../platform/persistence.ts";
 import * as RpcSession from "../rpc/session.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
-import { makeEnvironmentShellState } from "./shell.ts";
+import { makeEnvironmentShellState, type EnvironmentShellState } from "./shell.ts";
 import * as ShellSnapshotLoader from "./shellSnapshotHttp.ts";
+import type { DeferredShellSnapshot } from "./shellPullRequests.ts";
 import { v2Project, v2ShellSnapshot, v2ThreadShell } from "./orchestrationV2TestFixtures.ts";
 
 const TARGET = new PrimaryConnectionTarget({
@@ -54,16 +62,182 @@ const LIVE_SHELL_SNAPSHOT: OrchestrationV2ShellSnapshot = {
   snapshotSequence: 1,
 };
 
-function session(client: WsRpcProtocolClient): RpcSession.RpcSession {
+const INITIAL_CONFIG = {
+  shellResumeCompletionMarker: true,
+  environment: {
+    environmentId: TARGET.environmentId,
+    serverVersion: "1.0.0",
+    orchestrationProtocolVersion: 2,
+  },
+} as ServerConfig;
+const SERVER_STARTED_AT = "2026-06-20T00:00:00.000Z";
+
+function session(client: WsRpcProtocolClient, config = INITIAL_CONFIG): RpcSession.RpcSession {
   return {
     client,
-    initialConfig: Effect.succeed({ shellResumeCompletionMarker: true } as never),
+    initialConfig: Effect.succeed(config),
     subscribeServerConfig: (input) => client.subscribeServerConfig(input),
     ready: Effect.void,
     probe: Effect.void,
     closed: Effect.never,
   };
 }
+
+const makeReconnectHarness = Effect.fnUntraced(function* (
+  input: {
+    readonly cached?: DeferredShellSnapshot;
+    readonly load?: (call: number) => Effect.Effect<Option.Option<DeferredShellSnapshot>>;
+    readonly config?: ServerConfig;
+    readonly lifecycle?: Stream.Stream<ServerLifecycleStreamEvent>;
+  } = {},
+) {
+  const requests = yield* Queue.unbounded<{
+    readonly input: { readonly afterSequence?: number; readonly requestCompletionMarker?: boolean };
+    readonly events: Queue.Queue<OrchestrationV2ShellStreamItem>;
+    readonly stopped: Deferred.Deferred<void>;
+    readonly failure: Deferred.Deferred<never, RpcClientError.RpcClientError>;
+  }>();
+  const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
+  const lifecycleRequests = yield* Queue.unbounded<string>();
+  const client = {
+    [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (subscribeInput: {
+      readonly afterSequence?: number;
+      readonly requestCompletionMarker?: boolean;
+    }) =>
+      Stream.unwrap(
+        Effect.gen(function* () {
+          const events = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
+          const stopped = yield* Deferred.make<void>();
+          const failure = yield* Deferred.make<never, RpcClientError.RpcClientError>();
+          yield* Queue.offer(requests, { input: subscribeInput, events, stopped, failure });
+          return Stream.fromQueue(events).pipe(
+            Stream.merge(Stream.fromEffect(Deferred.await(failure)), { haltStrategy: "either" }),
+            Stream.ensuring(Deferred.succeed(stopped, undefined)),
+          );
+        }),
+      ),
+  };
+  const makeSession = (config = INITIAL_CONFIG, startedAt = SERVER_STARTED_AT) =>
+    session(
+      {
+        ...client,
+        [WS_METHODS.subscribeServerLifecycle]: () =>
+          Stream.unwrap(
+            Queue.offer(lifecycleRequests, startedAt).pipe(
+              Effect.as(
+                input.lifecycle ??
+                  Stream.succeed<ServerLifecycleStreamEvent>({
+                    version: 1 as const,
+                    sequence: 1,
+                    type: "ready" as const,
+                    payload: { at: startedAt, environment: config.environment },
+                  }),
+              ),
+            ),
+          ),
+      } as unknown as WsRpcProtocolClient,
+      config,
+    );
+  const activeSession = yield* SubscriptionRef.make(Option.some(makeSession(input.config)));
+  const supervisorState = yield* SubscriptionRef.make<SupervisorConnectionState>({
+    ...AVAILABLE_CONNECTION_STATE,
+    desired: true,
+    network: "online" as const,
+    phase: "connected" as const,
+  });
+  const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+    target: TARGET,
+    state: supervisorState,
+    session: activeSession,
+    prepared: yield* SubscriptionRef.make(Option.some(PREPARED)),
+    connect: Effect.void,
+    disconnect: Effect.void,
+    retryNow: Effect.void,
+  });
+  const cache = Persistence.EnvironmentCacheStore.of({
+    loadShell: () => Effect.succeed(Option.fromUndefinedOr(input.cached)),
+    saveShell: () => Effect.void,
+    loadThread: () => Effect.succeedNone,
+    saveThread: () => Effect.void,
+    removeThread: () => Effect.void,
+    loadServerConfig: () => Effect.succeedNone,
+    saveServerConfig: () => Effect.void,
+    loadVcsRefs: () => Effect.succeedNone,
+    saveVcsRefs: () => Effect.void,
+    removeVcsRefs: () => Effect.void,
+    clearVcsRefs: () => Effect.void,
+    clear: () => Effect.void,
+  });
+  const loaderCalls = yield* Ref.make(0);
+  const cancelledPrefetches = yield* Ref.make(0);
+  const loader = yield* ShellSnapshotLoader.make.pipe(
+    Effect.provideService(
+      HttpClient.HttpClient,
+      HttpClient.make(() => Effect.die("Unexpected HTTP")),
+    ),
+  );
+  const scope = yield* Scope.make();
+  yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+  const state = yield* makeEnvironmentShellState().pipe(
+    Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+    Effect.provideService(Persistence.EnvironmentCacheStore, cache),
+    Effect.provideService(ShellSnapshotLoader.ShellSnapshotLoader, {
+      ...loader,
+      cancelPrefetch: () => Ref.update(cancelledPrefetches, (count) => count + 1),
+      load: () =>
+        Ref.updateAndGet(loaderCalls, (count) => count + 1).pipe(
+          Effect.flatMap((call) => input.load?.(call) ?? Effect.succeedSome(LIVE_SHELL_SNAPSHOT)),
+        ),
+    }),
+    Effect.provideService(ConnectionWakeups.ConnectionWakeups, {
+      changes: Stream.fromQueue(wakeups),
+    }),
+    Scope.provide(scope),
+  );
+  const waitForState = (predicate: (value: EnvironmentShellState) => boolean) =>
+    SubscriptionRef.changes(state).pipe(
+      Stream.filter(predicate),
+      Stream.runHead,
+      Effect.map(Option.getOrThrow),
+    );
+  return {
+    state,
+    requests,
+    lifecycleRequests,
+    loaderCalls,
+    cancelledPrefetches,
+    scope,
+    shouldPrefetch: loader.shouldPrefetch!,
+    waitForState,
+    complete: (request: { readonly events: Queue.Queue<OrchestrationV2ShellStreamItem> }) =>
+      Queue.offer(request.events, { kind: "synchronized" }).pipe(
+        Effect.andThen(waitForState((value) => value.status === "live")),
+      ),
+    disconnect: (request: { readonly stopped: Deferred.Deferred<void> }) =>
+      SubscriptionRef.set(activeSession, Option.none()).pipe(
+        Effect.andThen(Deferred.await(request.stopped)),
+        Effect.andThen(
+          SubscriptionRef.set(supervisorState, {
+            ...AVAILABLE_CONNECTION_STATE,
+            network: "offline" as const,
+          }),
+        ),
+        Effect.andThen(waitForState((value) => value.status === "cached")),
+      ),
+    reconnect: (config = INITIAL_CONFIG, startedAt = SERVER_STARTED_AT) =>
+      SubscriptionRef.set(supervisorState, {
+        ...AVAILABLE_CONNECTION_STATE,
+        desired: true,
+        network: "online" as const,
+        phase: "connected" as const,
+      }).pipe(
+        Effect.andThen(
+          SubscriptionRef.set(activeSession, Option.some(makeSession(config, startedAt))),
+        ),
+      ),
+    resubscribe: () => Queue.offer(wakeups, "application-active"),
+  };
+});
 
 describe("environment shell synchronization", () => {
   it.effect("publishes live state before persistence and preserves it when ready", () =>
@@ -248,7 +422,7 @@ describe("environment shell synchronization", () => {
     }).pipe(Effect.scoped),
   );
 
-  it.effect("refreshes a warm shell cache from HTTP before resuming", () =>
+  it.effect("refreshes a disk-restored shell from HTTP before resuming", () =>
     Effect.gen(function* () {
       const cachedSnapshot: OrchestrationV2ShellSnapshot = {
         ...v2ShellSnapshot,
@@ -334,122 +508,347 @@ describe("environment shell synchronization", () => {
     }),
   );
 
-  it.effect("resubscribes from the in-memory shell cursor when the app becomes active", () =>
+  it.effect(
+    "resumes synchronized memory across foreground and replacement sessions without HTTP",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeReconnectHarness();
+        const first = yield* Queue.take(harness.requests);
+        expect(first.input).toEqual({ afterSequence: 1, requestCompletionMarker: true });
+        expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
+        yield* harness.complete(first);
+        expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(false);
+
+        yield* harness.resubscribe();
+        const foreground = yield* Queue.take(harness.requests);
+        expect(foreground.input).toEqual(first.input);
+        yield* harness.complete(foreground);
+        yield* harness.disconnect(foreground);
+        expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(false);
+        yield* harness.reconnect();
+        const replacement = yield* Queue.take(harness.requests);
+        expect(replacement.input).toEqual(first.input);
+        expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
+        const live = yield* harness.complete(replacement);
+        expect(Option.getOrThrow(live.snapshot)).toEqual(LIVE_SHELL_SNAPSHOT);
+        expect(yield* Ref.get(harness.loaderCalls)).toBe(1);
+        expect(yield* Ref.get(harness.cancelledPrefetches)).toBe(2);
+        // One startup read per socket, with no extra read for foregrounding.
+        expect(yield* Queue.take(harness.lifecycleRequests)).toBe(SERVER_STARTED_AT);
+        expect(yield* Queue.take(harness.lifecycleRequests)).toBe(SERVER_STARTED_AT);
+        expect(yield* Queue.size(harness.lifecycleRequests)).toBe(0);
+
+        yield* Scope.close(harness.scope, Exit.void);
+        expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
+      }),
+  );
+
+  it.effect(
+    "replays another client's creates, archives, deletes and renames after disconnect",
+    () =>
+      Effect.gen(function* () {
+        const renamed = { ...v2ThreadShell, title: "Renamed remotely" };
+        const archived = { ...v2ThreadShell, id: ThreadId.make("archived") };
+        const deleted = { ...v2ThreadShell, id: ThreadId.make("deleted") };
+        const created = {
+          ...v2ThreadShell,
+          id: ThreadId.make("created"),
+          title: "Created remotely",
+        };
+        const base = { ...LIVE_SHELL_SNAPSHOT, threads: [v2ThreadShell, archived, deleted] };
+        const harness = yield* makeReconnectHarness({ load: () => Effect.succeedSome(base) });
+        const first = yield* Queue.take(harness.requests);
+        yield* harness.complete(first);
+        yield* harness.disconnect(first);
+        yield* harness.reconnect();
+        const resumed = yield* Queue.take(harness.requests);
+        expect(resumed.input.afterSequence).toBe(1);
+        yield* Queue.offerAll(resumed.events, [
+          { kind: "thread.updated", sequence: 2, location: "active", thread: created },
+          { kind: "thread.removed", sequence: 3, location: "active", threadId: archived.id },
+          { kind: "thread.removed", sequence: 4, location: "active", threadId: deleted.id },
+          { kind: "thread.updated", sequence: 5, location: "active", thread: renamed },
+        ]);
+        const live = yield* harness.complete(resumed);
+        expect(Option.getOrThrow(live.snapshot)).toEqual({
+          ...base,
+          snapshotSequence: 5,
+          threads: [renamed, created],
+        });
+        expect(yield* Ref.get(harness.loaderCalls)).toBe(1);
+        // The cursor applied by replay, rather than the old HTTP cursor, is reused next.
+        yield* harness.disconnect(resumed);
+        yield* harness.reconnect();
+        expect((yield* Queue.take(harness.requests)).input.afterSequence).toBe(5);
+      }),
+  );
+
+  it.effect.each([
+    { reason: "cursor ahead of head", sequence: 0 },
+    { reason: "gap beyond the 1,000-event replay limit", sequence: 1_002 },
+    { reason: "raw replay payload beyond budget", sequence: 2 },
+  ])(
+    "replaces the warm base with the server's authoritative snapshot for $reason",
+    ({ sequence }) =>
+      Effect.gen(function* () {
+        const harness = yield* makeReconnectHarness();
+        const first = yield* Queue.take(harness.requests);
+        yield* harness.complete(first);
+        yield* harness.disconnect(first);
+        yield* harness.reconnect();
+        const resumed = yield* Queue.take(harness.requests);
+        expect(resumed.input.afterSequence).toBe(1);
+        // ws.ts rejects these replay ranges with an unmarked full snapshot,
+        // optionally enrichment, then the completion marker. It is not an HTTP retry.
+        const fallback = {
+          ...LIVE_SHELL_SNAPSHOT,
+          snapshotSequence: sequence,
+          threads: [{ ...v2ThreadShell, id: ThreadId.make("replacement"), title: "Server base" }],
+        };
+        yield* Queue.offer(resumed.events, { kind: "snapshot", snapshot: fallback });
+        const synchronizing = yield* harness.waitForState(
+          (value) =>
+            value.status === "synchronizing" &&
+            Option.isSome(value.snapshot) &&
+            value.snapshot.value.snapshotSequence === sequence &&
+            value.snapshot.value.threads[0]?.id === fallback.threads[0]!.id,
+        );
+        expect(Option.getOrThrow(synchronizing.snapshot)).toEqual(fallback);
+        expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
+        yield* harness.complete(resumed);
+        yield* harness.disconnect(resumed);
+        yield* harness.reconnect();
+        expect((yield* Queue.take(harness.requests)).input.afterSequence).toBe(sequence);
+        expect(yield* Ref.get(harness.loaderCalls)).toBe(1);
+      }),
+  );
+
+  it.effect.each([0, 1, 50])("refreshes HTTP after server restart with head %s", (sequence) =>
     Effect.gen(function* () {
-      const events = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
-      const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
-      const loaderCalls = yield* Ref.make(0);
-      const capturedAfterSequences = yield* Ref.make<ReadonlyArray<number | undefined>>([]);
-      const client = {
-        [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input: {
-          readonly afterSequence?: number;
-        }) =>
-          Stream.unwrap(
-            Ref.update(capturedAfterSequences, (captured) => [
-              ...captured,
-              input.afterSequence,
-            ]).pipe(Effect.as(Stream.fromQueue(events))),
-          ),
-      } as unknown as WsRpcProtocolClient;
-      const supervisorState = yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE);
-      const activeSession = yield* SubscriptionRef.make<Option.Option<RpcSession.RpcSession>>(
-        Option.some(session(client)),
-      );
-      const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
-        target: TARGET,
-        state: supervisorState,
-        session: activeSession,
-        prepared: yield* SubscriptionRef.make(Option.some(PREPARED)),
-        connect: Effect.void,
-        disconnect: Effect.void,
-        retryNow: Effect.void,
-      } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
-      const cache = Persistence.EnvironmentCacheStore.of({
-        loadShell: () => Effect.succeedSome(LIVE_SHELL_SNAPSHOT),
-        saveShell: () => Effect.void,
-        loadThread: () => Effect.succeedNone,
-        saveThread: () => Effect.void,
-        removeThread: () => Effect.void,
-        loadServerConfig: () => Effect.succeedNone,
-        saveServerConfig: () => Effect.void,
-        loadVcsRefs: () => Effect.succeedNone,
-        saveVcsRefs: () => Effect.void,
-        removeVcsRefs: () => Effect.void,
-        clearVcsRefs: () => Effect.void,
-        clear: () => Effect.void,
+      const fresh = { ...LIVE_SHELL_SNAPSHOT, snapshotSequence: sequence, threads: [] };
+      const harness = yield* makeReconnectHarness({
+        load: (call) => Effect.succeedSome(call === 1 ? LIVE_SHELL_SNAPSHOT : fresh),
       });
-      const snapshotLoader = ShellSnapshotLoader.ShellSnapshotLoader.of({
-        load: () =>
-          Ref.updateAndGet(loaderCalls, (count) => count + 1).pipe(
-            Effect.map((count) =>
-              Option.some({ ...LIVE_SHELL_SNAPSHOT, snapshotSequence: count * 10 }),
-            ),
-          ),
+      const first = yield* Queue.take(harness.requests);
+      yield* harness.complete(first);
+      yield* harness.disconnect(first);
+      yield* harness.reconnect(INITIAL_CONFIG, "2026-06-20T01:00:00.000Z");
+      const refreshed = yield* Queue.take(harness.requests);
+      expect(refreshed.input.afterSequence).toBe(sequence);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
+      expect(Option.getOrThrow((yield* harness.complete(refreshed)).snapshot)).toEqual(fresh);
+    }),
+  );
+
+  it.effect("refreshes when lifecycle proof is missing, including on a later session", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeReconnectHarness({ lifecycle: Stream.never });
+      yield* Queue.take(harness.lifecycleRequests);
+      yield* TestClock.adjust("3 seconds");
+      const first = yield* Queue.take(harness.requests);
+      yield* harness.complete(first);
+      expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
+      yield* harness.disconnect(first);
+      yield* harness.reconnect();
+      yield* Queue.take(harness.lifecycleRequests);
+      yield* TestClock.adjust("3 seconds");
+      const refreshed = yield* Queue.take(harness.requests);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
+      yield* harness.complete(refreshed);
+    }),
+  );
+
+  it.effect.each([
+    {
+      reason: "identity",
+      environment: { ...INITIAL_CONFIG.environment, environmentId: EnvironmentId.make("changed") },
+    },
+    { reason: "version", environment: { ...INITIAL_CONFIG.environment, serverVersion: "2.0.0" } },
+    {
+      reason: "protocol",
+      environment: { ...INITIAL_CONFIG.environment, orchestrationProtocolVersion: 3 },
+    },
+  ])("refreshes HTTP after the server $reason changes", ({ environment }) =>
+    Effect.gen(function* () {
+      const fresh = { ...LIVE_SHELL_SNAPSHOT, snapshotSequence: 0, threads: [] };
+      const harness = yield* makeReconnectHarness({
+        load: (call) => Effect.succeedSome(call === 1 ? LIVE_SHELL_SNAPSHOT : fresh),
       });
-      const shellState = yield* makeEnvironmentShellState().pipe(
-        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
-        Effect.provideService(Persistence.EnvironmentCacheStore, cache),
-        Effect.provideService(ShellSnapshotLoader.ShellSnapshotLoader, snapshotLoader),
-        Effect.provideService(
-          ConnectionWakeups.ConnectionWakeups,
-          ConnectionWakeups.ConnectionWakeups.of({ changes: Stream.fromQueue(wakeups) }),
-        ),
-      );
+      const first = yield* Queue.take(harness.requests);
+      yield* harness.complete(first);
+      yield* harness.disconnect(first);
+      yield* harness.reconnect({ ...INITIAL_CONFIG, environment });
+      const refreshed = yield* Queue.take(harness.requests);
+      expect(refreshed.input.afterSequence).toBe(0);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
+      const live = yield* harness.complete(refreshed);
+      expect(Option.getOrThrow(live.snapshot)).toEqual(fresh);
+    }),
+  );
 
-      // A new session starts from an authoritative HTTP snapshot.
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        if ((yield* Ref.get(capturedAfterSequences)).length >= 1) break;
-        yield* Effect.yieldNow;
-      }
-      expect(yield* Ref.get(capturedAfterSequences)).toEqual([10]);
-      yield* Queue.offer(events, { kind: "synchronized" });
-      yield* SubscriptionRef.changes(shellState).pipe(
-        Stream.filter((value) => value.status === "live"),
-        Stream.runHead,
-      );
+  it.effect.each(["initial load", "replay"] as const)(
+    "refreshes HTTP after disconnect during $0",
+    (stage) =>
+      Effect.gen(function* () {
+        const fresh = { ...LIVE_SHELL_SNAPSHOT, snapshotSequence: 10, threads: [] };
+        const harness = yield* makeReconnectHarness({
+          load: (call) => Effect.succeedSome(call === 1 ? LIVE_SHELL_SNAPSHOT : fresh),
+        });
+        let request = yield* Queue.take(harness.requests);
+        if (stage === "replay") {
+          yield* harness.complete(request);
+          yield* harness.disconnect(request);
+          yield* harness.reconnect();
+          request = yield* Queue.take(harness.requests);
+          yield* Queue.offer(request.events, {
+            kind: "thread.updated",
+            sequence: 2,
+            location: "active",
+            thread: { ...v2ThreadShell, title: "Partial replay" },
+          });
+          yield* harness.waitForState(
+            (value) => Option.isSome(value.snapshot) && value.snapshot.value.snapshotSequence === 2,
+          );
+        }
+        yield* harness.disconnect(request);
+        expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
+        yield* harness.reconnect();
+        const refreshed = yield* Queue.take(harness.requests);
+        expect(refreshed.input.afterSequence).toBe(10);
+        expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
+        expect(Option.getOrThrow((yield* harness.complete(refreshed)).snapshot)).toEqual(fresh);
+      }),
+  );
 
-      // A newer snapshot arrives on the stream and advances the cursor.
-      yield* Queue.offer(events, {
+  it.effect("does not reuse a partially loaded HTTP snapshot after its load is interrupted", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      const interrupted = yield* Deferred.make<void>();
+      const harness = yield* makeReconnectHarness({
+        cached: LIVE_SHELL_SNAPSHOT,
+        load: (call) =>
+          call === 1
+            ? Deferred.succeed(started, undefined).pipe(
+                Effect.andThen(Effect.never),
+                Effect.ensuring(Deferred.succeed(interrupted, undefined)),
+              )
+            : Effect.succeedSome({ ...LIVE_SHELL_SNAPSHOT, snapshotSequence: 10 }),
+      });
+      yield* Deferred.await(started);
+      // Replacing the session cancels its initial HTTP load before the next starts.
+      yield* harness.reconnect();
+      yield* Deferred.await(interrupted);
+      const refreshed = yield* Queue.take(harness.requests);
+      expect(refreshed.input.afterSequence).toBe(10);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
+      yield* harness.complete(refreshed);
+    }),
+  );
+
+  it.effect("does not certify an incomplete disk base with enrichment and a plausible cursor", () =>
+    Effect.gen(function* () {
+      const incomplete = { ...LIVE_SHELL_SNAPSHOT, threads: [] };
+      const harness = yield* makeReconnectHarness({
+        cached: incomplete,
+        load: (call) => (call === 1 ? Effect.succeedNone : Effect.succeedSome(LIVE_SHELL_SNAPSHOT)),
+      });
+      const first = yield* Queue.take(harness.requests);
+      expect(first.input).toEqual({ requestCompletionMarker: true });
+      yield* Queue.offer(first.events, {
         kind: "snapshot",
-        snapshot: { ...LIVE_SHELL_SNAPSHOT, snapshotSequence: 40 },
+        snapshot: { ...incomplete, snapshotSequence: 99 },
+        resolvedRepositoryIdentityRoots: [v2Project.workspaceRoot],
       });
-      yield* SubscriptionRef.changes(shellState).pipe(
-        Stream.filter(
-          (value) => Option.isSome(value.snapshot) && value.snapshot.value.snapshotSequence === 40,
-        ),
-        Stream.runHead,
+      yield* harness.complete(first);
+      expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
+      yield* harness.disconnect(first);
+      yield* harness.reconnect();
+      const refreshed = yield* Queue.take(harness.requests);
+      expect(refreshed.input.afterSequence).toBe(1);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
+      expect(Option.getOrThrow((yield* harness.complete(refreshed)).snapshot).threads).toEqual([
+        v2ThreadShell,
+      ]);
+    }),
+  );
+
+  it.effect("can certify a full socket fallback but not metadata-only enrichment", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeReconnectHarness({ load: () => Effect.succeedNone });
+      const first = yield* Queue.take(harness.requests);
+      expect(first.input.afterSequence).toBeUndefined();
+      yield* Queue.offer(first.events, { kind: "snapshot", snapshot: LIVE_SHELL_SNAPSHOT });
+      yield* harness.complete(first);
+      yield* harness.disconnect(first);
+      yield* harness.reconnect();
+      const resumed = yield* Queue.take(harness.requests);
+      expect(resumed.input.afterSequence).toBe(1);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(1);
+      yield* harness.complete(resumed);
+    }),
+  );
+
+  it.effect.each([false, true])(
+    "preserves a completed base across socket failure but refreshes an unfinished replay: $0",
+    (unfinishedReplay) =>
+      Effect.gen(function* () {
+        const harness = yield* makeReconnectHarness();
+        let request = yield* Queue.take(harness.requests);
+        yield* harness.complete(request);
+        if (unfinishedReplay) {
+          yield* harness.disconnect(request);
+          yield* harness.reconnect();
+          request = yield* Queue.take(harness.requests);
+        }
+        yield* Deferred.fail(
+          request.failure,
+          new RpcClientError.RpcClientError({
+            reason: new Socket.SocketCloseError({ code: 1006 }),
+          }),
+        );
+        yield* Deferred.await(request.stopped);
+        yield* harness.reconnect();
+        const resumed = yield* Queue.take(harness.requests);
+        expect(resumed.input.afterSequence).toBe(1);
+        expect(yield* Ref.get(harness.loaderCalls)).toBe(unfinishedReplay ? 2 : 1);
+        yield* harness.complete(resumed);
+      }),
+  );
+
+  it.effect("refreshes a completed base after a protocol defect", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeReconnectHarness();
+      const first = yield* Queue.take(harness.requests);
+      yield* harness.complete(first);
+      yield* Deferred.fail(
+        first.failure,
+        new RpcClientError.RpcClientError({
+          reason: new RpcClientError.RpcClientDefect({ message: "Malformed frame", cause: null }),
+        }),
       );
+      yield* Deferred.await(first.stopped);
+      yield* harness.reconnect();
+      const resumed = yield* Queue.take(harness.requests);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
+      yield* harness.complete(resumed);
+    }),
+  );
 
-      yield* Queue.offer(wakeups, "application-active");
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        if ((yield* Ref.get(capturedAfterSequences)).length >= 2) break;
-        yield* Effect.yieldNow;
-      }
-      expect(yield* Ref.get(capturedAfterSequences)).toEqual([10, 40]);
-      yield* Queue.offer(events, { kind: "synchronized" });
-
-      yield* Queue.offer(wakeups, "application-active-probe");
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        if ((yield* Ref.get(capturedAfterSequences)).length >= 3) break;
-        yield* Effect.yieldNow;
-      }
-      expect(yield* Ref.get(capturedAfterSequences)).toEqual([10, 40, 40]);
-
-      yield* Queue.offer(wakeups, "application-active-reconnect");
-      for (let attempt = 0; attempt < 10; attempt += 1) {
-        yield* Effect.yieldNow;
-      }
-      expect((yield* Ref.get(capturedAfterSequences)).length).toBe(3);
-      expect(yield* Ref.get(loaderCalls)).toBe(1);
-
-      // Replacing the session performs another authoritative refresh.
-      yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        if ((yield* Ref.get(capturedAfterSequences)).length >= 4) break;
-        yield* Effect.yieldNow;
-      }
-      expect(yield* Ref.get(capturedAfterSequences)).toEqual([10, 40, 40, 20]);
-      expect(yield* Ref.get(loaderCalls)).toBe(2);
+  it.effect("refreshes legacy servers on foreground resubscriptions and replacement sessions", () =>
+    Effect.gen(function* () {
+      const legacy = { ...INITIAL_CONFIG, shellResumeCompletionMarker: false };
+      const harness = yield* makeReconnectHarness({ config: legacy });
+      const first = yield* Queue.take(harness.requests);
+      expect(first.input).toEqual({ afterSequence: 1 });
+      yield* harness.resubscribe();
+      const foreground = yield* Queue.take(harness.requests);
+      expect(foreground.input).toEqual(first.input);
+      yield* harness.disconnect(foreground);
+      yield* harness.reconnect(legacy);
+      const replacement = yield* Queue.take(harness.requests);
+      expect(replacement.input).toEqual(first.input);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(3);
+      expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
     }),
   );
 
