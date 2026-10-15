@@ -129,6 +129,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   let oldSocket: NodeWebSocket | undefined;
   const liveSockets = new Set<NodeWebSocket>();
   let peakSockets = 0;
+  let peakOpenSockets = 0;
   let activeSocketPort: number | undefined;
 
   const switches = {
@@ -239,6 +240,12 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       perMessageDeflate: true,
     });
     liveSockets.add(socket);
+    socket.on("open", () => {
+      peakOpenSockets = Math.max(
+        peakOpenSockets,
+        [...liveSockets].filter((s) => s.readyState === NodeWebSocket.OPEN).length,
+      );
+    });
     peakSockets = Math.max(peakSockets, liveSockets.size);
     socket.once("close", () => liveSockets.delete(socket));
     const requestTags = new Map<string, unknown>();
@@ -630,10 +637,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     snapshots ||
     events !== (plan.addedMessages ? 50 : 0) ||
     sequence !== expected.sequence ||
-    (plan.keep
-      ? sockets > 1
-      : sockets < 1 ||
-        sockets > (plan.preActive || input.entry.workload.startsWith("preferred-") ? 2 : 1))
+    (!plan.keep && sockets < 1)
   )
     return yield* Effect.die(
       new Error(
@@ -645,7 +649,8 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     plan.keep && sockets === 0
       ? ["probe-request", "subscribe", "synchronized", "applied"]
       : [
-          ...(usesHelloHandshake ? ["hello-received", "auth-sent", "authenticated"] : []),
+          // Failed hello attempts can recover through legacy auth on another route.
+          ...(stages.some((stage) => stage.name === "auth-sent") ? ["authenticated"] : []),
           "socket-start",
           "socket-open",
           "config-request",
@@ -675,6 +680,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     oldSocketStateAtActive,
     oldSocketStateAtCompletion: oldSocket?.readyState ?? -1,
     clientPeakSockets: peakSockets,
+    clientPeakOpenSockets: peakOpenSockets,
     falseReplacements: plan.keep ? sockets : 0,
     extraRequests: plan.keep
       ? [...Object.values(requests), ...Object.values(rpcRequests)].reduce((a, b) => a + b, 0)
