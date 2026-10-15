@@ -223,7 +223,7 @@ const RPC_METHODS_WITH_TRACING_DISABLED: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Records each WebSocket RPC's span and request metrics. `ws.ts` adds it to the server's group
+ * Records each authenticated RPC's span and request metrics. `AuthenticatedRpcSession.ts` adds it to the server's group
  * after `RpcScopeAuthorization`, so it wraps authorization and also records rejected calls.
  */
 export class RpcInstrumentation extends RpcMiddleware.Service<RpcInstrumentation>()(

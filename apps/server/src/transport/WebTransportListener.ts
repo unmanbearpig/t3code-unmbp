@@ -39,14 +39,24 @@ function installRequestCallback(
   context: Context.Context<never>,
   scope: Scope.Scope,
   path: string,
+  isClosing: () => boolean,
 ) {
   const run = Effect.runPromiseWith(context);
-  server.setRequestCallback(({ header }: { header: unknown }) =>
-    run(admit(header).pipe(Effect.forkIn(scope), Effect.flatMap(Fiber.join))).then(
-      (result) => result,
-      () => ({ status: 403, path }),
-    ),
-  );
+  const pending = new Set<Promise<object>>();
+  server.setRequestCallback(({ header }: { header: unknown }) => {
+    const result = isClosing()
+      ? Promise.resolve({ status: 403, path })
+      : run(admit(header).pipe(Effect.forkIn(scope), Effect.flatMap(Fiber.join))).then(
+          (result) => result,
+          () => ({ status: 403, path }),
+        );
+    pending.add(result);
+    void result.then(() => pending.delete(result));
+    return result;
+  });
+  // Local callback settlement lets upstream finish/reject each admission before
+  // native stop. It never waits for a peer or a native acknowledgement.
+  return Effect.promise(() => Promise.allSettled(pending)).pipe(Effect.asVoid);
 }
 
 export class WebTransportListener extends Context.Service<
@@ -125,7 +135,9 @@ const make = Effect.gen(function* () {
     });
     // Native completion is advisory. Never await stop/closed while finalizing
     // handlers, background leases, or the server's own scope.
+    let closing = false;
     let stopped = false;
+    let drainAdmissions = Effect.void;
     const stop = () => {
       try {
         server.stopServer();
@@ -143,6 +155,12 @@ const make = Effect.gen(function* () {
     );
     yield* Effect.addFinalizer(() =>
       availability.set(Option.none()).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            closing = true;
+          }),
+        ),
+        Effect.andThen(Effect.suspend(() => drainAdmissions)),
         Effect.andThen(
           Effect.sync(() => {
             stopped = true;
@@ -253,7 +271,14 @@ const make = Effect.gen(function* () {
           ),
         );
       });
-    installRequestCallback(server, admit, context, scope, endpoint.pathname);
+    drainAdmissions = installRequestCallback(
+      server,
+      admit,
+      context,
+      scope,
+      endpoint.pathname,
+      () => closing,
+    );
     yield* Effect.try({
       try: () => server.startServer(),
       catch: (cause) => new WebTransportUnavailableError({ stage: "listen", cause }),

@@ -464,6 +464,7 @@ it.effect(
       const activeAuth = yield* Queue.make<void>();
       const authGate = yield* Deferred.make<EnvironmentAuth.AuthenticatedSession>();
       const endpoint = yield* Ref.make(Option.none<{ url: string; wireVersion: number }>());
+      let callbackResults = 0;
       const created = Promise.withResolvers<FakeNativeServer>();
       class FakeNativeServer {
         readonly readiness = Promise.withResolvers<void>();
@@ -483,7 +484,9 @@ it.effect(
           created.resolve(this);
         }
         startServer() {}
+        resultsAtStop = 0;
         stopServer() {
+          this.resultsAtStop = callbackResults;
           this.controller.close();
         }
         setRequestCallback(callback: typeof this.request) {
@@ -532,8 +535,19 @@ it.effect(
           (yield* Effect.promise(() => Promise.all(pending))).map((value) => value.status),
         ).toEqual(Array(16).fill(403));
         expect((yield* Effect.promise(() => request())).status).toBe(200);
+        const cancelling = [request("slow"), request("slow")];
+        for (const promise of cancelling)
+          void promise.then(() => {
+            callbackResults++;
+          });
+        yield* Queue.take(activeAuth);
+        yield* Queue.take(activeAuth);
         native.ending.reject(new Error("fixture listener failure"));
         yield* Fiber.join(fiber);
+        expect(
+          (yield* Effect.promise(() => Promise.all(cancelling))).map((result) => result.status),
+        ).toEqual([403, 403]);
+        expect(native.resultsAtStop).toBe(2);
         expect(Option.isNone(yield* Ref.get(endpoint))).toBe(true);
       }).pipe(
         Effect.provide(
