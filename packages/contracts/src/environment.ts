@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
+import { RpcWebTransportAdvertisement } from "./rpcWebTransport.ts";
+
 import {
   EnvironmentId,
   ForwardCompatibleOptional,
@@ -233,6 +235,7 @@ export const ExecutionEnvironmentDescriptor = Schema.Struct({
   /** Absent on hosts from before explicit orchestration protocol negotiation. */
   orchestrationProtocolVersion: Schema.optionalKey(Schema.Int),
   capabilities: ExecutionEnvironmentCapabilities,
+  rpcWebTransport: Schema.optionalKey(RpcWebTransportAdvertisement),
 });
 export type ExecutionEnvironmentDescriptor = typeof ExecutionEnvironmentDescriptor.Type;
 
