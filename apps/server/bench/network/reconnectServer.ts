@@ -30,6 +30,7 @@ import * as PubSub from "effect/PubSub";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { mailbox } from "./reconnectProcess.ts";
+import * as Capabilities from "../../../../packages/client-runtime/src/platform/capabilities.ts";
 import { ReconnectCase } from "./reconnectManifest.ts";
 import { HttpServerRequest } from "effect/http";
 import { HttpRouter } from "effect/http";
@@ -92,7 +93,11 @@ async function serveCase(entry: ReconnectCase, epoch: string) {
       ...operationServerConfig.environment,
       environmentId,
       orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-      capabilities: { ...operationServerConfig.environment.capabilities, connectionProbe: true },
+      capabilities: {
+        ...operationServerConfig.environment.capabilities,
+        connectionProbe: true,
+        ...("ExperimentalReconnectHello" in Capabilities ? { websocketHello: 1 as const } : {}),
+      },
     },
   };
   const persistence = EventSink.layer.pipe(

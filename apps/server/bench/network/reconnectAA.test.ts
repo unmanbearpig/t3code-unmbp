@@ -46,3 +46,9 @@ it("requires twenty stochastic observations, overlapping median intervals, and c
   expect(compareAA(a.slice(0, 4), a.slice(0, 4)).pass).toBe(false);
   expect(ksDistance([1, 2, 3], [4, 5, 6])).toBe(1);
 });
+
+it("rejects a lane mode that adds false replacements despite matching latency", () => {
+  const a = row(100),
+    b = { ...row(100), result: { ...row(100).result!, falseReplacements: 1 } };
+  expect(compareAA([a], [b]).pass).toBe(false);
+});

@@ -112,12 +112,17 @@ export function compareAA(serial: readonly ReconnectRow[], parallel: readonly Re
           distance <= limit,
       };
     });
+    const falseReplacementsAgree =
+      stochastic ||
+      a.reduce((sum, r) => sum + (r.result?.falseReplacements ?? 0), 0) ===
+        b.reduce((sum, r) => sum + (r.result?.falseReplacements ?? 0), 0);
     return {
       key,
+      falseReplacementsAgree,
       stochastic,
       serialCount: a.length,
       parallelCount: b.length,
-      pass: metrics.every((m) => m.pass),
+      pass: falseReplacementsAgree && metrics.every((m) => m.pass),
       metrics,
     };
   });

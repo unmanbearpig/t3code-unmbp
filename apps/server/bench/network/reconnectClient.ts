@@ -124,6 +124,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   let sockets = 0;
   let events = 0;
   let snapshots = 0;
+  let usesHelloHandshake = false;
   let sequence = input.initial.sequence;
   let sequenceError = false;
   const synchronized = yield* Deferred.make<void>();
@@ -238,7 +239,10 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     peakSockets = Math.max(peakSockets, liveSockets.size);
     socket.once("close", () => liveSockets.delete(socket));
     const requestTags = new Map<string, unknown>();
+    usesHelloHandshake ||= new URL(url).searchParams.get("handshake") === "hello-v1";
     input.registerSocket(socket);
+    socket.on("error", () => stamp("socket-error"));
+    if (start) Deferred.doneUnsafe(preparationStarted, Effect.void);
     const old = activeSocket === undefined;
     socket.once("close", () => stamp(old && plan.establishOld ? "old-close" : "socket-close"));
     activeSocket = socket;
@@ -495,12 +499,16 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     requestInit.dispatcher = pool;
   }
   if (input.entry.workload === "preferred-silent") blackholePreferredRoute();
+  const helloSupportCachedAtStart = helloKeys.has(
+    helloKey(input.environmentId, input.origin, input.origin.replace(/^http/, "ws")),
+  );
   const expected = yield* input.advance();
   // Cold long-resume HTTP starts with empty pools. Short-resume retains its real warm pools.
   for (const key of Object.keys(requests)) delete requests[key];
   for (const key of Object.keys(rpcRequests)) delete rpcRequests[key];
   stages.length = 0;
   sockets = events = snapshots = 0;
+  usesHelloHandshake = false;
   sequence = input.initial.sequence;
   sequenceError = false;
   const before = linkCounters();
@@ -590,7 +598,10 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     snapshots ||
     events !== (plan.addedMessages ? 50 : 0) ||
     sequence !== expected.sequence ||
-    (plan.keep ? sockets > 1 : sockets !== 1)
+    (plan.keep
+      ? sockets > 1
+      : sockets < 1 ||
+        sockets > (plan.preActive || input.entry.workload.startsWith("preferred-") ? 2 : 1))
   )
     return yield* Effect.die(
       new Error(
@@ -602,6 +613,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     plan.keep && sockets === 0
       ? ["probe-request", "subscribe", "synchronized", "applied"]
       : [
+          ...(usesHelloHandshake ? ["hello-received", "auth-sent", "authenticated"] : []),
           "socket-start",
           "socket-open",
           "config-request",
@@ -624,6 +636,8 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     totalMs,
     shellLiveMs,
     switches,
+    usesHelloHandshake,
+    helloSupportCachedAtStart,
     simulatedBackgroundMs: plan.simulatedBackgroundMs,
     backgroundHttpPoolExpired: plan.warm,
     oldSocketStateAtActive,
