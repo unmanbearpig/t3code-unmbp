@@ -109,6 +109,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   };
   if (input.options.skipDescriptorOnHttpsReconnect && !switches.skipDescriptorOnHttpsReconnect)
     return yield* Effect.die(new Error("Requested descriptor switch unavailable"));
+  let negotiatedExtensions: string | undefined;
   const requestTags = new Map<string, unknown>();
   const stamp = (name: string) => {
     if (start) stages.push({ name, atMs: performance.now() - start });
@@ -134,6 +135,15 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       const tag = Predicate.hasProperty(message, "requestId")
         ? requestTags.get(String(message.requestId))
         : undefined;
+      if (tag === "orchestration.subscribeShell") {
+        stamp("shell-chunk");
+        if (
+          message.values.some(
+            (v) => Predicate.hasProperty(v, "kind") && v.kind === "thread.updated",
+          )
+        )
+          stamp("shell-replay-batch");
+      }
       for (const value of message.values) {
         if (tag === "orchestration.subscribeShell") {
           if (Predicate.hasProperty(value, "kind") && value.kind === "synchronized")
@@ -173,6 +183,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     });
     activeSocket = socket;
     socket.once("upgrade", (response) => {
+      negotiatedExtensions = response.headers["sec-websocket-extensions"];
       activeSocketPort = response.socket.localPort;
       if (
         input.entry.scheme === "https" &&
@@ -386,6 +397,13 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       "Network operation"
   )
     return yield* Effect.die(new Error("Incorrect shell fixture after synchronization"));
+  if (
+    input.entry.workload !== "idle" &&
+    (finalShell.snapshot.value.threads.find((t) => t.id === "bench-shell-thread-0")?.title !==
+      "Round 3 shell replay" ||
+      !stages.some((s) => s.name === "shell-replay-batch"))
+  )
+    return yield* Effect.die(new Error("Shell replay fixture was not delivered"));
   const after = linkCounters();
   const error = operationStateError(final, expected, false);
   if (
@@ -423,6 +441,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     measurementStartMs,
     totalMs,
     shellLiveMs,
+    negotiatedExtensions,
     switches,
     stages,
     requests,

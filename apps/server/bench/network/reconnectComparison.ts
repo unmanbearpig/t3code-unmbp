@@ -10,6 +10,7 @@ export interface ReconnectRow {
   readonly result?: {
     readonly totalMs: number;
     readonly shellLiveMs: number;
+    readonly negotiatedExtensions?: string;
     readonly switches: VariantOptions;
     readonly serverRequests: readonly {
       path: string;
