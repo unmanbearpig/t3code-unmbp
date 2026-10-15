@@ -9,7 +9,7 @@ import * as Effect from "effect/Effect";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { makeManifest, manifestHash, validateManifest, variantOrder } from "./reconnectManifest.ts";
 import { applyProfile } from "./reconnectNetwork.ts";
-import { receive, stopChild } from "./reconnectProcess.ts";
+import { benchmarkLockArguments, receive, stopChild } from "./reconnectProcess.ts";
 import { prepareLoopback } from "./impairments.ts";
 import { calibrate } from "./reconnectCalibration.ts";
 import { ReconnectResult, summarize, type ReconnectRow } from "./reconnectComparison.ts";
@@ -44,6 +44,7 @@ const { values } = NodeUtil.parseArgs({
     out: { type: "string" },
     "dry-run": { type: "boolean" },
     "calibrate-only": { type: "boolean" },
+    "wait-lock": { type: "boolean" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -60,6 +61,7 @@ if (values.help) {
   --transports websocket,webtransport Pair the same revision with/without its real connector
   --dry-run             Print manifest hash and planned case counts
   --calibrate-only      Verify packetization, profile RTT and directional rate; no application cases
+  --wait-lock           Queue on the shared host lock before starting the guarded namespace
 Uses production client resolver/auth/session/supervisor and thread/shell reducers.
 Supply websocket or webtransport, with actual selection checked for every cold connection.
 Every fixture runs in a private user/network/PID namespace with MTU 1280.`);
@@ -144,26 +146,28 @@ const out = NodePath.resolve(
 );
 if (process.env.RPC_RECONNECT_NETNS !== "1") {
   if (NodeFS.existsSync(out)) throw new Error("Output exists; choose a fresh --out directory");
+  if (values["wait-lock"])
+    console.log("Waiting for the shared reconnect benchmark lock; no fixture has started.");
   const child = NodeChildProcess.spawn(
     "flock",
-    [
-      "-n",
-      "--conflict-exit-code",
-      "75",
+    benchmarkLockArguments(
+      values["wait-lock"] === true,
       NodePath.join(NodeOS.homedir(), "codex-tmp", "reconnect-benchmark.lock"),
-      "unshare",
-      "--user",
-      "--map-root-user",
-      "--net",
-      "--pid",
-      "--fork",
-      "--kill-child=SIGTERM",
-      process.execPath,
-      ...process.execArgv,
-      import.meta.filename,
-      ...process.argv.slice(2),
-      ...(values.out ? [] : ["--out", out]),
-    ],
+      [
+        "unshare",
+        "--user",
+        "--map-root-user",
+        "--net",
+        "--pid",
+        "--fork",
+        "--kill-child=SIGTERM",
+        process.execPath,
+        ...process.execArgv,
+        import.meta.filename,
+        ...process.argv.slice(2),
+        ...(values.out ? [] : ["--out", out]),
+      ],
+    ),
     {
       stdio: ["inherit", "inherit", "inherit", "ipc"],
       env: {
@@ -244,6 +248,7 @@ try {
     ),
     resourceWindow: "whole-client-case-including-short-resume-warmup",
     diagnosticTrace: process.env.RPC_RECONNECT_TRACE === "1",
+    lockAcquisition: values["wait-lock"] ? "blocking-queue" : "nonblocking",
     backendProvenance: await Effect.runPromise(
       Effect.gen(function* () {
         return backendProvenance(yield* HostProcess.Platform, yield* HostProcess.Architecture);

@@ -306,7 +306,9 @@ costs cover the whole client case, including warmup. Native connection counters
 also cover the whole case. The selected transport comes from the real session,
 and QUIC results require native CONNECT, control-stream and application-stream
 evidence. The host-wide reconnect benchmark lock is shared with other worktrees;
-exit 75 means another benchmark holds it and no fixture started.
+exit 75 means another benchmark holds it and no fixture started. Add `--wait-lock`
+to queue before starting the guarded namespace. The same lock stays owned through
+execution, avoiding a release/reacquire gap between a preliminary wait and the runner.
 
 All current reconnect fixtures use bearer authorization. They exclude the extra
 ticket request for primary-cookie bootstrap, so they do not establish browser
