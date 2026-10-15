@@ -10,6 +10,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
+import * as Duration from "effect/Duration";
+import * as TestClock from "effect/testing/TestClock";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 
@@ -733,6 +735,51 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
         expect(rejected._tag).toBe("ServerAuthInvalidCredentialError");
       }
     }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "192.168.1.50" }))),
+  );
+
+  it.effect(
+    "frame auth preserves bearer scopes and rejects invalid, expired, revoked, cookie, proof-bound and MCP credentials",
+    () =>
+      Effect.gen(function* () {
+        const auth = yield* EnvironmentAuth.EnvironmentAuth;
+        const sessions = yield* SessionStore.SessionStore;
+        const valid = yield* sessions.issue({
+          subject: "hello",
+          method: "bearer-access-token",
+          scopes: ["orchestration:read"],
+        });
+        const authenticated = yield* auth.authenticateWebSocketFrame(valid.token);
+        expect(authenticated.scopes).toEqual(["orchestration:read"]);
+        expect(authenticated.sessionId).toBe(valid.sessionId);
+        const cookie = yield* sessions.issue({
+          subject: "hello-cookie",
+          method: "browser-session-cookie",
+        });
+        const bound = yield* sessions.issue({
+          subject: "hello-proof",
+          method: "dpop-access-token",
+          proofKeyThumbprint: "proof",
+        });
+        const mcp = yield* sessions.issue({ subject: "mcp-client", method: "bearer-access-token" });
+        for (const token of ["", "bad-token", cookie.token, bound.token, mcp.token]) {
+          expect((yield* auth.authenticateWebSocketFrame(token).pipe(Effect.flip))._tag).toBe(
+            "ServerAuthInvalidCredentialError",
+          );
+        }
+        yield* sessions.revoke(valid.sessionId);
+        expect((yield* auth.authenticateWebSocketFrame(valid.token).pipe(Effect.flip))._tag).toBe(
+          "ServerAuthInvalidCredentialError",
+        );
+        const expiring = yield* sessions.issue({
+          subject: "hello-expiry",
+          method: "bearer-access-token",
+          ttl: Duration.seconds(1),
+        });
+        yield* TestClock.adjust(1001);
+        expect(
+          (yield* auth.authenticateWebSocketFrame(expiring.token).pipe(Effect.flip))._tag,
+        ).toBe("ServerAuthInvalidCredentialError");
+      }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web" }))),
   );
 
   it.effect("keeps bearer socket upgrades independent of the page origin", () =>
