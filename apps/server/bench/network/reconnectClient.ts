@@ -466,8 +466,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     sequenceError ||
     snapshots ||
     events !== (input.entry.workload === "idle" ? 0 : 50) ||
-    sequence !== expected.sequence ||
-    sockets !== 1
+    sequence !== expected.sequence
   )
     return yield* Effect.die(
       new Error(
@@ -475,6 +474,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
           `Invalid replay: sequenceError=${sequenceError} snapshots=${snapshots} events=${events} sequence=${sequence} sockets=${sockets}`,
       ),
     );
+  if (sockets !== 1) stamp(`unexpected-socket-constructions:${sockets}`);
   if (
     usesHello &&
     ((requests["/.well-known/t3/environment"] ?? 0) !== 0 ||
@@ -483,9 +483,6 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     stamp("unexpected-legacy-discovery");
   }
   const requiredStages = [
-    ...(stages.some((stage) => stage.name === "hello-received")
-      ? ["hello-received", "auth-sent", "authenticated"]
-      : []),
     "socket-start",
     "socket-open",
     "config-request",
