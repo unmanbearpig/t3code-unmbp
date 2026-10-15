@@ -15,7 +15,9 @@ export const makeWebSocketLayer = Effect.gen(function* () {
   return (connection: PreparedConnection, onOpen?: () => void) => {
     const authorization = connection.httpAuthorization;
     const makeWebSocket =
-      authorization?._tag === "Bearer" && Option.isSome(constructorWithHeaders)
+      connection.handshake?._tag !== "Hello" &&
+      authorization?._tag === "Bearer" &&
+      Option.isSome(constructorWithHeaders)
         ? (url: string) =>
             constructorWithHeaders.value(url, {
               Authorization: `Bearer ${authorization.token}`,

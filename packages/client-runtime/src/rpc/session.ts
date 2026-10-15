@@ -27,6 +27,7 @@ import * as RpcSerialization from "effect/rpc/RpcSerialization";
 import * as Socket from "effect/socket/Socket";
 
 import { makeWsRpcProtocolClient, PING_TIMEOUT, type WsRpcProtocolClient } from "./protocol.ts";
+import * as Hello from "./hello.ts";
 import { makeWebSocketLayer } from "./webSocket.ts";
 import { issueRemoteWebSocketTicket } from "../authorization/remote.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
@@ -176,13 +177,15 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       "connection.environment.id": connection.environmentId,
     });
 
+    const handshakeFailure = yield* Deferred.make<never, ConnectionAttemptError>();
+    const usesHello = connection.handshake?._tag === "Hello";
     const connected = yield* Deferred.make<void>();
     const disconnected = yield* Deferred.make<never, ConnectionTransientError>();
     const sessionScope = yield* Effect.scope;
     let socketOpened = false;
     const authorization = connection.httpAuthorization;
     const usesBearerUpgradeHeaders =
-      authorization?._tag === "Bearer" && Option.isSome(constructorWithHeaders);
+      !usesHello && authorization?._tag === "Bearer" && Option.isSome(constructorWithHeaders);
     // Native WebSocket failures omit the HTTP rejection. Share one diagnostic
     // across readiness, config and closure consumers, only before an upgrade opens.
     // Its fiber belongs to the session so canceling a waiter cannot issue it twice.
@@ -210,13 +213,21 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
         : Effect.succeed(Option.none<ConnectionAttemptError>())
       ).pipe(Effect.forkIn(sessionScope)),
     );
-    const diagnoseError = (error: ConnectionAttemptError) =>
-      !usesBearerUpgradeHeaders || socketOpened || error._tag === "ConnectionBlockedError"
-        ? Effect.fail(error)
-        : diagnostic.pipe(
-            Effect.flatMap(Fiber.join),
-            Effect.flatMap((diagnosed) => Effect.fail(Option.getOrElse(diagnosed, () => error))),
-          );
+    const diagnoseError = (
+      error: ConnectionAttemptError,
+    ): Effect.Effect<never, ConnectionAttemptError> =>
+      usesHello
+        ? Effect.gen(function* () {
+            if (yield* Deferred.isDone(handshakeFailure))
+              return yield* Deferred.await(handshakeFailure);
+            return yield* error;
+          })
+        : !usesBearerUpgradeHeaders || socketOpened || error._tag === "ConnectionBlockedError"
+          ? Effect.fail(error)
+          : diagnostic.pipe(
+              Effect.flatMap(Fiber.join),
+              Effect.flatMap((diagnosed) => Effect.fail(Option.getOrElse(diagnosed, () => error))),
+            );
     // Set when the socket closes because the server stopped answering, so the failure says so
     // instead of looking like the server closed the connection.
     const pingTimedOut = yield* Ref.make(false);
@@ -242,7 +253,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
         Effect.asVoid,
       ),
     });
-    const layerSocket = webSocketLayer(
+    const rawLayerSocket = webSocketLayer(
       connection,
       usesBearerUpgradeHeaders
         ? () => {
@@ -250,6 +261,15 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
           }
         : undefined,
     );
+    const layerSocket = usesHello
+      ? Layer.effect(
+          Socket.Socket,
+          Effect.gen(function* () {
+            const socket = yield* Socket.Socket;
+            return yield* Hello.wrap(socket, connection, handshakeFailure);
+          }),
+        ).pipe(Layer.provide(rawLayerSocket))
+      : rawLayerSocket;
     const layerProtocol = Layer.effect(
       RpcClient.Protocol,
       RpcClient.makeProtocolSocket({

@@ -83,6 +83,17 @@ export function routeHttpBaseUrl(route: ConnectionRoute): string | null {
   return profile?._tag === "BearerConnectionProfile" ? profile.httpBaseUrl : null;
 }
 
+/** Direct bearer endpoints eligible for the optional framed handshake. */
+export function routeHelloEndpoint(
+  route: ConnectionRoute,
+): { httpBaseUrl: string; wsBaseUrl: string } | null {
+  if (route.target._tag === "PrimaryConnectionTarget") return route.target;
+  const profile = Option.getOrNull(route.profile);
+  return profile?._tag === "BearerConnectionProfile" && profile.authorization !== "t3-connect"
+    ? profile
+    : null;
+}
+
 function routeHostname(route: ConnectionRoute): string | null {
   const httpBaseUrl = routeHttpBaseUrl(route);
   if (httpBaseUrl === null) return null;
