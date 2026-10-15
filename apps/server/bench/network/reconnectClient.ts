@@ -177,7 +177,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       const atMs = performance.now() - start;
       return yield* Effect.map(effect, (response) => {
         // Observe after the response body is consumed by the real descriptor/ticket decoder.
-        const json = response.json.pipe(
+        const arrayBuffer = response.arrayBuffer.pipe(
           Effect.tap(() =>
             Effect.sync(() => {
               stages.push({ name, atMs, endMs: performance.now() - start });
@@ -192,7 +192,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
         );
         return new Proxy(response, {
           get: (target, key, receiver) =>
-            key === "json" ? json : Reflect.get(target, key, receiver),
+            key === "arrayBuffer" ? arrayBuffer : Reflect.get(target, key, receiver),
         });
       });
     }),
@@ -324,6 +324,23 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
           `Invalid replay: sequenceError=${sequenceError} snapshots=${snapshots} events=${events} sequence=${sequence} sockets=${sockets}`,
       ),
     );
+  const requiredStages = [
+    "socket-start",
+    "socket-open",
+    "config-request",
+    "config",
+    "subscribe",
+    "synchronized",
+    "applied",
+  ];
+  if (
+    requiredStages.some((name) => !stages.some((stage) => stage.name === name)) ||
+    stages.filter((s) => s.name.startsWith("descriptor-")).length !==
+      (requests["/.well-known/t3/environment"] ?? 0) ||
+    stages.filter((s) => s.name === "ticket").length !==
+      (requests["/api/auth/websocket-ticket"] ?? 0)
+  )
+    return yield* Effect.die(new Error("Incomplete reconnect stage observations"));
   return {
     totalMs,
     stages,

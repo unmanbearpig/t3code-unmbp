@@ -165,6 +165,21 @@ export function makeManifest(smoke = false): Manifest {
             }
       }
   }
+  if (smoke) {
+    const good = cases[0]!;
+    for (const [scheme, routes] of [
+      ["http", 1],
+      ["http", 2],
+      ["https", 1],
+    ] as const) {
+      cases.push({
+        ...good,
+        id: [good.profile.name, good.phaseMs, good.seed, scheme, routes, good.workload].join("/"),
+        scheme,
+        routes,
+      });
+    }
+  }
   return validateManifest({
     version: "reconnect-v1",
     mtu: 1280,

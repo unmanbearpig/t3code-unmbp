@@ -18,6 +18,7 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
@@ -318,5 +319,8 @@ await Effect.runPromise(
         );
       }
     }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+  ).pipe(
+    Effect.provide(NodeServices.layer),
+    Effect.provideService(Logger.CurrentLoggers, new Set()),
+  ),
 );

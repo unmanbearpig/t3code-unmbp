@@ -96,8 +96,8 @@ The matrix crosses two workloads, one/two saved direct routes, and HTTP/TLS with
 | slow-start-500 / 1500 / 3000 | Drop all packets for 0.5 / 1.5 / 3 s, then cellular | 4 each                |
 | constrained                  | Cellular, 1 Mbit/s download, 512 kbit/s upload      | 4                     |
 
-The smoke matrix has 22 cases, one HTTPS/two-route idle and replay case per profile
-and outage duration. The full matrix is estimated at about 1.5 hours per variant,
+The smoke matrix has 25 cases, one HTTPS/two-route idle and replay case per profile
+and outage duration, plus good-network HTTP/one-route, HTTP/two-route, and TLS/one-route controls. The full matrix is estimated at about 1.5 hours per variant,
 plus roughly two minutes of calibration per invocation. That is a planning estimate;
 loss/retry behavior and process startup change it. The conservative 60-second case
 plus 30-second setup deadline gives a much larger failure bound. For six variants,

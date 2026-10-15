@@ -44,6 +44,11 @@ describe("frozen reconnect inputs", () => {
     const manifest = makeManifest();
     expect(manifest.cases).toHaveLength(960);
     expect(manifest.mtu).toBe(1280);
+    const smoke = makeManifest(true);
+    expect(smoke.cases).toHaveLength(25);
+    expect(new Set(smoke.cases.map((c) => `${c.scheme}/${c.routes}`))).toEqual(
+      new Set(["http/1", "http/2", "https/1", "https/2"]),
+    );
     expect(new Set(manifest.cases.map((c) => c.id)).size).toBe(960);
     expect(lossSeeds).toHaveLength(20);
     expect(

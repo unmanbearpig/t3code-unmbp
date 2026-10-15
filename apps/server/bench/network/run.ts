@@ -128,6 +128,9 @@ if (values["dry-run"]) {
   );
   process.exit(0);
 }
+const frozenRevisions = new Map(
+  variants.map((variant) => [variant.path, state(variant.path).revision]),
+);
 for (const variant of variants)
   if (state(variant.path).dirty)
     throw new Error(`Refusing dirty worktree ${variant.name}: ${variant.path}`);
@@ -245,7 +248,8 @@ try {
     for (const entry of manifest.cases)
       for (const variant of variantOrder(variants, entry)) {
         const provenance = state(variant.path);
-        if (provenance.dirty) throw new Error(`Worktree became dirty: ${variant.name}`);
+        if (provenance.dirty || provenance.revision !== frozenRevisions.get(variant.path))
+          throw new Error(`Worktree changed during suite: ${variant.name}`);
         const entryFile = NodePath.join(scratch, "case.json");
         write("summary.json", summarize(rows));
         NodeFS.writeFileSync(entryFile, JSON.stringify(entry));
