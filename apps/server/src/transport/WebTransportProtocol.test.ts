@@ -60,6 +60,180 @@ const Group = RpcGroup.make(
 );
 
 describe("WebTransport Effect protocols", () => {
+  it.effect.each(["release", "dispose", "reject"] as const)(
+    "joins client FIN with the server terminal write before releasing admission: %s",
+    (mode) =>
+      Effect.gen(function* () {
+        const owner = yield* Scope.make();
+        yield* Effect.addFinalizer((exit) => Scope.close(owner, exit));
+        const gate = Promise.withResolvers<void>();
+        yield* Effect.addFinalizer(() => Effect.sync(() => gate.resolve()));
+        yield* Effect.gen(function* () {
+          const pair = memorySessionPair({ neverAcknowledgeClose: true });
+          const exitEnqueued = yield* Deferred.make<void>();
+          const clientFin = yield* Deferred.make<void>();
+          const serverFin = yield* Deferred.make<void>();
+          const probeStarted = yield* Deferred.make<void>();
+          const releaseProbe = yield* Deferred.make<void>();
+          const subscriptionStopped = yield* Deferred.make<void>();
+          const sessionClosed = yield* Deferred.make<void>();
+          let accepted = 0;
+          let acceptCalls = 0;
+          let terminalWrites = 0;
+          let abortedWrites = 0;
+          let writeSettled = false;
+          const fixture = yield* setup({
+            limits: { ordinaryRequestStreams: 2, pendingOrdinaryRequests: 1 },
+            pair: {
+              ...pair,
+              server: {
+                ...pair.server,
+                async acceptBidirectionalStream(signal) {
+                  acceptCalls++;
+                  const stream = await pair.server.acceptBidirectionalStream(signal);
+                  if (accepted++ !== 2) return stream;
+                  let writes = 0;
+                  return {
+                    ...stream,
+                    async read(max, signal) {
+                      const bytes = await stream.read(max, signal);
+                      if (bytes === null) Deferred.doneUnsafe(clientFin, Effect.void);
+                      return bytes;
+                    },
+                    async write(bytes, signal) {
+                      await stream.write(bytes, signal);
+                      if (++writes !== 2) return;
+                      terminalWrites++;
+                      Deferred.doneUnsafe(exitEnqueued, Effect.void);
+                      const abort = () => {
+                        abortedWrites++;
+                        gate.reject(new Error("Terminal write aborted"));
+                      };
+                      signal.addEventListener("abort", abort, { once: true });
+                      try {
+                        if (signal.aborted) abort();
+                        await gate.promise;
+                        writeSettled = true;
+                      } finally {
+                        signal.removeEventListener("abort", abort);
+                      }
+                    },
+                    async finish(signal) {
+                      await stream.finish(signal);
+                      Deferred.doneUnsafe(serverFin, Effect.void);
+                    },
+                  };
+                },
+              },
+            },
+          });
+          const source = yield* Queue.make<string>();
+          const seen = yield* Queue.make<string>();
+          yield* fixture.serverProtocol.closed.pipe(
+            Effect.andThen(Deferred.succeed(sessionClosed, undefined)),
+            Effect.forkScoped,
+          );
+          yield* RpcServer.make(Group).pipe(
+            Effect.provide(
+              Group.toLayer({
+                echo: (text) => Effect.succeed(text),
+                listen: () =>
+                  Stream.fromQueue(source).pipe(
+                    Stream.ensuring(Deferred.succeed(subscriptionStopped, undefined)),
+                  ),
+                "server.probe": () =>
+                  Deferred.succeed(probeStarted, undefined).pipe(
+                    Effect.andThen(Deferred.await(releaseProbe)),
+                    Effect.as("alive"),
+                  ),
+              }),
+            ),
+            Effect.provideService(RpcServer.Protocol, fixture.serverProtocol.protocol),
+            Effect.forkScoped,
+          );
+          const protocol = yield* makeRpcWebTransportClientProtocol(
+            yield* Fiber.join(fixture.prepareClient),
+          );
+          const client = yield* RpcClient.make(Group).pipe(
+            Effect.provideService(RpcClient.Protocol, protocol),
+          );
+          yield* client.listen().pipe(
+            Stream.runForEach((value) => Queue.offer(seen, value)),
+            Effect.forkScoped,
+          );
+          yield* Queue.offer(source, "before");
+          expect(yield* Queue.take(seen)).toBe("before");
+          expect(yield* client.echo("completed")).toBe("completed");
+          yield* Deferred.await(exitEnqueued);
+          yield* Deferred.await(clientFin);
+          expect(writeSettled).toBe(false);
+          yield* TestClock.adjust(0);
+          expect(yield* Deferred.isDone(sessionClosed)).toBe(false);
+          const probe = yield* client["server.probe"]().pipe(Effect.forkScoped);
+          yield* Deferred.await(probeStarted);
+          // All three request permits remain owned: subscription, terminal write and probe.
+          yield* TestClock.adjust(0);
+          expect(acceptCalls).toBe(4);
+          expect(yield* Deferred.isDone(sessionClosed)).toBe(false);
+          expect(yield* Deferred.isDone(subscriptionStopped)).toBe(false);
+          yield* Queue.offer(source, "during");
+          expect(yield* Queue.take(seen)).toBe("during");
+          yield* Deferred.succeed(releaseProbe, undefined);
+          expect(yield* Fiber.join(probe)).toBe("alive");
+          expect(writeSettled).toBe(false);
+          if (mode === "release") {
+            gate.resolve();
+            yield* Deferred.await(serverFin);
+            expect(yield* client.echo("after")).toBe("after");
+            expect(yield* client["server.probe"]()).toBe("alive");
+            yield* Queue.offer(source, "after");
+            expect(yield* Queue.take(seen)).toBe("after");
+            expect(yield* Deferred.isDone(sessionClosed)).toBe(false);
+            expect(yield* Deferred.isDone(subscriptionStopped)).toBe(false);
+          } else if (mode === "reject") {
+            gate.reject(new Error("Terminal write failed"));
+            yield* Deferred.await(sessionClosed);
+            yield* Deferred.await(subscriptionStopped);
+          }
+          expect(terminalWrites).toBe(1);
+          yield* Scope.close(owner, Exit.void);
+          if (mode === "dispose") expect(abortedWrites).toBe(1);
+          yield* Effect.promise(() => fixture.server.closed);
+        }).pipe(Effect.provideService(Scope.Scope, owner));
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect("rejects a genuinely premature client FIN before any terminal response", () =>
+    Effect.gen(function* () {
+      const fixture = yield* setup();
+      const requests = yield* Queue.make<RpcMessage.FromClientEncoded>();
+      yield* fixture.serverProtocol.protocol
+        .run((_id, message) => Queue.offer(requests, message).pipe(Effect.asVoid))
+        .pipe(Effect.forkScoped);
+      yield* Fiber.join(fixture.prepareClient);
+      const stream = yield* transportTry((signal) =>
+        fixture.client.openBidirectionalStream(signal),
+      );
+      const channel = makeRpcWebTransportFrameChannel(
+        stream,
+        createTransportByteBudget(1024 * 1024),
+        createTransportByteBudget(1024 * 1024),
+        rpcWebTransportDefaultLimits,
+      );
+      yield* channel.writePreface("request");
+      yield* channel.write({
+        _tag: "Request",
+        id: "early",
+        tag: "echo",
+        payload: "x",
+        headers: [],
+      });
+      expect((yield* Queue.take(requests))._tag).toBe("Request");
+      yield* channel.finish;
+      yield* fixture.serverProtocol.closed;
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("keeps queued real-RpcClient cancellation local and releases its admission", () =>
     Effect.gen(function* () {
       const fixture = yield* setup({
