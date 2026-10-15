@@ -8,8 +8,8 @@ import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import {
   exchangeRemoteDpopAccessToken,
   type RemoteEnvironmentAuthError,
-  resolveRemoteDpopWebSocketConnectionUrl,
-  resolveRemoteWebSocketConnectionUrl,
+  resolveRemoteDpopWebSocketConnection,
+  resolveRemoteWebSocketConnection,
 } from "./remote.ts";
 import {
   environmentMismatchError,
@@ -42,6 +42,7 @@ import * as HttpClient from "effect/http/HttpClient";
 import {
   DPOP_ACCESS_TOKEN_REFRESH_SKEW_MS,
   type PreparedHttpAuthorization,
+  type PreparedRpcTicket,
 } from "../connection/model.ts";
 
 export interface AuthorizedRemoteEnvironment {
@@ -49,6 +50,7 @@ export interface AuthorizedRemoteEnvironment {
   readonly label: string;
   readonly httpBaseUrl: string;
   readonly socketUrl: string;
+  readonly rpcTicket?: PreparedRpcTicket;
   readonly httpAuthorization: PreparedHttpAuthorization;
 }
 
@@ -192,7 +194,7 @@ export const make = Effect.gen(function* () {
       readonly connectionMethod: ClientConnectionMethod;
     }) {
       const descriptor = yield* verifyDirectEndpoint(input);
-      const socketUrl = yield* resolveRemoteWebSocketConnectionUrl({
+      const connection = yield* resolveRemoteWebSocketConnection({
         wsBaseUrl: input.wsBaseUrl,
         httpBaseUrl: input.httpBaseUrl,
         bearerToken: input.bearerToken,
@@ -206,7 +208,7 @@ export const make = Effect.gen(function* () {
         environmentId: descriptor.environmentId,
         label: descriptor.label,
         httpBaseUrl: input.httpBaseUrl,
-        socketUrl,
+        ...connection,
         httpAuthorization: {
           _tag: "Bearer" as const,
           token: input.bearerToken,
@@ -215,7 +217,7 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  const createDpopSocketUrl = Effect.fn("clientRuntime.connection.remote.createDpopSocketUrl")(
+  const createDpopConnection = Effect.fn("clientRuntime.connection.remote.createDpopConnection")(
     function* (
       token: TokenStore.RemoteDpopAccessToken,
       timeoutMs?: number,
@@ -236,7 +238,7 @@ export const make = Effect.gen(function* () {
               }),
           ),
         );
-      return yield* resolveRemoteDpopWebSocketConnectionUrl({
+      return yield* resolveRemoteDpopWebSocketConnection({
         wsBaseUrl: endpoint.wsBaseUrl,
         httpBaseUrl: endpoint.httpBaseUrl,
         accessToken: token.accessToken,
@@ -498,13 +500,16 @@ export const make = Effect.gen(function* () {
         connectionMethod: "direct",
       });
     }
-    const authorized = (token: TokenStore.RemoteDpopAccessToken, socketUrl: string) => ({
+    const authorized = (
+      token: TokenStore.RemoteDpopAccessToken,
+      connection: Effect.Success<ReturnType<typeof createDpopConnection>>,
+    ) => ({
       ...httpAuthorization(token, endpoint?.httpBaseUrl),
-      socketUrl,
+      ...connection,
     });
     let selected = yield* getDpopToken(input);
     if (selected.fromCache) {
-      const cachedSocket = yield* createDpopSocketUrl(
+      const cachedSocket = yield* createDpopConnection(
         selected.token,
         CACHED_ENDPOINT_SOCKET_TIMEOUT_MS,
         endpoint,
@@ -527,7 +532,7 @@ export const make = Effect.gen(function* () {
         rejectedAccessToken: selected.token.accessToken,
       });
     }
-    const socket = yield* createDpopSocketUrl(selected.token, undefined, endpoint).pipe(
+    const socket = yield* createDpopConnection(selected.token, undefined, endpoint).pipe(
       Effect.result,
     );
     if (Result.isFailure(socket)) {
