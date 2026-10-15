@@ -57,6 +57,24 @@ describe("on-device connection log storage", () => {
               outcome: "failed",
               error: "network",
             });
+            if (i === 204) {
+              log.record({
+                kind: "shell-sync",
+                environmentId: "environment",
+                milestone: "live",
+                completion: "marker",
+              });
+              log.record({
+                kind: "cleanup",
+                environmentId: "environment",
+                cleanupId: 1,
+                resource: "subscription",
+                method: "shell",
+                milestone: "finished",
+                durationMs: 0,
+                outcome: "interrupted",
+              });
+            }
           }
           expect(log.read()).toHaveLength(200);
           yield* Queue.take(writes).pipe(
@@ -97,6 +115,11 @@ describe("on-device connection log storage", () => {
           const log = yield* ConnectionLog.MobileConnectionLog;
           expect(log.read()).toHaveLength(200);
           expect(log.storageAvailable()).toBe(true);
+          const restored = log.read().find((record) => record.shell.outcome === "live");
+          expect(restored?.shell.completion).toBe("marker");
+          expect(restored?.cleanup).toMatchObject([
+            { resource: "subscription", method: "shell", durationMs: 0, outcome: "interrupted" },
+          ]);
           log.clear();
           expect(log.read()).toEqual([]);
           expect(yield* Queue.take(writes)).toBe("cleared");
