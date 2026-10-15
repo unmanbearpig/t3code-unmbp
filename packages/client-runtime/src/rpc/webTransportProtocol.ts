@@ -12,7 +12,6 @@ import {
   makeRpcWebTransportLifetime,
   resolveRpcWebTransportLimits,
   transportTry,
-  type ReliableByteStream,
   type ReliableSession,
   type RpcWebTransportLimits,
 } from "@t3tools/shared/rpcWebTransport";
@@ -178,9 +177,9 @@ export const makeRpcWebTransportClientProtocol = Effect.fn("makeRpcWebTransportC
         RpcWebTransportError
       >;
       fiber?: Fiber.Fiber<void>;
-      stream?: ReliableByteStream;
       completed?: boolean;
       interrupted?: boolean;
+      started?: boolean;
     }
     const requests = new Map<string | number, RequestEntry>();
     const ordinary = Semaphore.makeUnsafe(state.limits.ordinaryRequestStreams);
@@ -251,6 +250,21 @@ export const makeRpcWebTransportClientProtocol = Effect.fn("makeRpcWebTransportC
       );
     let eofSent = false;
 
+    const interruptRequest = (entry: RequestEntry, requestId: string | number) =>
+      Effect.suspend(() => {
+        if (entry.interrupted) return Effect.void;
+        entry.interrupted = true;
+        if (!entry.started)
+          return entry.fiber
+            ? sendFinalizer(Fiber.interrupt(entry.fiber).pipe(Effect.asVoid))
+            : Effect.void;
+        return sendFinalizer(
+          Deferred.await(entry.ready).pipe(
+            Effect.flatMap((channel) => channel.write({ _tag: "Interrupt", requestId })),
+          ),
+        );
+      });
+
     const sendRequest = Effect.fnUntraced(function* (
       clientId: number,
       request: RpcMessage.RequestEncoded,
@@ -299,7 +313,15 @@ export const makeRpcWebTransportClientProtocol = Effect.fn("makeRpcWebTransportC
                 const stream = lifetime.own(
                   yield* Effect.acquireRelease(
                     nativeOpen.withPermits(1)(
-                      transportTry((signal) => state.session.openBidirectionalStream(signal)),
+                      Effect.suspend(() => {
+                        if (entry.interrupted) return Effect.interrupt;
+                        // After native open starts, only the session owns this worker.
+                        // Caller cancellation must not truncate the initial Request.
+                        entry.started = true;
+                        return transportTry((signal) =>
+                          state.session.openBidirectionalStream(signal),
+                        );
+                      }),
                     ),
                     (owned) =>
                       Effect.sync(() => {
@@ -312,7 +334,6 @@ export const makeRpcWebTransportClientProtocol = Effect.fn("makeRpcWebTransportC
                     { interruptible: true },
                   ),
                 );
-                entry.stream = stream;
                 const channel = makeRpcWebTransportFrameChannel(
                   stream,
                   state.input,
@@ -404,7 +425,7 @@ export const makeRpcWebTransportClientProtocol = Effect.fn("makeRpcWebTransportC
             );
           entry.fiber = yield* task.pipe(Effect.interruptible, Effect.forkIn(scope));
           yield* restore(Deferred.await(entry.ready)).pipe(
-            Effect.onInterrupt(() => (entry.fiber ? Fiber.interrupt(entry.fiber) : Effect.void)),
+            Effect.onInterrupt(() => interruptRequest(entry, request.id)),
           );
         }),
       );
@@ -439,19 +460,7 @@ export const makeRpcWebTransportClientProtocol = Effect.fn("makeRpcWebTransportC
               if (!entry) return Effect.void;
               if (entry.clientId !== clientId)
                 return Effect.fail(new RpcWebTransportError("protocol", "Cross-client request ID"));
-              if (message._tag === "Interrupt") {
-                if (entry.interrupted) return Effect.void;
-                entry.interrupted = true;
-                return sendFinalizer(
-                  !entry.stream
-                    ? entry.fiber
-                      ? Fiber.interrupt(entry.fiber).pipe(Effect.asVoid)
-                      : Effect.void
-                    : Deferred.await(entry.ready).pipe(
-                        Effect.flatMap((channel) => channel.write(message)),
-                      ),
-                );
-              }
+              if (message._tag === "Interrupt") return interruptRequest(entry, message.requestId);
               if (entry.interrupted) return Effect.void;
               return Deferred.await(entry.ready).pipe(
                 Effect.flatMap((channel) => channel.write(message)),

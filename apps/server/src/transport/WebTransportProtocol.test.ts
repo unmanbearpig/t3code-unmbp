@@ -36,9 +36,10 @@ const setup = Effect.fnUntraced(function* (
   options: {
     readonly limits?: Partial<RpcWebTransportLimits>;
     readonly neverAcknowledgeClose?: boolean;
+    readonly pair?: ReturnType<typeof memorySessionPair>;
   } = {},
 ) {
-  const pair = memorySessionPair(options);
+  const pair = options.pair ?? memorySessionPair(options);
   const shared = budgets();
   const prepareServer = yield* prepareRpcWebTransportServer(pair.server, {
     ...expected,
@@ -59,6 +60,209 @@ const Group = RpcGroup.make(
 );
 
 describe("WebTransport Effect protocols", () => {
+  it.effect("keeps queued real-RpcClient cancellation local and releases its admission", () =>
+    Effect.gen(function* () {
+      const fixture = yield* setup({
+        limits: { ordinaryRequestStreams: 1, pendingOrdinaryRequests: 1 },
+      });
+      const listening = yield* Deferred.make<void>();
+      const stopped = yield* Deferred.make<void>();
+      const echoes: string[] = [];
+      yield* RpcServer.make(Group).pipe(
+        Effect.provide(
+          Group.toLayer({
+            echo: (text) =>
+              Effect.sync(() => {
+                echoes.push(text);
+                return text;
+              }),
+            listen: () =>
+              Stream.unwrap(
+                Deferred.succeed(listening, undefined).pipe(Effect.as(Stream.never)),
+              ).pipe(Stream.ensuring(Deferred.succeed(stopped, undefined))),
+            "server.probe": () => Effect.succeed("alive"),
+          }),
+        ),
+        Effect.provideService(RpcServer.Protocol, fixture.serverProtocol.protocol),
+        Effect.forkScoped,
+      );
+      const protocol = yield* makeRpcWebTransportClientProtocol(
+        yield* Fiber.join(fixture.prepareClient),
+      );
+      const client = yield* RpcClient.make(Group).pipe(
+        Effect.provideService(RpcClient.Protocol, protocol),
+      );
+      const subscription = yield* client.listen().pipe(Stream.runDrain, Effect.forkScoped);
+      yield* Deferred.await(listening);
+      const queued = yield* client.echo("cancelled").pipe(Effect.forkScoped);
+      yield* TestClock.adjust(0);
+      expect(queued.pollUnsafe()).toBeUndefined();
+      expect(fixture.opened()).toBe(2);
+      yield* Fiber.interrupt(queued);
+      expect(fixture.opened()).toBe(2);
+      expect(echoes).toEqual([]);
+      expect(yield* client["server.probe"]()).toBe("alive");
+      yield* Fiber.interrupt(subscription);
+      yield* Deferred.await(stopped);
+      expect(yield* client.echo("after")).toBe("after");
+      expect(echoes).toEqual(["after"]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("still closes the session on an unexpected peer reset during Request assembly", () =>
+    Effect.gen(function* () {
+      const fixture = yield* setup();
+      yield* fixture.serverProtocol.protocol.run(() => Effect.void).pipe(Effect.forkScoped);
+      yield* Fiber.join(fixture.prepareClient);
+      const stream = yield* transportTry((signal) =>
+        fixture.client.openBidirectionalStream(signal),
+      );
+      const channel = makeRpcWebTransportFrameChannel(
+        stream,
+        createTransportByteBudget(1024 * 1024),
+        createTransportByteBudget(1024 * 1024),
+        rpcWebTransportDefaultLimits,
+      );
+      yield* channel.writePreface("request");
+      stream.reset(1);
+      yield* fixture.serverProtocol.closed;
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect.each([
+    { write: 1, dispose: false },
+    { write: 2, dispose: false },
+    { write: 3, dispose: false },
+    { write: 3, dispose: true },
+  ])("keeps cancellation during initial Request write session-owned: %j", (test) =>
+    Effect.gen(function* () {
+      const owner = yield* Scope.make();
+      yield* Effect.addFinalizer((exit) => Scope.close(owner, exit));
+      yield* Effect.gen(function* () {
+        const pair = memorySessionPair({ neverAcknowledgeClose: true });
+        const blocked = yield* Deferred.make<void>();
+        const release = Promise.withResolvers<void>();
+        let opened = 0;
+        let resets = 0;
+        let abortedWrites = 0;
+        const fixture = yield* setup({
+          pair: {
+            ...pair,
+            client: {
+              ...pair.client,
+              async openBidirectionalStream(signal) {
+                const stream = await pair.client.openBidirectionalStream(signal);
+                if (opened++ !== 2) return stream;
+                let writes = 0;
+                return {
+                  ...stream,
+                  async write(bytes, signal) {
+                    if (++writes !== test.write) return stream.write(bytes, signal);
+                    Deferred.doneUnsafe(blocked, Effect.void);
+                    const abort = () => {
+                      abortedWrites++;
+                      release.reject(new Error("Gated write aborted"));
+                    };
+                    signal.addEventListener("abort", abort, { once: true });
+                    try {
+                      if (signal.aborted) abort();
+                      await release.promise;
+                      await stream.write(bytes, signal);
+                    } finally {
+                      signal.removeEventListener("abort", abort);
+                    }
+                  },
+                  reset(code) {
+                    resets++;
+                    stream.reset(code);
+                  },
+                };
+              },
+            },
+          },
+        });
+        const group = RpcGroup.make(
+          Rpc.make("listen", { success: Schema.String, stream: true }),
+          Rpc.make("upload", { payload: Schema.String, success: Schema.String }),
+          Rpc.make("server.probe", { success: Schema.String }),
+        );
+        const source = yield* Queue.make<string>();
+        const seen = yield* Queue.make<string>();
+        const interrupts = yield* Queue.make<RpcMessage.FromClientEncoded>();
+        let unrelatedInterrupted = false;
+        let sessionClosed = false;
+        yield* fixture.serverProtocol.closed.pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              sessionClosed = true;
+            }),
+          ),
+          Effect.forkScoped,
+        );
+        yield* RpcServer.make(group).pipe(
+          Effect.provide(
+            group.toLayer({
+              listen: () =>
+                Stream.fromQueue(source).pipe(
+                  Stream.ensuring(
+                    Effect.sync(() => {
+                      unrelatedInterrupted = true;
+                    }),
+                  ),
+                ),
+              upload: () => Effect.never,
+              "server.probe": () => Effect.succeed("alive"),
+            }),
+          ),
+          Effect.provideService(RpcServer.Protocol, {
+            ...fixture.serverProtocol.protocol,
+            run(receive) {
+              return fixture.serverProtocol.protocol.run((id, message) =>
+                (message._tag === "Interrupt"
+                  ? Queue.offer(interrupts, message)
+                  : Effect.void
+                ).pipe(Effect.andThen(receive(id, message))),
+              );
+            },
+          }),
+          Effect.forkScoped,
+        );
+        const protocol = yield* makeRpcWebTransportClientProtocol(
+          yield* Fiber.join(fixture.prepareClient),
+        );
+        const client = yield* RpcClient.make(group).pipe(
+          Effect.provideService(RpcClient.Protocol, protocol),
+        );
+        yield* client.listen().pipe(
+          Stream.runForEach((value) => Queue.offer(seen, value)),
+          Effect.forkScoped,
+        );
+        yield* Queue.offer(source, "before");
+        expect(yield* Queue.take(seen)).toBe("before");
+        const upload = yield* client.upload("cancelled").pipe(Effect.forkScoped);
+        yield* Deferred.await(blocked);
+        yield* Fiber.interrupt(upload);
+        expect(resets).toBe(0);
+        expect(abortedWrites).toBe(0);
+        expect(yield* client["server.probe"]()).toBe("alive");
+        if (!test.dispose) {
+          release.resolve();
+          expect((yield* Queue.take(interrupts))._tag).toBe("Interrupt");
+          expect(Queue.sizeUnsafe(interrupts)).toBe(0);
+          expect(yield* client["server.probe"]()).toBe("alive");
+          yield* Queue.offer(source, "after");
+          expect(yield* Queue.take(seen)).toBe("after");
+          expect(resets).toBe(0);
+          expect(sessionClosed).toBe(false);
+          expect(unrelatedInterrupted).toBe(false);
+        }
+        yield* Scope.close(owner, Exit.void);
+        if (test.dispose) expect(abortedWrites).toBe(1);
+        expect((yield* Effect.promise(() => fixture.client.closed)).category).toBe("closed");
+      }).pipe(Effect.provideService(Scope.Scope, owner));
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("publishes Ready only after the server receive callback is registered", () =>
     Effect.gen(function* () {
       const fixture = yield* setup();

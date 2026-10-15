@@ -159,11 +159,31 @@ export function lowerRpcWebTransportLimits(
   };
 }
 
-const acquire = (budget: TransportByteBudget, bytes: number) =>
-  Effect.acquireRelease(
-    Effect.try({ try: () => budget.acquire(bytes), catch: transportError }),
-    (lease) => Effect.sync(lease.release),
+const byteLeases = Effect.gen(function* () {
+  const live = new Set<TransportByteLease>();
+  yield* Effect.addFinalizer(() =>
+    Effect.sync(() => {
+      for (const lease of live) lease.release();
+    }),
   );
+  // A single scope finalizer owns only live leases. Released pull/header/scratch
+  // reservations must not leave one retained cleanup closure per past operation.
+  return (budget: TransportByteBudget, bytes: number) =>
+    Effect.try({
+      try: () => {
+        const underlying = budget.acquire(bytes);
+        const lease = {
+          release() {
+            underlying.release();
+            live.delete(lease);
+          },
+        };
+        live.add(lease);
+        return lease;
+      },
+      catch: transportError,
+    });
+});
 
 /** Version, flags, wire bytes, decoded bytes. Non-final records decode to exactly 64 KiB. */
 export const RPC_WEBTRANSPORT_RECORD_HEADER_BYTES = 10;
@@ -214,7 +234,12 @@ export function makeRpcWebTransportFrameChannel(
   accountStandardWebTransportReadBuffers(stream, input);
   const writer = Semaphore.makeUnsafe(1);
   let prefaceStarted: number | undefined;
-  const exact = Effect.fnUntraced(function* (size: number, allowFin = false, idle?: number) {
+  const exact = Effect.fnUntraced(function* (
+    acquire: Effect.Success<typeof byteLeases>,
+    size: number,
+    allowFin = false,
+    idle?: number,
+  ) {
     const lease = yield* acquire(input, size);
     const bytes = new Uint8Array(size);
     let offset = 0;
@@ -256,8 +281,13 @@ export function makeRpcWebTransportFrameChannel(
       if (!handedOff) lease.release();
     }
   });
-  const header = Effect.fnUntraced(function* (first: boolean, allowFin: boolean) {
+  const header = Effect.fnUntraced(function* (
+    acquire: Effect.Success<typeof byteLeases>,
+    first: boolean,
+    allowFin: boolean,
+  ) {
     const effect = exact(
+      acquire,
       RPC_WEBTRANSPORT_RECORD_HEADER_BYTES,
       allowFin,
       allowFin ? undefined : defaults.assemblyIdleTimeoutMs,
@@ -279,8 +309,9 @@ export function makeRpcWebTransportFrameChannel(
   return {
     readPreface: () =>
       Effect.gen(function* () {
+        const acquire = yield* byteLeases;
         prefaceStarted = yield* Clock.currentTimeMillis;
-        const item = yield* exact(5).pipe(
+        const item = yield* exact(acquire, 5).pipe(
           Effect.timeoutOrElse({
             duration: defaults.streamPrefaceTimeoutMs,
             orElse: () => Effect.fail(protocolFailure("Missing stream preface")),
@@ -307,12 +338,13 @@ export function makeRpcWebTransportFrameChannel(
       ),
     read: (options = {}) =>
       Effect.gen(function* () {
+        const acquire = yield* byteLeases;
         const chunks: Array<{ bytes: Uint8Array; lease: TransportByteLease }> = [];
         let total = 0;
         let assembly: TransportByteLease | undefined;
         try {
           for (let record = 0; ; record++) {
-            const h = yield* header(options.first === true && record === 0, record === 0);
+            const h = yield* header(acquire, options.first === true && record === 0, record === 0);
             if (!h) return null;
             let wire: number, decoded: number, flags: number;
             try {
@@ -338,7 +370,7 @@ export function makeRpcWebTransportFrameChannel(
             } finally {
               h.lease.release();
             }
-            const body = yield* exact(wire, false, defaults.assemblyIdleTimeoutMs);
+            const body = yield* exact(acquire, wire, false, defaults.assemblyIdleTimeoutMs);
             if (!body) return yield* Effect.fail(protocolFailure("Missing record body"));
             if ((flags & 2) === 0) chunks.push(body);
             else {
@@ -386,6 +418,7 @@ export function makeRpcWebTransportFrameChannel(
     write: (value, control = false) =>
       writer.withPermits(1)(
         Effect.gen(function* () {
+          const acquire = yield* byteLeases;
           const text = yield* encodeJson(value).pipe(
             Effect.mapError(() => protocolFailure("Cannot serialize RPC message")),
           );
