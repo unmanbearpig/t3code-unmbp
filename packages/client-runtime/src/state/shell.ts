@@ -118,12 +118,6 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     error: Option.none(),
   });
   let activeSubscription: ShellSubscription | undefined;
-  if (snapshotLoader.registerWarmBase !== undefined) {
-    yield* snapshotLoader.registerWarmBase(
-      environmentId,
-      Effect.sync(() => activeSubscription?.synchronized === true),
-    );
-  }
   const latestLiveSnapshot = yield* Ref.make<Option.Option<OrchestrationV2ShellSnapshot>>(
     Option.none(),
   );
@@ -458,9 +452,6 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
             subscription.environment.orchestrationProtocolVersion;
         subscription.authoritative = canResume;
         let current = yield* SubscriptionRef.get(state);
-        if (canResume && Option.isSome(current.snapshot)) {
-          yield* snapshotLoader.cancelPrefetch?.(environmentId) ?? Effect.void;
-        }
         if (!canResume || Option.isNone(current.snapshot)) {
           subscription.authoritative = false;
           const prepared = yield* SubscriptionRef.get(supervisor.prepared).pipe(
