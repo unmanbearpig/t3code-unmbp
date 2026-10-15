@@ -17,7 +17,13 @@ import type {
 import { ConnectionTransientError } from "./model.ts";
 import * as ConnectionResolver from "./resolver.ts";
 import * as ConnectionDescriptors from "./descriptors.ts";
-import { connectionRouteId, connectionRoutes, routeEntry, routeHttpBaseUrl, routeHelloEndpoint } from "./routes.ts";
+import {
+  connectionRouteId,
+  connectionRoutes,
+  routeEntry,
+  routeHttpBaseUrl,
+  routeHelloEndpoint,
+} from "./routes.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as RemoteAuthorization from "../authorization/service.ts";
 import * as RpcSession from "../rpc/session.ts";
@@ -261,10 +267,17 @@ export const make = Effect.gen(function* () {
     // legacy fallback and identity checks also apply after a failed quick probe.
     const endpoint = routeHelloEndpoint(connectionRoutes(entry)[0]!);
     if (
-      endpoint !== null && helloSupport !== undefined &&
-      (yield* helloSupport.has(entry.target.environmentId, endpoint.httpBaseUrl, endpoint.wsBaseUrl))
+      endpoint !== null &&
+      helloSupport !== undefined &&
+      (yield* helloSupport.has(
+        entry.target.environmentId,
+        endpoint.httpBaseUrl,
+        endpoint.wsBaseUrl,
+      ))
     ) {
-      return { connect: (reportProgress) => connect(entry, reportProgress) } satisfies ConnectionPreparation;
+      return {
+        connect: (reportProgress) => connect(entry, reportProgress),
+      } satisfies ConnectionPreparation;
     }
     const descriptorScope = yield* Scope.Scope;
     const preparation = yield* prepareOverRoutes(
@@ -277,10 +290,13 @@ export const make = Effect.gen(function* () {
       Effect.provideService(HttpClient.HttpClient, httpClient),
     );
     return {
-      connect: (reportProgress) => preparation.connect(reportProgress).pipe(
-        ConnectionDescriptors.withConnectionDescriptors,
-        Effect.provideService(HttpClient.HttpClient, httpClient),
-      ),
+      connect: (reportProgress) =>
+        preparation
+          .connect(reportProgress)
+          .pipe(
+            ConnectionDescriptors.withConnectionDescriptors,
+            Effect.provideService(HttpClient.HttpClient, httpClient),
+          ),
     } satisfies ConnectionPreparation;
   });
 
@@ -404,7 +420,6 @@ export const make = Effect.gen(function* () {
     checkRoute,
     preflight,
   });
-
 });
 
 export const layer = Layer.effect(ConnectionDriver, make);

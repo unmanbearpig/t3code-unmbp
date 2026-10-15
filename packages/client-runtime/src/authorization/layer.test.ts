@@ -1825,6 +1825,44 @@ describe("Opt-in server-first hello preparation", () => {
         }).pipe(Effect.provide(h.layer));
       }),
   );
+  it.effect.each([false, true])(
+    "keeps cached hello preparation free of HTTP and retains fallback: %s",
+    (fallback) =>
+      Effect.gen(function* () {
+        const h = yield* makeConnectionHarness({
+          helloEnabled: true,
+          responses: fallback ? [Response.json(DESCRIPTOR), websocketTicket("fallback")] : [],
+          sessionReady: (_, index) =>
+            fallback && index === 1
+              ? Effect.fail(
+                  new ConnectionTransientError({
+                    reason: "transport",
+                    detail: "No Hello",
+                    helloFallback: true,
+                  }),
+                )
+              : Effect.void,
+        });
+        yield* Effect.gen(function* () {
+          const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+          yield* remote.helloSupport!.remember(
+            ENDPOINT.httpBaseUrl,
+            ENDPOINT.wsBaseUrl,
+            advertised,
+          );
+          const driver = yield* ConnectionDriver.ConnectionDriver;
+          const preparation = yield* driver.prepare(connectionEntry([bearerRoute("first")]));
+          expect(requestSequence(h)).toEqual([]);
+          expect(h.opened).toHaveLength(0);
+          const connected = yield* preparation.connect(() => Effect.void);
+          expect(connected.prepared.handshake?._tag).toBe(fallback ? "Legacy" : "Hello");
+          expect(h.opened.map((p) => p.handshake?._tag)).toEqual(
+            fallback ? ["Hello", "Legacy"] : ["Hello"],
+          );
+          expect(requestSequence(h)).toHaveLength(fallback ? 2 : 0);
+        }).pipe(Effect.provide(h.layer));
+      }),
+  );
   it.effect("skips route probes on every cached H endpoint", () =>
     Effect.gen(function* () {
       const other = "https://other.example.test";
