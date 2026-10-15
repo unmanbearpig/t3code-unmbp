@@ -1107,41 +1107,21 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
     // (including cached null). Cold/failed roots stay unmarked and use
     // the PubSub enrichment path when they complete later.
     const completionMarker =
-      input.requestCompletionMarker === true
-        ? Stream.make({ kind: "synchronized" as const })
-        : Stream.empty;
+      input.requestCompletionMarker === true ? { kind: "synchronized" as const } : undefined;
     const initialSnapshotItems = (loaded: {
       readonly snapshot: OrchestrationV2ShellSnapshot;
       readonly resolvedRepositoryIdentityRoots: ReadonlyArray<string>;
-    }) =>
-      rpcInitialItems(
-        shellStreamItemsFromInitialSnapshot({
-          snapshot: loaded.snapshot,
-          resolvedRepositoryIdentityRoots: loaded.resolvedRepositoryIdentityRoots,
-        }),
-      );
-    const initialEnrichmentItems = (loaded: {
-      readonly snapshot: OrchestrationV2ShellSnapshot;
-      readonly resolvedRepositoryIdentityRoots: ReadonlyArray<string>;
-    }) =>
-      rpcInitialItems(
-        shellStreamItemsFromResumeSnapshot({
-          snapshot: loaded.snapshot,
-          resolvedRepositoryIdentityRoots: loaded.resolvedRepositoryIdentityRoots,
-        }),
-      );
-    // Initial unmarked (+ optional same-load marked) always drains first.
+    }) => rpcInitialItems(shellStreamItemsFromInitialSnapshot(loaded), completionMarker);
+    // Initial items and any requested completion marker always drain first.
     // Enrichment merges only with the post-prefix tail so a ready marked
     // refresh cannot interleave before the authoritative initial frame.
-    const completionThenLive = (afterSequence: number) =>
-      Stream.concat(completionMarker, liveFrom(afterSequence));
 
     const stream = yield* Effect.gen(function* () {
       if (input.afterSequence === undefined) {
         const loaded = yield* loadSnapshot();
         return composeShellStreamWithEnrichment({
           initial: initialSnapshotItems(loaded),
-          tail: completionThenLive(loaded.snapshot.snapshotSequence),
+          tail: liveFrom(loaded.snapshot.snapshotSequence),
           enrichment: enrichmentRefreshes,
         });
       }
@@ -1151,12 +1131,13 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
         const loaded = yield* loadSnapshot();
         return composeShellStreamWithEnrichment({
           initial: initialSnapshotItems(loaded),
-          tail: completionThenLive(loaded.snapshot.snapshotSequence),
+          tail: liveFrom(loaded.snapshot.snapshotSequence),
           enrichment: enrichmentRefreshes,
         });
       }
 
       const loaded = yield* loadProjectMetadataSnapshot(highWater);
+      const initial = shellStreamItemsFromResumeSnapshot(loaded);
       const replay = toShellStream(
         applicationEvents.readApplicationEvents({
           afterSequence: input.afterSequence,
@@ -1167,9 +1148,18 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
           skipUnknownEventTypes: true,
         }),
       );
+      if (completionMarker !== undefined) {
+        // Collect the bounded replay so metadata, deltas and completion share one RPC chunk.
+        const replayItems = yield* Stream.runCollect(replay);
+        return composeShellStreamWithEnrichment({
+          initial: rpcInitialItems([...initial, ...replayItems], completionMarker),
+          tail: liveFrom(highWater),
+          enrichment: enrichmentRefreshes,
+        });
+      }
       return composeShellStreamWithEnrichment({
-        initial: initialEnrichmentItems(loaded),
-        tail: Stream.concat(Stream.concat(replay, completionMarker), liveFrom(highWater)),
+        initial: rpcInitialItems(initial),
+        tail: Stream.concat(replay, liveFrom(highWater)),
         enrichment: enrichmentRefreshes,
       });
     }).pipe(
