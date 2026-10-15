@@ -3,6 +3,7 @@ import {
   authScopeResponse,
   AuthAdministrativeScopes,
   AuthStandardClientScopes,
+  ORCHESTRATION_PROTOCOL_VERSION,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -713,6 +714,7 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       );
       const headerSession = yield* serverAuth.authenticateWebSocketUpgrade(headerRequest);
       const ticket = yield* serverAuth.issueWebSocketTicket(headerSession);
+      expect(ticket.orchestrationProtocolVersion).toBe(ORCHESTRATION_PROTOCOL_VERSION);
       url.searchParams.set("wsTicket", ticket.ticket);
       const ticketRequest = HttpServerRequest.fromWeb(new Request(url));
       const ticketSession = yield* serverAuth.authenticateWebSocketUpgrade(ticketRequest);

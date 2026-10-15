@@ -62,6 +62,7 @@ import {
   withoutEnvironmentThemes,
 } from "../state/serverConfigProjection.ts";
 import { environmentMismatchError, mapRemoteEnvironmentError } from "../connection/errors.ts";
+import { orchestrationProtocolCompatibilityError } from "../connection/compatibility.ts";
 
 export interface RpcSession {
   /** Selected protocol, for runtime diagnostics without exposing admission URLs. */
@@ -222,7 +223,15 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
           }).pipe(
             Effect.match({
               onFailure: (error) => Option.some(mapRemoteEnvironmentError(error)),
-              onSuccess: () => Option.none<ConnectionAttemptError>(),
+              onSuccess: (issued) =>
+                issued.orchestrationProtocolVersion === undefined
+                  ? Option.none<ConnectionAttemptError>()
+                  : Option.fromNullishOr(
+                      orchestrationProtocolCompatibilityError({
+                        label: connection.label,
+                        orchestrationProtocolVersion: issued.orchestrationProtocolVersion,
+                      }),
+                    ),
             }),
             Effect.provideService(HttpClient.HttpClient, httpClient),
           )
@@ -359,9 +368,14 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     const protocolContext =
       selected ??
       (yield* Effect.gen(function* () {
-        const layerSocket = webSocketLayer(connection, () => {
-          socketOpened = true;
-        });
+        const layerSocket = webSocketLayer(
+          connection,
+          usesBearerUpgradeHeaders
+            ? () => {
+                socketOpened = true;
+              }
+            : undefined,
+        );
         const layerProtocol = Layer.effect(
           RpcClient.Protocol,
           RpcClient.makeProtocolSocket({
