@@ -17,11 +17,11 @@ Pod::Spec.new do |s|
   s.libraries = 't3_quic'
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
-    'LIBRARY_SEARCH_PATHS' => '$(inherited) "$(PODS_TARGET_SRCROOT)/build/ios/$(PLATFORM_NAME)"',
+    'LIBRARY_SEARCH_PATHS' => '$(inherited) "$(PODS_CONFIGURATION_BUILD_DIR)/T3Quic-native"',
     'ENABLE_USER_SCRIPT_SANDBOXING' => 'NO',
   }
   s.user_target_xcconfig = {
-    'LIBRARY_SEARCH_PATHS' => "$(inherited) \"#{__dir__}/build/ios/$(PLATFORM_NAME)\"",
+    'LIBRARY_SEARCH_PATHS' => '$(inherited) "$(PODS_CONFIGURATION_BUILD_DIR)/T3Quic-native"',
   }
   s.script_phase = {
     :name => 'Build T3 QUIC',
@@ -31,7 +31,8 @@ Pod::Spec.new do |s|
       set -eu
       if [ -f "${PODS_ROOT}/../.xcode.env" ]; then . "${PODS_ROOT}/../.xcode.env"; fi
       if [ -f "${PODS_ROOT}/../.xcode.env.local" ]; then . "${PODS_ROOT}/../.xcode.env.local"; fi
-      "${NODE_BINARY:-node}" "${PODS_TARGET_SRCROOT}/scripts/prepare-native.mjs" ios
+      "${NODE_BINARY:-node}" "${PODS_TARGET_SRCROOT}/scripts/prepare-native.mjs" ios \\
+        --output "${PODS_CONFIGURATION_BUILD_DIR}/T3Quic-native/libt3_quic.a"
     SH
   }
 end
