@@ -49,11 +49,14 @@ import {
 } from "./compatibility.ts";
 import { credentialConnectionId } from "./routes.ts";
 
+type PreparationPurpose = "connect" | "preflight";
+
 export class ConnectionResolver extends Context.Service<
   ConnectionResolver,
   {
     readonly prepare: (
       entry: ConnectionCatalogEntry,
+      purpose?: PreparationPurpose,
     ) => Effect.Effect<PreparedConnection, ConnectionAttemptError>;
     /**
      * Authorizes a socket without the orchestration protocol gate, for hosts
@@ -92,6 +95,7 @@ const makePrimaryBroker = Effect.fn("clientRuntime.connection.broker.makePrimary
 
   return Effect.fn("clientRuntime.connection.broker.primary")(function* (
     target: PrimaryConnectionTarget,
+    purpose: PreparationPurpose,
   ) {
     const bearerToken = yield* auth.bearerToken;
     if (Option.isNone(bearerToken)) {
@@ -111,6 +115,7 @@ const makePrimaryBroker = Effect.fn("clientRuntime.connection.broker.makePrimary
       wsBaseUrl: target.wsBaseUrl,
       bearerToken: bearerToken.value,
       connectionMethod: "direct",
+      purpose,
     });
     return {
       ...authorized,
@@ -125,6 +130,7 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
 
   return Effect.fn("clientRuntime.connection.broker.bearer")(function* (
     entry: ConnectionCatalogEntry & { readonly target: BearerConnectionTarget },
+    purpose: PreparationPurpose,
   ) {
     const target = entry.target;
     const profile = yield* Effect.fromOption(entry.profile, () =>
@@ -167,6 +173,7 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
       wsBaseUrl: profile.wsBaseUrl,
       bearerToken: credential.token,
       connectionMethod: "direct",
+      purpose,
     });
     return {
       ...authorized,
@@ -200,6 +207,7 @@ const makeSshBroker = Effect.fn("clientRuntime.connection.broker.makeSsh")(funct
 
   return Effect.fn("clientRuntime.connection.broker.ssh")(function* (
     entry: ConnectionCatalogEntry & { readonly target: SshConnectionTarget },
+    purpose: PreparationPurpose,
   ) {
     const target = entry.target;
     const profile = yield* Effect.fromOption(entry.profile, () =>
@@ -242,6 +250,7 @@ const makeSshBroker = Effect.fn("clientRuntime.connection.broker.makeSsh")(funct
       wsBaseUrl: prepared.bootstrap.wsBaseUrl,
       bearerToken: prepared.bearerToken,
       connectionMethod: "ssh",
+      purpose,
     });
     return {
       ...authorized,
@@ -262,6 +271,7 @@ export const make = Effect.gen(function* () {
 
   const authorize = Effect.fn("clientRuntime.connection.broker.authorize")(function* (
     entry: ConnectionCatalogEntry,
+    purpose: PreparationPurpose = "connect",
   ) {
     const target: ConnectionTarget = entry.target;
     yield* Effect.annotateCurrentSpan({
@@ -271,13 +281,13 @@ export const make = Effect.gen(function* () {
     const prepared: PreparedConnection = yield* (() => {
       switch (target._tag) {
         case "PrimaryConnectionTarget":
-          return primary(target);
+          return primary(target, purpose);
         case "BearerConnectionTarget":
-          return bearer({ ...entry, target });
+          return bearer({ ...entry, target }, purpose);
         case "RelayConnectionTarget":
           return relay(target);
         case "SshConnectionTarget":
-          return ssh({ ...entry, target });
+          return ssh({ ...entry, target }, purpose);
       }
     })();
     const descriptor = yield* ConnectionDescriptors.fetch(prepared.httpBaseUrl).pipe(
@@ -295,8 +305,9 @@ export const make = Effect.gen(function* () {
 
   const prepare = Effect.fn("clientRuntime.connection.broker.prepare")(function* (
     entry: ConnectionCatalogEntry,
+    purpose: PreparationPurpose = "connect",
   ) {
-    const { prepared, descriptor } = yield* authorize(entry);
+    const { prepared, descriptor } = yield* authorize(entry, purpose);
     const compatibilityError = orchestrationProtocolCompatibilityError(descriptor);
     if (compatibilityError !== null) {
       return yield* compatibilityError;
@@ -334,8 +345,8 @@ export const make = Effect.gen(function* () {
   });
 
   return ConnectionResolver.of({
-    prepare: (entry) =>
-      prepare(entry).pipe(
+    prepare: (entry, purpose) =>
+      prepare(entry, purpose).pipe(
         ConnectionDescriptors.withConnectionDescriptors,
         Effect.provideService(HttpClient.HttpClient, httpClient),
       ),

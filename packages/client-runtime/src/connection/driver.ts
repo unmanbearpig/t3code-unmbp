@@ -193,7 +193,7 @@ export const make = Effect.gen(function* () {
       entry,
       (route) => checkRoute(entry, route, descriptorScope),
       Effect.fnUntraced(function* (route) {
-        const prepared = yield* resolver.prepare(routeEntry(entry, route));
+        const prepared = yield* resolver.prepare(routeEntry(entry, route), "preflight");
         yield* reportProgress({ stage: "opening", prepared });
         const session = yield* sessions.connect(prepared);
         yield* reportProgress({ stage: "synchronizing", prepared });
@@ -210,7 +210,7 @@ export const make = Effect.gen(function* () {
         return yield* checkRoute(entry, route, descriptorScope).pipe(
           Effect.flatMap((check) =>
             check === "answered"
-              ? resolver.prepare(routeEntry(entry, route)).pipe(
+              ? resolver.prepare(routeEntry(entry, route), "preflight").pipe(
                   Effect.as(true),
                   Effect.orElseSucceed(() => false),
                 )
