@@ -34,6 +34,8 @@ import {
   caseId,
   makeCurrentOperationSuitePlan,
   makeOperationSuitePlan,
+  makeOperationSuiteV5Plan,
+  makeOperationControlsSuitePlan,
   makeSuitePlan,
 } from "./suite.ts";
 
@@ -236,8 +238,9 @@ function operationResults(value = 100): SuiteResults {
 }
 
 it("uses independent loss draws, every critical drop phase, TLS controls, and warm pools", () => {
-  const plan = makeCurrentOperationSuitePlan();
-  assert.deepEqual(plan, makeCurrentOperationSuitePlan());
+  const plan = makeOperationSuiteV5Plan();
+  assert.deepEqual(plan, makeOperationSuiteV5Plan());
+  assert.equal(plan.hash, "2b84bed34fac359a825e6cd2cc94849cccc3d152bbe4c35b9f9ac59755520c4c");
   assert.equal(plan.cases.length, 990);
   assert.equal(new Set(plan.cases.map(caseId)).size, 990);
   for (const scenario of ["loss2", "loss5", "nth20-drop"]) {
@@ -280,6 +283,53 @@ it("uses independent loss draws, every critical drop phase, TLS controls, and wa
   validateSuiteResults(result);
   const warm = compareSuites(result, result).filter((g) => g.case.endsWith("/warm"));
   assert.equal(warm.length, 12);
+});
+
+it("balances every critical transport pair and isolates HTTP compression controls", () => {
+  const plan = makeCurrentOperationSuitePlan();
+  assert.equal(plan.cases.length, 1062);
+  assert.equal(new Set(plan.cases.map(caseId)).size, 1062);
+  for (const scenario of ["loss2", "loss5", "nth20-drop"]) {
+    for (const workload of ["sync-five", "open-new", "reconnect-replay"]) {
+      const pair = plan.cases.filter(
+        (entry) =>
+          entry.scenario.name === scenario &&
+          entry.workload === workload &&
+          ["rpc-wss", "rpc-wt"].includes(entry.transport),
+      );
+      assert.equal(pair.length, 40);
+      assert.equal(
+        pair.filter((entry, index) => index % 2 === 0 && entry.transport === "rpc-wss").length,
+        10,
+      );
+    }
+  }
+  const control = makeOperationControlsSuitePlan();
+  assert.equal(control.cases.length, 432);
+  const compression = control.cases.filter((entry) => entry.httpEncoding !== undefined);
+  assert.equal(compression.length, 72);
+  assert.isTrue(compression.every((entry) => entry.transport === "rpc-wss"));
+  const result: SuiteResults = {
+    ...operationResults(),
+    suite: { hash: control.hash },
+    rows: control.cases.map((entry) => ({
+      ...entry,
+      scenario: entry.scenario.name,
+      seed: entry.seed!,
+      metrics: {
+        operationMs: 100,
+        linkTxBytes: 10000,
+        linkTxPackets: 100,
+        loadedMessages: 20,
+        totalMessages: 100,
+      },
+    })),
+  };
+  validateSuiteResults(result);
+  assert.equal(
+    compareSuites(result, result).filter((group) => /\/(gzip|br)$/.test(group.case)).length,
+    24,
+  );
 });
 
 it("fixes every operation, network profile, transport, and repetition independently of the old suite", () => {

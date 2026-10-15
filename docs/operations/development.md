@@ -59,15 +59,18 @@ vp run bench:network
 vp run bench:network --dry-run
 ```
 
-The fixed `operations-v5` suite runs 990 cases across six operations, nine network
+The fixed `operations-v6` suite runs 1,062 cases across six operations, nine network
 profiles, and four RPC transport variants. Messages contain 2,000 characters
 of deterministic, distinct text. Each user/assistant pair has a completed run and
 visible conversation items. The manifest fixes independent netem seeds and rotates transport order.
 Most cells use three seeds. For `sync-five`, `open-new`, and `reconnect-replay`, the
 TLS WebSocket and single-stream QUIC cells use 20 seeds under 2%/5% loss and all 20
 phases of the every-twentieth-packet drop. The every-third-packet delay covers all
-three phases. Additional thread opens use warm HTTP pools under clean, WAN, and
-high-latency profiles. The runner
+three phases. Critical WSS/QUIC pairs alternate their first transport evenly.
+Additional thread opens use warm HTTP pools under clean, WAN, and high-latency
+profiles. Snapshot controls compare gzip and production's existing Brotli encoding
+over H1/H3 with WSS fixed. Each response must use the requested encoding; its
+compressed body bytes are recorded. The runner
 sets a 60-second deadline per case including setup, and starts a fresh server with an
 in-memory database. Setup and teardown contribute to suite duration but are excluded
 from the operation timing. Workload settings cannot be overridden in suite mode.
@@ -165,7 +168,7 @@ HTTP/2 fallback; their RPC streams still deliver data reliably. Compare complete
 with production WebSocket deflate when judging the proposed implementation; the
 synthetic transport suite retains its uncompressed controls. Uncached thread
 snapshots use HTTPS/HTTP/1.1 for the WebSocket variants and HTTP/3 for WebTransport.
-Both use libcurl, the same fixture certificate, Caddy, and the production gzip route
+Both use libcurl, the same fixture certificate, Caddy, and production compression
 over a Unix socket, so the proxy introduces no additional counted TCP hop. The client
 forces the protocol and verifies it at both ends; HTTP/3 never silently falls back.
 Each case owns its connection pool. HTTP handshake, first-byte, and total request
@@ -182,9 +185,12 @@ measures that implementation, not a browser sharing one QUIC connection. It rema
 an experimental benchmark path; production clients still use their existing transports.
 For a protocol-only snapshot comparison, keep the RPC transport unchanged and rerun
 a manual experiment with `--http-protocol h1` and `--http-protocol h3`.
-Manual `--http-pool warm` opens, independent `--seed-list` runs, and
+Manual `--http-encoding br`, `--http-pool warm` opens, independent `--seed-list` runs, and
 `--tcp-initcwnd 32` attribution controls are recorded separately. The TCP window
 control changes only the private namespace's route and does not tune the fixed suite.
+The `operations-v6-controls` suite contains the 432 balanced critical-pair and
+compression-control cases for targeted confirmation. `operations-v5` remains
+available with its original 990-case manifest.
 
 For a targeted experiment, call the runner directly. Manual flags do not change the fixed
 suite:

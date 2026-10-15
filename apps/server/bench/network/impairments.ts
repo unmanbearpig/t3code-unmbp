@@ -21,6 +21,21 @@ export interface Scenario {
   readonly nthDelay?: { readonly every: number; readonly extraMs: number };
 }
 
+/** A priming offset must drain before any periodic drop and cannot tolerate stochastic loss. */
+export function validatePacketPhase(phase: number, scenarios: readonly Scenario[]) {
+  if (!Number.isSafeInteger(phase) || phase < 0)
+    throw new Error("--packet-phase must be a nonnegative safe integer");
+  for (const scenario of scenarios) {
+    const intervals = [scenario.nthDrop, scenario.nthDelay?.every].filter(
+      (interval): interval is number => interval !== undefined,
+    );
+    if (!intervals.length || intervals.some((interval) => phase >= interval))
+      throw new Error("--packet-phase must be below every selected periodic interval");
+    if (phase > 0 && scenario.loss !== undefined)
+      throw new Error("Packet phase priming cannot be combined with stochastic loss");
+  }
+}
+
 export const presets: ReadonlyArray<Scenario> = [
   { name: "clean" },
   { name: "wan", delayMs: 25 },

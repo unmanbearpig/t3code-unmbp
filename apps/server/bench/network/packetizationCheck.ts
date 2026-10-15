@@ -39,6 +39,13 @@ export function verifyPacketImpairments() {
       );
     }
   }
+  for (const [scenario, phase] of [
+    [{ name: "jitter-prime", delayMs: 25, jitterMs: 20, nthDrop: 20 }, 19],
+    [{ name: "large-prime", nthDrop: 300 }, 257],
+  ] as const) {
+    applyScenario(scenario, 104729, true);
+    primePacketPhase(phase);
+  }
   applyScenario({ name: "clean" }, undefined, true);
 }
 

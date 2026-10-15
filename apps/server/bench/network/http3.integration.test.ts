@@ -88,33 +88,41 @@ const serverFixture = Effect.fnUntraced(function* (
   return { server, url: "https://127.0.0.1:" + port + "/snapshot" };
 });
 
-it.effect.skipIf(process.env.NETBENCH_INTEGRATION !== "1")(
-  "decodes gzip and reuses a connection only within its own logical client",
-  () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const tls = yield* tlsFixture;
-        const body = { text: "Message with Unicode 🌍", messages: 20 };
-        const { url } = yield* serverFixture(tls, (request, response) => {
-          response.setHeader("X-Netbench-Protocol", "HTTP/" + request.httpVersion);
-          response.setHeader("Content-Encoding", "gzip");
-          response.end(NodeZlib.gzipSync(JSON.stringify(body)));
-        });
-        const record = new Recorder();
-        const client = yield* makeSnapshotHttpClient("h1", tls, record);
-        assert.deepEqual(yield* (yield* client.get(url)).json, body);
-        assert.equal(record.metrics().httpNewConnections, 1);
-        const connection = record.metrics().httpConnectionId;
-        assert.deepEqual(yield* (yield* client.get(url)).json, body);
-        assert.equal(record.metrics().httpNewConnections, 0);
-        assert.equal(record.metrics().httpConnectionId, connection);
-        const isolatedRecord = new Recorder();
-        const isolated = yield* makeSnapshotHttpClient("h1", tls, isolatedRecord);
-        assert.deepEqual(yield* (yield* isolated.get(url)).json, body);
-        assert.equal(isolatedRecord.metrics().httpNewConnections, 1);
-      }),
-    ),
-);
+for (const encoding of ["gzip", "br"] as const)
+  it.effect.skipIf(process.env.NETBENCH_INTEGRATION !== "1")(
+    `decodes ${encoding}, counts compressed bytes, and reuses only its own connection`,
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const tls = yield* tlsFixture;
+          const body = { text: "Message with Unicode 🌍", messages: 20 };
+          const compressed =
+            encoding === "gzip"
+              ? NodeZlib.gzipSync(JSON.stringify(body))
+              : NodeZlib.brotliCompressSync(JSON.stringify(body));
+          const { url } = yield* serverFixture(tls, (request, response) => {
+            assert.equal(request.headers["accept-encoding"], encoding);
+            response.setHeader("X-Netbench-Protocol", "HTTP/" + request.httpVersion);
+            response.setHeader("Content-Encoding", encoding);
+            response.end(compressed);
+          });
+          const record = new Recorder();
+          const client = yield* makeSnapshotHttpClient("h1", tls, record, encoding);
+          assert.deepEqual(yield* (yield* client.get(url)).json, body);
+          assert.equal(record.metrics().httpEncoding, encoding);
+          assert.equal(record.metrics().httpCompressedBytes, compressed.length);
+          assert.equal(record.metrics().httpNewConnections, 1);
+          const connection = record.metrics().httpConnectionId;
+          assert.deepEqual(yield* (yield* client.get(url)).json, body);
+          assert.equal(record.metrics().httpNewConnections, 0);
+          assert.equal(record.metrics().httpConnectionId, connection);
+          const isolatedRecord = new Recorder();
+          const isolated = yield* makeSnapshotHttpClient("h1", tls, isolatedRecord, encoding);
+          assert.deepEqual(yield* (yield* isolated.get(url)).json, body);
+          assert.equal(isolatedRecord.metrics().httpNewConnections, 1);
+        }),
+      ),
+  );
 
 it.effect.skipIf(process.env.NETBENCH_INTEGRATION !== "1")(
   "interrupts an in-flight native request without late unhandled errors",

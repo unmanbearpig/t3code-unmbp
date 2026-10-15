@@ -48,7 +48,12 @@ import {
   type OperationName,
 } from "./operationsFixture.ts";
 import type { Recorder } from "./workloads.ts";
-import { makeSnapshotHttpClient, snapshotPort, type SnapshotHttpProtocol } from "./http3.ts";
+import {
+  makeSnapshotHttpClient,
+  snapshotPort,
+  type SnapshotHttpProtocol,
+  type SnapshotHttpEncoding,
+} from "./http3.ts";
 import { operationRpcCompression, operationRpcSerialization } from "./operationsRpc.ts";
 
 /** Counts IP traffic in both directions, including TCP/QUIC headers and retransmissions. */
@@ -166,6 +171,7 @@ export const runOperation = Effect.fnUntraced(function* (
   control: OperationControl,
   httpProtocol?: SnapshotHttpProtocol,
   httpPool: "cold" | "warm" = "cold",
+  httpEncoding: SnapshotHttpEncoding = "gzip",
 ) {
   const scope = yield* Effect.scope;
   record.set("phase", "setup");
@@ -195,6 +201,7 @@ export const runOperation = Effect.fnUntraced(function* (
     httpProtocol ?? (transport.startsWith("rpc-wt") ? "h3" : "h1"),
     tls,
     record,
+    httpEncoding,
   );
   const target = new PrimaryConnectionTarget({
     environmentId: operationServerConfig.environment.environmentId,

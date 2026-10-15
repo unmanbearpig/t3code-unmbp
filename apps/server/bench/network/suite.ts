@@ -57,6 +57,8 @@ export interface BenchCase {
   readonly timeoutMs: number;
   readonly httpPool?: "cold" | "warm";
   readonly packetPhase?: number;
+  readonly httpProtocol?: "h1" | "h3";
+  readonly httpEncoding?: "gzip" | "br";
 }
 
 export const caseId = (
@@ -70,7 +72,9 @@ export const caseId = (
     entry.repetition,
   ].join("/") +
   (entry.httpPool === "warm" ? "/warm" : "") +
-  (entry.packetPhase !== undefined ? `/phase-${entry.packetPhase}` : "");
+  (entry.packetPhase !== undefined ? `/phase-${entry.packetPhase}` : "") +
+  (entry.httpProtocol !== undefined ? `/${entry.httpProtocol}` : "") +
+  (entry.httpEncoding !== undefined ? `/${entry.httpEncoding}` : "");
 
 /** The complete ordered matrix is saved, so missing or duplicated cases cannot look complete. */
 export function makeSuitePlan() {
@@ -158,7 +162,7 @@ export function makeOperationSuitePlan() {
 }
 
 /** Fixed independent draws; critical loss cells and periodic phases get broader coverage. */
-export function makeCurrentOperationSuitePlan() {
+export function makeOperationSuiteV5Plan() {
   const { hash: _hash, cases: _cases, ...legacy } = makeOperationSuitePlan();
   const seeds = [
     104729, 130363, 155921, 181081, 206369, 231701, 257053, 282511, 308087, 333667, 359357, 385039,
@@ -231,6 +235,88 @@ export function makeCurrentOperationSuitePlan() {
     websocketClient: "node-ws-common-plain-and-tls1.3-verified",
     cases,
   } as const;
+  return {
+    hash: NodeCrypto.createHash("sha256").update(JSON.stringify(definition)).digest("hex"),
+    ...definition,
+  };
+}
+
+/** Preserve v5's observations while balancing critical pairs and measuring existing Brotli support. */
+export function makeCurrentOperationSuitePlan() {
+  const { hash: _hash, ...previous } = makeOperationSuiteV5Plan();
+  const cases: BenchCase[] = [];
+  for (const scenario of presets) {
+    for (const workload of operationNames) {
+      const group = previous.cases.filter(
+        (entry) =>
+          entry.scenario.name === scenario.name && entry.workload === workload && !entry.httpPool,
+      );
+      if (
+        !["sync-five", "open-new", "reconnect-replay"].includes(workload) ||
+        !["loss2", "loss5", "nth20-drop"].includes(scenario.name)
+      ) {
+        cases.push(...group);
+        continue;
+      }
+      for (let index = 0; index < 20; index++) {
+        const attempt = group.filter((entry) => entry.repetition === index + 1);
+        for (const transport of index % 2 === 0 ? ["rpc-wss", "rpc-wt"] : ["rpc-wt", "rpc-wss"])
+          cases.push(attempt.find((entry) => entry.transport === transport)!);
+        cases.push(...attempt.filter((entry) => !["rpc-wss", "rpc-wt"].includes(entry.transport)));
+      }
+    }
+  }
+  cases.push(...previous.cases.filter((entry) => entry.httpPool === "warm"));
+  for (const scenario of presets.filter((s) => ["clean", "wan", "high-latency"].includes(s.name))) {
+    for (const httpPool of ["cold", "warm"] as const) {
+      for (const [index, seed] of previous.seeds.slice(0, 3).entries()) {
+        const variants = [
+          { httpProtocol: "h1", httpEncoding: "gzip" },
+          { httpProtocol: "h3", httpEncoding: "gzip" },
+          { httpProtocol: "h1", httpEncoding: "br" },
+          { httpProtocol: "h3", httpEncoding: "br" },
+        ] as const;
+        for (let offset = 0; offset < variants.length; offset++) {
+          cases.push({
+            layer: "operations",
+            scenario,
+            workload: "open-new",
+            transport: "rpc-wss",
+            repetition: index + 1,
+            seed,
+            timeoutMs: 60000,
+            httpPool,
+            ...variants[(index + offset) % variants.length]!,
+          });
+        }
+      }
+    }
+  }
+  const definition = {
+    ...previous,
+    version: "operations-v6",
+    criticalOrder: "alternate-active-wss-wt-pair-before-other-controls",
+    httpCompressionControl:
+      "gzip-and-br;h1-and-h3;fixed-wss;three-seeds;cold-and-warm;clean-wan-high-latency",
+    cases,
+  } as const;
+  return {
+    hash: NodeCrypto.createHash("sha256").update(JSON.stringify(definition)).digest("hex"),
+    ...definition,
+  };
+}
+
+/** Only inputs changed since the completed v5 run, with a complete frozen manifest of their own. */
+export function makeOperationControlsSuitePlan() {
+  const { hash: _hash, cases: allCases, ...current } = makeCurrentOperationSuitePlan();
+  const cases = allCases.filter(
+    (entry) =>
+      entry.httpEncoding !== undefined ||
+      (["loss2", "loss5", "nth20-drop"].includes(entry.scenario.name) &&
+        ["sync-five", "open-new", "reconnect-replay"].includes(entry.workload) &&
+        ["rpc-wss", "rpc-wt"].includes(entry.transport)),
+  );
+  const definition = { ...current, version: "operations-v6-controls", cases };
   return {
     hash: NodeCrypto.createHash("sha256").update(JSON.stringify(definition)).digest("hex"),
     ...definition,

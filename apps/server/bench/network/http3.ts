@@ -7,6 +7,7 @@ import type { TlsMaterial } from "./client.ts";
 import type { Recorder } from "./workloads.ts";
 
 export type SnapshotHttpProtocol = "h1" | "h3";
+export type SnapshotHttpEncoding = "gzip" | "br";
 export const snapshotPort = 4407;
 
 /** Loads the optional native benchmark dependency only when HTTP snapshots are benchmarked. */
@@ -24,6 +25,7 @@ export const makeSnapshotHttpClient = Effect.fnUntraced(function* (
   protocol: SnapshotHttpProtocol,
   tls: TlsMaterial,
   record: Recorder,
+  encoding: SnapshotHttpEncoding = "gzip",
 ) {
   const { Curl, CurlFeature, CurlHttpVersion, Multi } = yield* Effect.promise(
     () => import("node-libcurl"),
@@ -68,7 +70,7 @@ export const makeSnapshotHttpClient = Effect.fnUntraced(function* (
             curl.setOpt("CAINFO_BLOB", tls.certPem);
             curl.setOpt("PROXY", "");
             curl.setOpt("FOLLOWLOCATION", false);
-            curl.setOpt("ACCEPT_ENCODING", "gzip");
+            curl.setOpt("ACCEPT_ENCODING", encoding);
             curl.setOpt(
               "HTTPHEADER",
               Object.entries(request.headers).map(([name, value]) => name + ": " + value),
@@ -97,7 +99,11 @@ export const makeSnapshotHttpClient = Effect.fnUntraced(function* (
                     (protocol === "h3" ? "HTTP/3.0" : "HTTP/1.1")
                   )
                     throw new Error("Snapshot server did not observe the required HTTP protocol");
+                  if (headers.get("content-encoding") !== encoding)
+                    throw new Error("Snapshot server did not use the required content encoding");
                   record.set("httpProtocol", protocol);
+                  record.set("httpEncoding", encoding);
+                  record.set("httpCompressedBytes", Number(curl.getInfo("SIZE_DOWNLOAD_T")));
                   record.set("httpNewConnections", Number(curl.getInfo("NUM_CONNECTS")));
                   record.set("httpConnectionId", Number(curl.getInfo("CONN_ID")));
                   record.set("httpConnectMs", Number(curl.getInfo("CONNECT_TIME_T")) / 1000);

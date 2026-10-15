@@ -4,6 +4,8 @@ import {
   caseId,
   makeCurrentOperationSuitePlan,
   makeOperationSuitePlan,
+  makeOperationSuiteV5Plan,
+  makeOperationControlsSuitePlan,
   makeSuitePlan,
 } from "./suite.ts";
 
@@ -17,6 +19,8 @@ export const BenchRow = Schema.Struct({
   timeoutMs: Schema.Number,
   httpPool: Schema.optionalKey(Schema.Literals(["cold", "warm"])),
   packetPhase: Schema.optionalKey(Schema.Number),
+  httpProtocol: Schema.optionalKey(Schema.Literals(["h1", "h3"])),
+  httpEncoding: Schema.optionalKey(Schema.Literals(["gzip", "br"])),
   metrics: Schema.Record(Schema.String, Schema.Union([Schema.Number, Schema.String])),
 });
 export type BenchRow = typeof BenchRow.Type;
@@ -31,9 +35,13 @@ export type SuiteResults = typeof SuiteResults.Type;
 
 /** Rejects results from different experiments or incomplete files, rather than scoring partial work. */
 export function validateSuiteResults(result: SuiteResults) {
-  const plan = [makeSuitePlan(), makeOperationSuitePlan(), makeCurrentOperationSuitePlan()].find(
-    (plan) => plan.hash === result.suite.hash,
-  );
+  const plan = [
+    makeSuitePlan(),
+    makeOperationSuitePlan(),
+    makeOperationSuiteV5Plan(),
+    makeCurrentOperationSuitePlan(),
+    makeOperationControlsSuitePlan(),
+  ].find((plan) => plan.hash === result.suite.hash);
   if (!plan)
     throw new Error("Suite configuration differs; rerun both revisions with the same suite");
   if (!result.complete || result.rows.length !== plan.cases.length)
@@ -84,7 +92,9 @@ export function compareSuites(baseline: SuiteResults, candidate: SuiteResults) {
     for (const row of result.rows) {
       const key =
         [row.layer, row.scenario, row.workload, row.transport].join("/") +
-        (row.httpPool === "warm" ? "/warm" : "");
+        (row.httpPool === "warm" ? "/warm" : "") +
+        (row.httpProtocol !== undefined ? `/${row.httpProtocol}` : "") +
+        (row.httpEncoding !== undefined ? `/${row.httpEncoding}` : "");
       let group = groups.get(key);
       if (!group) groups.set(key, (group = { baseline: [], candidate: [] }));
       group[name].push(row);

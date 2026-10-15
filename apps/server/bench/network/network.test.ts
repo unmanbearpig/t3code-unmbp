@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
 
-import { parseScenario, parseScenarios } from "./impairments.ts";
+import { parseScenario, parseScenarios, validatePacketPhase } from "./impairments.ts";
 import { decodeFrame, encodeFrame, Kind, lengthPrefixed, makeFrameSplitter } from "./protocol.ts";
 import { Recorder } from "./workloads.ts";
 
@@ -71,6 +71,25 @@ it("rejects invalid impairments before running tc or iptables", () => {
   ]) {
     assert.throws(() => parseScenario(spec));
   }
+});
+
+it("validates all periodic intervals and rejects priming that cannot drain", () => {
+  assert.doesNotThrow(() => validatePacketPhase(257, [{ name: "large", nthDrop: 300 }]));
+  assert.doesNotThrow(() =>
+    validatePacketPhase(19, [{ name: "jitter", nthDrop: 20, jitterMs: 20, delayMs: 25 }]),
+  );
+  for (const phase of [-1, 0.5, NaN, Infinity])
+    assert.throws(() => validatePacketPhase(phase, [{ name: "drop", nthDrop: 20 }]));
+  assert.throws(
+    () =>
+      validatePacketPhase(4, [{ name: "both", nthDrop: 20, nthDelay: { every: 3, extraMs: 300 } }]),
+    /every/,
+  );
+  assert.throws(
+    () => validatePacketPhase(1, [{ name: "loss", nthDrop: 20, loss: "100%" }]),
+    /stochastic loss/,
+  );
+  assert.throws(() => validatePacketPhase(0, [{ name: "clean" }]), /periodic interval/);
 });
 
 it("retains partial measurements and cancels resources acquired after a deadline", () => {
