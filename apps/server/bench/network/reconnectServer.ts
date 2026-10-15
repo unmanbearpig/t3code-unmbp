@@ -59,7 +59,7 @@ import {
   subscribeOrchestrationV2Thread,
   subscribeOrchestrationV2Shell,
   WS_RPC_SERVER_OPTIONS,
-} from "../../src/ws.ts";
+} from "../../src/AuthenticatedRpcSession.ts";
 import { projectThreadProjectionForWire } from "../../src/orchestration-v2/WireProjection.ts";
 import {
   operationMessageEvents,

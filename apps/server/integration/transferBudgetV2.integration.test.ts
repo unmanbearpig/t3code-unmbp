@@ -46,7 +46,10 @@ import * as ProjectService from "../src/project/ProjectService.ts";
 import * as ProjectEnrichmentService from "../src/project/ProjectEnrichmentService.ts";
 import * as OrchestrationHttp from "../src/orchestration-v2/http.ts";
 import * as ServerHttp from "../src/http.ts";
-import { subscribeOrchestrationV2Thread, subscribeOrchestrationV2Shell } from "../src/ws.ts";
+import {
+  subscribeOrchestrationV2Thread,
+  subscribeOrchestrationV2Shell,
+} from "../src/AuthenticatedRpcSession.ts";
 import {
   measureHttpGet,
   openMeasuredWsClient,

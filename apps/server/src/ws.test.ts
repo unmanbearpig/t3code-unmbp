@@ -24,7 +24,7 @@ import {
   resolveAvailableEditorsForConfig,
   shouldUseBoundedThreadSnapshot,
   withLateEditorConfig,
-} from "./ws.ts";
+} from "./AuthenticatedRpcSession.ts";
 
 it("accepts only the current orchestration protocol before websocket RPC setup", () => {
   assert.isTrue(

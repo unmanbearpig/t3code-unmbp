@@ -13,6 +13,9 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
+import * as Option from "effect/Option";
+import * as WebTransportAvailability from "../transport/WebTransportAvailability.ts";
+
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { resolveServerInstallation } from "../cli/invocation.ts";
@@ -182,6 +185,9 @@ const makeIdentity = Effect.gen(function* () {
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
+  const availability = yield* Effect.serviceOption(
+    WebTransportAvailability.WebTransportAvailability,
+  );
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig.ServerConfig;
   const secrets = yield* ServerSecretStore.ServerSecretStore;
@@ -272,10 +278,15 @@ export const make = Effect.gen(function* () {
     // publish`, the client settings toggle), so the capability is read per
     // descriptor request rather than baked in at startup.
     getDescriptor: readAgentActivityPublishingActive(secrets).pipe(
-      Effect.map((agentActivityPublishing) => ({
-        ...descriptor,
-        capabilities: { ...descriptor.capabilities, agentActivityPublishing },
-      })),
+      Effect.flatMap((agentActivityPublishing) =>
+        (Option.isSome(availability) ? availability.value.get : Effect.succeedNone).pipe(
+          Effect.map((endpoint) => ({
+            ...descriptor,
+            ...(Option.isSome(endpoint) ? { rpcWebTransport: endpoint.value } : {}),
+            capabilities: { ...descriptor.capabilities, agentActivityPublishing },
+          })),
+        ),
+      ),
     ),
   });
 });

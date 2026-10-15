@@ -103,6 +103,7 @@ export class ServerConfig extends Context.Service<
     readonly resourceMonitorPath?: string | undefined;
     readonly autoBootstrapProjectFromCwd: boolean;
     readonly logWebSocketEvents: boolean;
+    readonly rpcWebTransport?: string;
     readonly tailscaleServeEnabled: boolean;
     readonly tailscaleServePort: number;
   }
