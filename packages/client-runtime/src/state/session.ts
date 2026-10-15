@@ -1,14 +1,10 @@
-import {
-  EnvironmentInternalError,
-  type AuthSessionState,
-  type EnvironmentId,
-  type ServerConfig,
-} from "@t3tools/contracts";
+import type { AuthSessionState, EnvironmentId, ServerConfig } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Schema from "effect/Schema";
+import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { HttpClient } from "effect/http";
@@ -19,11 +15,7 @@ import * as EnvironmentRegistry from "../connection/registry.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
-import {
-  RemoteEnvironmentAuthFetchError,
-  RemoteEnvironmentAuthTimeoutError,
-  RemoteEnvironmentAuthUndeclaredStatusError,
-} from "../rpc/http.ts";
+import type { RemoteEnvironmentRequestError } from "../rpc/http.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
 import { followStreamInEnvironment } from "./environmentStreams.ts";
@@ -50,17 +42,26 @@ function initialConfigOption<E>(
 // Bounded so a wedged environment cannot pin the permissions check (and with it
 // the settings UI) in a loading state for long.
 const DEFAULT_SESSION_STATE_TIMEOUT_MS = 6_000;
-const SESSION_STATE_RETRY_MS = 5_000;
-const isEnvironmentInternalError = Schema.is(EnvironmentInternalError);
+const SESSION_STATE_RETRY_SCHEDULE = Schedule.exponential("1 second").pipe(
+  Schedule.modifyDelay(({ duration }) =>
+    Effect.succeed(Duration.min(duration, Duration.seconds(30))),
+  ),
+);
 
-function isRetryableSessionError(error: unknown): boolean {
-  return (
-    error instanceof RemoteEnvironmentAuthFetchError ||
-    error instanceof RemoteEnvironmentAuthTimeoutError ||
-    isEnvironmentInternalError(error) ||
-    (error instanceof RemoteEnvironmentAuthUndeclaredStatusError &&
-      (error.status === 408 || error.status === 429 || error.status >= 500))
-  );
+function isRetryableSessionError(
+  error: SessionHttpClientUnavailable | RemoteEnvironmentRequestError,
+): boolean {
+  switch (error._tag) {
+    case "RemoteEnvironmentAuthFetchError":
+    case "RemoteEnvironmentAuthTimeoutError":
+    case "RemoteEnvironmentAuthInvalidJsonError":
+    case "EnvironmentInternalError":
+      return true;
+    case "RemoteEnvironmentAuthUndeclaredStatusError":
+      return error.status === 408 || error.status === 429 || error.status >= 500;
+    default:
+      return false;
+  }
 }
 
 /**
@@ -166,49 +167,60 @@ function makeEnvironmentSessionAtoms<R, E>(
   );
 
   const sessionStateAtom = Atom.family((environmentId: EnvironmentId) => {
-    const query = runtime
-      .atom((get) => {
-        const prepared = Option.getOrNull(get(preparedConnectionValueAtom(environmentId)));
-        const session = Option.flatten(AsyncResult.value(get(connectedSessionAtom(environmentId))));
-        // Preparation can precede socket authentication. Fetch again for every
-        // live session, even when the reconnect reuses its prepared connection.
-        if (prepared === null || Option.isNone(session)) {
-          return Effect.never;
-        }
-        return Effect.gen(function* () {
-          const signer = yield* Effect.serviceOption(ManagedRelay.ManagedRelayDpopSigner);
-          const remoteAuthorization = yield* Effect.serviceOption(
-            RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
+    const refreshSignal = Atom.make(() => ({}));
+    const preparedValue = preparedConnectionValueAtom(environmentId).pipe(
+      Atom.map(Option.getOrNull),
+    );
+    const sessionValue = connectedSessionAtom(environmentId).pipe(
+      Atom.map((result) => Option.getOrNull(Option.flatten(AsyncResult.value(result)))),
+    );
+    // Each connection owns its cache. Replacing credentials, endpoints or the
+    // socket disposes its request and starts without a previous grant.
+    const connectionQuery = Atom.make((get) => {
+      const prepared = get(preparedValue);
+      const session = get(sessionValue);
+      if (prepared === null || session === null) return null;
+      return runtime
+        .atom((get) => {
+          get(refreshSignal);
+          const previous = get.self<AsyncResult.AsyncResult<AuthSessionState, unknown>>();
+          const confirmed = Option.isSome(previous) && previous.value._tag === "Success";
+          const fetchSession = Effect.gen(function* () {
+            const signer = yield* Effect.serviceOption(ManagedRelay.ManagedRelayDpopSigner);
+            const remoteAuthorization = yield* Effect.serviceOption(
+              RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
+            );
+            const client = yield* Effect.serviceOption(HttpClient.HttpClient);
+            if (Option.isNone(client)) return yield* new SessionHttpClientUnavailable();
+            return yield* fetchEnvironmentSessionState({
+              prepared,
+              signer,
+              remoteAuthorization,
+            }).pipe(Effect.provideService(HttpClient.HttpClient, client.value));
+          });
+          return fetchSession.pipe(
+            Effect.tapError((error) =>
+              !confirmed && isRetryableSessionError(error)
+                ? Effect.sync(() => get.setSelf(AsyncResult.failure(Cause.fail(error)))).pipe(
+                    // Publish the failed initial lookup before continuing the retry.
+                    Effect.andThen(Effect.promise(() => Promise.resolve())),
+                  )
+                : Effect.void,
+            ),
+            Effect.retry({
+              while: isRetryableSessionError,
+              schedule: SESSION_STATE_RETRY_SCHEDULE,
+            }),
           );
-          const client = yield* Effect.serviceOption(HttpClient.HttpClient);
-          if (Option.isNone(client)) return yield* new SessionHttpClientUnavailable();
-          return yield* fetchEnvironmentSessionState({
-            prepared,
-            signer,
-            remoteAuthorization,
-          }).pipe(Effect.provideService(HttpClient.HttpClient, client.value));
-        });
-      })
-      .pipe(Atom.swr({ staleTime: 30_000, revalidateOnMount: true }), Atom.setIdleTTL(5 * 60_000));
-    const retry = query.pipe(Atom.withRefresh(SESSION_STATE_RETRY_MS), Atom.setIdleTTL(0));
-    return Atom.transform(
-      query,
+        })
+        .pipe(Atom.swr({ staleTime: 30_000, revalidateOnMount: true }), Atom.setIdleTTL(0));
+    });
+    return Atom.readable(
       (get) => {
-        const result = get(query);
-        // SWR revalidates on mount, but a mounted view otherwise retains a failed
-        // lookup indefinitely. Retry failures without polling healthy sessions.
-        if (
-          result._tag === "Failure" &&
-          !result.waiting &&
-          result.cause.reasons.some(
-            (reason) => Cause.isFailReason(reason) && isRetryableSessionError(reason.error),
-          )
-        ) {
-          get(retry);
-        }
-        return result;
+        const query = get(connectionQuery);
+        return query === null ? AsyncResult.initial<AuthSessionState>(true) : get(query);
       },
-      { initialValueTarget: query },
+      (refresh) => refresh(refreshSignal),
     ).pipe(
       Atom.setIdleTTL(5 * 60_000),
       Atom.withLabel(`environment-session-state:${environmentId}`),

@@ -25,6 +25,7 @@ import type { HttpClient } from "effect/http";
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import {
   ConnectionTransientError,
+  ConnectionBlockedError,
   RelayConnectionTarget,
   type PreparedConnection,
   type PreparedHttpAuthorization,
@@ -573,7 +574,8 @@ describe("authenticated environment HTTP requests", () => {
       );
 
       expect(error).toMatchObject({
-        _tag: "RemoteEnvironmentAuthFetchError",
+        _tag: "RemoteEnvironmentAuthBlockedError",
+        reason: "authentication",
         message: "The environment rejected the renewed session authorization.",
       });
       expect(harness.calls).toHaveLength(2);
@@ -706,8 +708,33 @@ describe("authenticated environment HTTP requests", () => {
       }).pipe(Effect.provide(harness.httpLayer), Effect.flip);
 
       expect(error).toMatchObject({
-        _tag: "RemoteEnvironmentAuthFetchError",
+        _tag: "RemoteEnvironmentAuthBlockedError",
+        reason: "configuration",
         message: "No relay authorization service is available for the environment request.",
+      });
+      expect(harness.calls).toEqual([]);
+    }),
+  );
+
+  it.effect("preserves a permanent relay rejection for callers' retry policies", () =>
+    Effect.gen(function* () {
+      const harness = makeHarness(() => Response.json(SESSION));
+      const failure = new ConnectionBlockedError({
+        reason: "permission",
+        detail: "Access revoked",
+      });
+      const remoteAuthorization = RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization.of({
+        ...harness.remoteAuthorization,
+        authorizeDpopHttp: () => Effect.fail(failure),
+      });
+      const error = yield* fetchEnvironmentSessionState({
+        ...harness.input,
+        remoteAuthorization: Option.some(remoteAuthorization),
+      }).pipe(Effect.provide(harness.httpLayer), Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "RemoteEnvironmentAuthBlockedError",
+        reason: "permission",
+        cause: failure,
       });
       expect(harness.calls).toEqual([]);
     }),
