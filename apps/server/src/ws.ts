@@ -3213,17 +3213,20 @@ export const layerWebSocketRoute = <R>(
             const descriptor = yield* environment.getDescriptor;
             if (descriptor.capabilities.websocketHello !== 1) return undefined;
             const socket = yield* Effect.orDie(request.upgrade);
-            return yield* WebSocketHello.authenticate(socket, {
-              _tag: "Hello",
-              handshakeVersion: 1,
-              environment: descriptor,
-              resume: { threadResumeCompletionMarker: true, shellResumeCompletionMarker: true },
-            });
+            return yield* WebSocketHello.authenticate(
+              socket,
+              {
+                _tag: "Hello",
+                handshakeVersion: 1,
+                environment: descriptor,
+                resume: { threadResumeCompletionMarker: true, shellResumeCompletionMarker: true },
+              },
+              () => HelloUpgrade.authenticated(request.source),
+            );
           })
         : undefined;
       if (isHello && framed === undefined) return HttpServerResponse.empty({ status: 400 });
       if (framed !== undefined) {
-        HelloUpgrade.authenticated(request.source);
         rpcRequest = new Proxy(request, {
           get: (target, key, receiver) =>
             key === "upgrade" ? Effect.succeed(framed.socket) : Reflect.get(target, key, receiver),

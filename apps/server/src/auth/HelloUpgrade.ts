@@ -15,13 +15,14 @@ const finishAdmission = Symbol("hello.finishAdmission");
 const encodeError = Schema.encodeSync(Schema.fromJsonString(ReconnectHandshakeError));
 
 /** Ends raw-frame admission only after framed authentication has succeeded. */
-export const authenticated = (source: unknown): void => {
+export const authenticated = (source: unknown): boolean => {
   if (
     Predicate.hasProperty(source, finishAdmission) &&
     typeof source[finishAdmission] === "function"
   ) {
-    source[finishAdmission]();
+    return source[finishAdmission]() === true;
   }
+  return true;
 };
 
 /** Keeps fragmented messages and bursts bounded before the pull-based socket can run. */
@@ -65,7 +66,10 @@ export class HelloWebSocketServer extends NodeWS.WebSocketServer {
         }
       };
       Object.defineProperty(upgradedRequest, finishAdmission, {
-        value: () => ws.off("message", onMessage),
+        value: () => {
+          ws.off("message", onMessage);
+          return !rejected;
+        },
       });
       ws.on("message", onMessage);
       callback(ws, upgradedRequest);

@@ -8,6 +8,7 @@ import {
   ReconnectAuthenticated,
   ReconnectHandshakeError,
 } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Socket from "effect/socket/Socket";
@@ -28,9 +29,21 @@ const size = (frame: string | Uint8Array) =>
 export const authenticate = Effect.fnUntraced(function* (
   socket: Socket.Socket,
   hello: ReconnectHello,
+  completeAdmission: () => boolean = () => true,
 ) {
   const auth = yield* EnvironmentAuth.EnvironmentAuth;
-  const reader = yield* socket.reader;
+  const startedAt = yield* Clock.currentTimeMillis;
+  const reader = yield* socket.reader.pipe(
+    Effect.timeoutOrElse({
+      duration: RECONNECT_AUTH_DEADLINE_MS,
+      orElse: () =>
+        Effect.fail(
+          new Socket.SocketError({
+            reason: new Socket.SocketReadError({ cause: "Hello upgrade deadline exceeded" }),
+          }),
+        ),
+    }),
+  );
   const writer = yield* socket.writer;
   let buffered: Array<string | Uint8Array> = [];
   let bytes = 0;
@@ -48,6 +61,10 @@ export const authenticate = Effect.fnUntraced(function* (
     }
     return Effect.void;
   };
+  const remainingMs = Math.max(
+    0,
+    RECONNECT_AUTH_DEADLINE_MS - ((yield* Clock.currentTimeMillis) - startedAt),
+  );
   const handshake = Effect.gen(function* () {
     yield* writer.write(encodeHello(hello));
     const [first, ...rest] = yield* reader.pull;
@@ -74,6 +91,7 @@ export const authenticate = Effect.fnUntraced(function* (
       ),
       pending,
     );
+    if (!completeAdmission()) return yield* new HandshakeFailure({ code: "limit_exceeded" });
     yield* writer.write(encodeAuthenticated({ _tag: "Authenticated", handshakeVersion: 1 }));
     const adopted = Socket.make({
       writer: Effect.succeed(writer),
@@ -91,7 +109,7 @@ export const authenticate = Effect.fnUntraced(function* (
     return { session, socket: adopted };
   }).pipe(
     Effect.timeoutOrElse({
-      duration: RECONNECT_AUTH_DEADLINE_MS,
+      duration: remainingMs,
       orElse: () => Effect.fail(new HandshakeFailure({ code: "auth_timeout" })),
     }),
   );
