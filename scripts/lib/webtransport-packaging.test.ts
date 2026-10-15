@@ -24,6 +24,8 @@ import serverPackageJson from "../../apps/server/package.json" with { type: "jso
 const repoRoot = NodeURL.fileURLToPath(new URL("../../", import.meta.url));
 const patchName = "@fails-components/webtransport-transport-http3-quiche@1.6.9";
 const patchPath = "patches/@fails-components__webtransport-transport-http3-quiche@1.6.9.patch";
+const wrapperPatchName = "@fails-components/webtransport@1.6.9";
+const wrapperPatchPath = "patches/@fails-components__webtransport@1.6.9.patch";
 const patch = NodeFS.readFileSync(NodePath.join(repoRoot, patchPath), "utf8");
 const installer = patch
   .slice(patch.indexOf("+++ b/install-prebuilt.js\n"))
@@ -178,7 +180,7 @@ describe("optional WebTransport installer", () => {
       "@fails-components/webtransport-transport-http3-quiche",
     ]);
     const patchedDependencies = createStagePatchedDependencies(
-      { [patchName]: patchPath },
+      { [patchName]: patchPath, [wrapperPatchName]: wrapperPatchPath },
       optionalDependencies,
     );
     const workspace = createStageWorkspaceConfig({
@@ -187,7 +189,10 @@ describe("optional WebTransport installer", () => {
       patchedDependencies,
       allowBuilds: { "@fails-components/webtransport-transport-http3-quiche": true },
     });
-    assert.deepStrictEqual(workspace.patchedDependencies, { [patchName]: patchPath });
+    assert.deepStrictEqual(workspace.patchedDependencies, {
+      [patchName]: patchPath,
+      [wrapperPatchName]: wrapperPatchPath,
+    });
     assert.equal(
       workspace.allowBuilds?.["@fails-components/webtransport-transport-http3-quiche"],
       true,
