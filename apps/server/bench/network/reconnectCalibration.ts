@@ -111,8 +111,8 @@ export async function calibrate(manifest: Manifest, report: (message: string) =>
       ]);
       try {
         await echo.next();
-        const signal = { startNs: process.hrtime.bigint().toString() };
-        controller.start();
+        await controller.start();
+        const signal = { startNs: controller.signalNs()! };
         echo.child.stdin.end(JSON.stringify(signal) + "\n");
         const result = decodeEcho(await echo.next());
         await controller.done;

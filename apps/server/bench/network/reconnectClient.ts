@@ -96,7 +96,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   readonly initial: OperationControlResponse;
   readonly advance: () => Effect.Effect<OperationControlResponse, Error>;
   readonly options: VariantOptions;
-  readonly startController: () => void;
+  readonly startController: () => void | Promise<void>;
 }) {
   const plan = workloadPlan(input.entry);
   const resources: string[] = [];
@@ -586,8 +586,9 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     });
   start = active;
   measurementStartMs = Number(process.hrtime.bigint()) / 1e6;
-  input.startController();
   stamp("active");
+  const initialImpairment = input.startController();
+  if (initialImpairment) yield* Effect.promise(() => initialImpairment);
   yield* PubSub.publish(wakeups, plan.wakeup);
   if (!plan.establishOld && !plan.preActive) yield* SubscriptionRef.set(network, "online");
   // The shell may still show the old live state during the probe. Require a new subscription.

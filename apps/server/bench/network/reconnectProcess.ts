@@ -24,7 +24,16 @@ const ControllerMessage = Schema.Struct({
   appliedMs: Schema.optionalKey(Schema.Number),
 });
 const decodeController = Schema.decodeUnknownSync(Schema.fromJsonString(ControllerMessage));
-export async function startController(entry: ReconnectCase, queuePackets: number) {
+export async function startController(
+  entry: ReconnectCase,
+  queuePackets: number,
+  spawn: () => NodeChildProcess.ChildProcess = () =>
+    NodeChildProcess.spawn(
+      "python3",
+      [new URL("./reconnectController.py", import.meta.url).pathname],
+      { stdio: ["pipe", "pipe", "inherit"] },
+    ),
+) {
   const plan = controllerPlan(entry.profile, entry.seed, queuePackets, entry.phaseMs);
   if (!plan.length) {
     let signalNs: string | undefined;
@@ -39,12 +48,17 @@ export async function startController(entry: ReconnectCase, queuePackets: number
     };
   }
 
-  const child = NodeChildProcess.spawn(
-    "python3",
-    [new URL("./reconnectController.py", import.meta.url).pathname],
-    { stdio: ["pipe", "pipe", "inherit"] },
-  );
+  const child = spawn();
   const records: (typeof ControllerMessage.Type)[] = [];
+  const initialChanges = plan.filter((event) => event.atMs === 0).length;
+  let initialApplied = 0;
+  let initialResolve!: () => void;
+  let initialReject!: (error: Error) => void;
+  const initial = new Promise<void>((resolve, reject) => {
+    initialResolve = resolve;
+    initialReject = reject;
+  });
+  void initial.catch(() => {});
   let readyResolve!: () => void;
   let readyReject!: (error: Error) => void;
   let failure: Error | undefined;
@@ -55,14 +69,21 @@ export async function startController(entry: ReconnectCase, queuePackets: number
   const fail = (error: Error) => {
     failure = error;
     readyReject(error);
+    initialReject(error);
   };
   const timer = setTimeout(() => fail(new Error("Controller readiness timed out")), 5000);
   const done = new Promise<void>((resolve, reject) => {
     child.once("exit", (code) => {
-      if (code !== 0 || failure || !records.some((r) => r.type === "done")) {
+      if (
+        code !== 0 ||
+        failure ||
+        initialApplied < initialChanges ||
+        !records.some((r) => r.type === "done")
+      ) {
         const error =
           failure ?? new Error(`Controller exited ${code} before successful completion`);
         readyReject(error);
+        initialReject(error);
         reject(error);
       } else resolve();
     });
@@ -75,6 +96,10 @@ export async function startController(entry: ReconnectCase, queuePackets: number
       const record = decodeController(line);
       records.push(record);
       if (record.type === "ready") readyResolve();
+      if (record.type === "applied" && record.plannedMs === 0) {
+        initialApplied++;
+        if (initialApplied === initialChanges) initialResolve();
+      }
     } catch (error) {
       fail(new Error(`Invalid controller output: ${String(error)}`));
       child.kill("SIGTERM");
@@ -99,6 +124,8 @@ export async function startController(entry: ReconnectCase, queuePackets: number
     start: () => {
       signalNs = process.hrtime.bigint().toString();
       child.stdin!.end(JSON.stringify({ startNs: signalNs }) + "\n");
+      // Prevent a SYN or probe escaping a nominally immediate outage/spike.
+      if (initialChanges) return initial;
     },
     signalNs: () => signalNs,
   };
