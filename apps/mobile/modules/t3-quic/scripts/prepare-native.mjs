@@ -43,6 +43,7 @@ function run(command, args, options = {}) {
 function capture(command, args, options = {}) {
   const result = NodeChildProcess.spawnSync(command, args, {
     encoding: "utf8",
+    timeout: 30_000,
     env: rustEnv,
     ...options,
   });
@@ -139,6 +140,7 @@ async function provisionRust(targets) {
     const available = NodeChildProcess.spawnSync("rustup", ["--version"], {
       env: rustEnv,
       stdio: "ignore",
+      timeout: 30_000,
     });
     if (available.error?.code === "ENOENT") {
       const hosts = {
@@ -165,14 +167,11 @@ async function provisionRust(targets) {
       try {
         await NodeFSP.writeFile(installer, binary);
         await NodeFSP.chmod(installer, 0o700);
-        run(installer, [
-          "-y",
-          "--profile",
-          "minimal",
-          "--default-toolchain",
-          "none",
-          "--no-modify-path",
-        ]);
+        run(
+          installer,
+          ["-y", "--profile", "minimal", "--default-toolchain", "none", "--no-modify-path"],
+          { timeout: 180_000 },
+        );
       } finally {
         await NodeFSP.rm(installer, { force: true });
       }
@@ -181,20 +180,21 @@ async function provisionRust(targets) {
     }
     const installed = capture("rustup", ["toolchain", "list"]);
     if (!installed.split("\n").some((line) => line.startsWith(`${rustVersion}-`))) {
-      run("rustup", [
-        "toolchain",
-        "install",
-        rustVersion,
-        "--profile",
-        "minimal",
-        "--no-self-update",
-      ]);
+      run(
+        "rustup",
+        ["toolchain", "install", rustVersion, "--profile", "minimal", "--no-self-update"],
+        { timeout: 15 * 60_000 },
+      );
     }
     const installedTargets = new Set(
       capture("rustup", ["target", "list", "--installed", "--toolchain", rustVersion]).split("\n"),
     );
     const missing = targets.filter((target) => !installedTargets.has(target));
-    if (missing.length) run("rustup", ["target", "add", "--toolchain", rustVersion, ...missing]);
+    if (missing.length) {
+      run("rustup", ["target", "add", "--toolchain", rustVersion, ...missing], {
+        timeout: 15 * 60_000,
+      });
+    }
   });
 }
 
