@@ -26,6 +26,9 @@ const { values } = NodeUtil.parseArgs({
   options: {
     smoke: { type: "boolean" },
     measure: { type: "boolean" },
+    operations: { type: "boolean" },
+    fallback: { type: "boolean" },
+    overlap: { type: "boolean" },
     manifest: { type: "string" },
     "write-manifest": { type: "string" },
     variants: { type: "string" },
@@ -38,7 +41,10 @@ const { values } = NodeUtil.parseArgs({
 if (values.help) {
   console.log(`node apps/server/bench/network/reconnectRun.ts [--smoke] --out DIRECTORY
   --smoke               Four WSS integration cases, 50ms RTT, one seed (default)
-  --measure             Sixty inputs: clean/50msRTT/2% loss, four workloads, five seeds
+  --operations          Sync-five, replay 50 messages and cold long-thread open
+  --fallback            Drop fixture UDP; verify first fallback and persistent cooldown
+  --overlap             Warm deliberate bulk RPC and eight-chunk terminal streaming stress
+  --measure             Sixty resume or 45 operation inputs: clean/50msRTT/2% loss, four workloads, five seeds
   --manifest FILE       Exact frozen inputs, including custom subsets
   --write-manifest FILE Write inputs and exit without starting listeners
   --variants A=/worktree,B=/worktree  Pair clean committed worktrees, rotating order
@@ -49,10 +55,21 @@ Supply websocket or webtransport, with actual selection checked for every cold c
 Every fixture runs in a private user/network/PID namespace with MTU 1280.`);
   process.exit(0);
 }
+if ([values.operations, values.fallback, values.overlap].filter(Boolean).length > 1)
+  throw new Error("Choose --operations or --fallback");
 if (values.smoke && values.measure) throw new Error("Choose --smoke or --measure");
 const manifest = values.manifest
   ? validateManifest(JSON.parse(NodeFS.readFileSync(values.manifest, "utf8")))
-  : makeManifest(values.measure);
+  : makeManifest(
+      values.measure,
+      values.operations
+        ? "operations"
+        : values.fallback
+          ? "fallback"
+          : values.overlap
+            ? "overlap"
+            : "resume",
+    );
 const hash = manifestHash(manifest);
 if (values["write-manifest"]) {
   NodeFS.writeFileSync(values["write-manifest"], JSON.stringify(manifest, null, 2) + "\n", {
@@ -121,6 +138,8 @@ if (process.env.RPC_RECONNECT_NETNS !== "1") {
     "flock",
     [
       "-n",
+      "--conflict-exit-code",
+      "75",
       NodePath.join(NodeOS.homedir(), "codex-tmp", "reconnect-benchmark.lock"),
       "unshare",
       "--user",
@@ -153,7 +172,13 @@ if (process.env.RPC_RECONNECT_NETNS !== "1") {
   process.exit(
     await new Promise<number>((resolve, reject) => {
       child.once("error", reject);
-      child.once("exit", (code) => resolve(code ?? 1));
+      child.once("exit", (code) => {
+        if (code === 75)
+          console.error(
+            "Another reconnect benchmark holds the shared host lock; no fixture was started.",
+          );
+        resolve(code ?? 1);
+      });
     }),
   );
 }

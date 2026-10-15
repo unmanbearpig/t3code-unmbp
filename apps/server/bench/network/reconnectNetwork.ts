@@ -134,3 +134,33 @@ export function controllerPlan(
     commands: scheduleCommands(event, profile, seed, queuePackets),
   }));
 }
+
+/** Drop only UDP to/from the fixture endpoint; production WSS stays reachable. */
+export function blockFixtureQuic(port = serverPort) {
+  assertIsolated();
+  for (const field of ["sport", "dport"])
+    NodeChildProcess.execFileSync("tc", [
+      "filter",
+      "add",
+      "dev",
+      "lo",
+      "ingress",
+      "protocol",
+      "ip",
+      "pref",
+      "2",
+      "u32",
+      "match",
+      "ip",
+      "protocol",
+      "17",
+      "0xff",
+      "match",
+      "ip",
+      field,
+      String(port),
+      "0xffff",
+      "action",
+      "drop",
+    ]);
+}

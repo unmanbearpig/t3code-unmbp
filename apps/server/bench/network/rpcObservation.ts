@@ -4,7 +4,7 @@ import * as Stream from "effect/Stream";
 import * as Session from "../../../../packages/client-runtime/src/rpc/session.ts";
 
 export interface RpcObservation {
-  readonly request: (tag: string) => void;
+  readonly request: (tag: string, payload?: unknown) => void;
   readonly value: (tag: string, value: unknown) => void;
   readonly session: (
     event: "start" | "selected" | "ready",
@@ -25,14 +25,14 @@ export function observeRpcClient<Client extends object>(
         const operation: unknown = Reflect.apply(method, target, args);
         if (Stream.isStream(operation))
           return Stream.suspend(() => {
-            observation.request(property);
+            observation.request(property, args[0]);
             return operation.pipe(
               Stream.tap((value) => Effect.sync(() => observation.value(property, value))),
             );
           });
         if (Effect.isEffect(operation))
           return Effect.suspend(() => {
-            observation.request(property);
+            observation.request(property, args[0]);
             return operation.pipe(
               Effect.tap((value) => Effect.sync(() => observation.value(property, value))),
             );

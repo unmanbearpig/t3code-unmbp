@@ -8,6 +8,7 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import {
   AuthStandardClientScopes,
+  ServerConfig as ServerConfigSchema,
   EnvironmentAuthorizationError,
   EventId,
   ProjectId,
@@ -21,6 +22,9 @@ import {
   OrchestrationV2RpcSchemas,
   WsRpcGroup as ServerWsRpcGroup,
   WsSubscribeServerConfigRpc,
+  TerminalAttachStreamEvent,
+  TerminalObserveInput,
+  TerminalError,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -54,6 +58,13 @@ import * as AnalyticsService from "../../src/telemetry/AnalyticsService.ts";
 import * as RpcAuthorization from "../../src/auth/RpcAuthorization.ts";
 import { guardHttpResponseWriteErrors } from "../../src/httpResponseErrorGuard.ts";
 import * as SessionStore from "../../src/auth/SessionStore.ts";
+import { withTerminalOutputWindow } from "../../src/terminal/OutputProtocol.ts";
+import { wallClockMs } from "./protocol.ts";
+import {
+  buildBoundedThreadProjection,
+  THREAD_HISTORY_PAGE_POLICY,
+  THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,
+} from "../../src/orchestration-v2/threadHistoryPaging.ts";
 import { makeResourceControl } from "./resourceUsage.ts";
 import {
   subscribeOrchestrationV2Thread,
@@ -70,7 +81,7 @@ import {
   OperationControlResponse,
 } from "./operationsFixture.ts";
 
-const [scheme, portText, certPath, keyPath, scratch] = process.argv.slice(2);
+const [scheme, portText, certPath, keyPath, scratch, workload] = process.argv.slice(2);
 if (!scratch || !certPath || !keyPath || !portText || !["http", "https"].includes(scheme!))
   throw new Error("reconnectServer.ts http|https port cert key scratch");
 const port = Number(portText);
@@ -172,6 +183,18 @@ const auth = EnvironmentAuth.layer.pipe(
   Layer.provideMerge(Layer.mock(AnalyticsService.AnalyticsService)({ record: () => Effect.void })),
 );
 const group = RpcGroup.make(
+  Rpc.make(WS_METHODS.serverGetConfig, { payload: Schema.Struct({}), success: ServerConfigSchema }),
+  Rpc.make(WS_METHODS.terminalObserve, {
+    payload: TerminalObserveInput,
+    success: TerminalAttachStreamEvent,
+    error: TerminalError,
+    stream: true,
+  }),
+  Rpc.make(ORCHESTRATION_V2_WS_METHODS.getThreadProjection, {
+    payload: OrchestrationV2RpcSchemas.getThreadProjection.input,
+    success: OrchestrationV2RpcSchemas.getThreadProjection.output,
+    error: OrchestrationV2GetThreadProjectionError,
+  }),
   Rpc.make(WS_METHODS.serverProbe, {
     payload: Schema.Struct({}),
     success: Schema.Struct({}),
@@ -207,6 +230,23 @@ const handlers = Layer.effectContext(
       ),
     );
     const measured = yield* group.toHandlers({
+      [WS_METHODS.serverGetConfig]: () => Effect.succeed(reconnectConfig),
+      [WS_METHODS.terminalObserve]: () =>
+        Stream.fromIterable(
+          Array.from({ length: 256 }, (_, index) => ({
+            type: "output" as const,
+            threadId: operationThreadId,
+            terminalId: "benchmark-terminal",
+            sequence: index,
+            data: operationMessageText(index),
+          })),
+        ).pipe(Stream.rechunk(1)),
+      [ORCHESTRATION_V2_WS_METHODS.getThreadProjection]: () =>
+        Effect.map(ProjectionStore.ProjectionStoreV2, (store) => store).pipe(
+          Effect.flatMap((store) => store.getThreadSnapshot(operationThreadId)),
+          Effect.map((snapshot) => projectThreadProjectionForWire(snapshot.projection)),
+          Effect.orDie,
+        ),
       [WS_METHODS.serverProbe]: () => Effect.succeed({}),
       [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input) =>
         Stream.unwrap(subscribeOrchestrationV2Shell(input)),
@@ -235,7 +275,7 @@ const ws = HttpRouter.add(
     const session = yield* serverAuth.authenticateWebSocketUpgrade(request).pipe(Effect.orDie);
     const { protocol, httpEffect } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket;
     yield* RpcServer.make(ServerWsRpcGroup, WS_RPC_SERVER_OPTIONS).pipe(
-      Effect.provideService(RpcServer.Protocol, protocol),
+      Effect.provideService(RpcServer.Protocol, withTerminalOutputWindow(protocol)),
       Effect.provide(RpcAuthorization.layer(session.scopes)),
       Effect.forkScoped,
     );
@@ -349,11 +389,29 @@ await Effect.runPromise(
         };
       });
       yield* sink.write({ events: fixtureEvents });
-      let messages = 100;
+      let messages = workload === "open-long" || workload === "bulk-overlap" ? 2000 : 100;
       yield* sink.write({
         events: [operationThreadCreated, ...operationMessageEvents(0, messages)],
       });
-      const snapshot = yield* projections.getThreadSnapshot(operationThreadId);
+      const controlResponse = Effect.gen(function* () {
+        const snapshot = yield* projections.getThreadSnapshot(operationThreadId);
+        const window = yield* projections.getThreadSnapshotWindow(operationThreadId, {
+          rowLimit: THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,
+          userTurnLimit: THREAD_HISTORY_PAGE_POLICY.maxUserTurns,
+        });
+        const bounded = buildBoundedThreadProjection({
+          ...window,
+          projection: projectThreadProjectionForWire(window.projection),
+        });
+        return {
+          snapshot,
+          windowMessageIds: bounded.projection.messages.map((m) => m.id),
+          windowRunIds: bounded.projection.runs.map((r) => r.id),
+          hasMoreHistory: bounded.hasMoreHistory,
+          latestLocalTurnOrdinal: bounded.latestLocalTurnOrdinal,
+        };
+      });
+      const initial = yield* controlResponse;
       const listener = NodeHttpServer.layer(
         () => {
           const server =
@@ -372,6 +430,7 @@ await Effect.runPromise(
             response?: NodeHttp.ServerResponse,
           ) => {
             if (!connections.has(request.socket)) connections.set(request.socket, ++nextConnection);
+            response?.setHeader("x-netbench-protocol", `HTTP/${request.httpVersion}`);
             const row = {
               path: new URL(request.url!, "http://bench").pathname,
               connection: connections.get(request.socket)!,
@@ -416,16 +475,20 @@ await Effect.runPromise(
           bearer: paired.access_token,
           initial: {
             startedAt: 0,
-            sequence: snapshot.snapshotSequence,
+            sequence: initial.snapshot.snapshotSequence,
             messages,
-            windowMessageIds: [],
-            windowRunIds: [],
-            hasMoreHistory: false,
-            latestLocalTurnOrdinal: null,
-            initialSnapshot: {
-              snapshotSequence: snapshot.snapshotSequence,
-              projection: projectThreadProjectionForWire(snapshot.projection),
-            },
+            windowMessageIds: initial.windowMessageIds,
+            windowRunIds: initial.windowRunIds,
+            hasMoreHistory: initial.hasMoreHistory,
+            latestLocalTurnOrdinal: initial.latestLocalTurnOrdinal,
+            ...(workload === "open-long"
+              ? {}
+              : {
+                  initialSnapshot: {
+                    snapshotSequence: initial.snapshot.snapshotSequence,
+                    projection: projectThreadProjectionForWire(initial.snapshot.projection),
+                  },
+                }),
           },
         }),
       );
@@ -436,20 +499,21 @@ await Effect.runPromise(
           continue;
         }
         const request = decodeRequest(raw);
+        const startedAt = wallClockMs();
         if (request.count) {
           yield* sink.write({ events: operationMessageEvents(messages, request.count) });
           messages += request.count;
         }
-        const full = yield* projections.getThreadSnapshot(operationThreadId);
+        const full = yield* controlResponse;
         process.send?.(
           encodeResponse({
-            startedAt: 0,
-            sequence: full.snapshotSequence,
+            startedAt,
+            sequence: full.snapshot.snapshotSequence,
             messages,
-            windowMessageIds: [],
-            windowRunIds: [],
-            hasMoreHistory: false,
-            latestLocalTurnOrdinal: null,
+            windowMessageIds: full.windowMessageIds,
+            windowRunIds: full.windowRunIds,
+            hasMoreHistory: full.hasMoreHistory,
+            latestLocalTurnOrdinal: full.latestLocalTurnOrdinal,
           }),
         );
       }

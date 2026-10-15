@@ -40,6 +40,9 @@ describe("bounded reconnect plan", () => {
     expect(new Set(manifest.cases.map((c) => c.workload)).size).toBe(4);
     expect(manifest.mtu).toBe(1280);
     expect(makeManifest(true).cases).toHaveLength(60);
+    expect(makeManifest(true, "operations").cases).toHaveLength(45);
+    expect(makeManifest(true, "fallback").cases).toHaveLength(15);
+    expect(makeManifest(true, "overlap").cases).toHaveLength(30);
     expect(manifestHash(makeManifest())).toBe(manifestHash(manifest));
     expect(new Set(makeManifest(true).cases.map((c) => c.id)).size).toBe(60);
   });

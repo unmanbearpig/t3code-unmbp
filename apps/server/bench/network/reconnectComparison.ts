@@ -10,6 +10,14 @@ const Stage = Schema.Struct({
 });
 export const ReconnectResult = Schema.Struct({
   totalMs: Schema.Number,
+  probeSamples: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({ startedMs: Schema.Number, completedMs: Schema.Number, rttMs: Schema.Number }),
+    ),
+  ),
+  operationMetrics: Schema.optionalKey(
+    Schema.Record(Schema.String, Schema.Union([Schema.Number, Schema.String])),
+  ),
   shellLiveMs: Schema.Number,
   selectedTransport: Schema.Literals(["websocket", "webtransport"]),
   selections: Schema.Array(

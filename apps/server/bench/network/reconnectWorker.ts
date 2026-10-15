@@ -28,7 +28,7 @@ const entry = Schema.decodeSync(Schema.fromJsonString(ReconnectCase))(
 );
 const server = NodeChildProcess.fork(
   new URL("./reconnectServer.ts", import.meta.url),
-  [entry.scheme, String(serverPort), cert, key, scratch],
+  [entry.scheme, String(serverPort), cert, key, scratch, entry.workload],
   { stdio: ["ignore", "inherit", "inherit", "ipc"] },
 );
 let controller: Awaited<ReturnType<typeof startController>> | undefined;
@@ -41,10 +41,10 @@ process.once("SIGTERM", () => {
 });
 try {
   const ready = decodeReady(await receive(server, 30000));
-  const advance = () =>
+  const advance = (count: number) =>
     Effect.tryPromise(async () => {
       const response = receive(server);
-      server.send({ count: entry.workload === "idle" ? 0 : 20 });
+      server.send({ count });
       return decodeControl(await response);
     }).pipe(Effect.orDie);
   if (mode !== "websocket" && mode !== "webtransport")
