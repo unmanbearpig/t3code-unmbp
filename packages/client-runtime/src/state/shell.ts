@@ -9,6 +9,7 @@ import {
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
@@ -20,7 +21,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import * as EnvironmentRegistry from "../connection/registry.ts";
-import { connectionProjectionPhase } from "../connection/model.ts";
+import { connectionProjectionPhase, type PreparedConnection } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
@@ -356,6 +357,52 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       service.changes.pipe(Stream.filter(ConnectionWakeups.shouldResubscribeAfterWakeup)),
   });
 
+  const prefetchedSnapshot = yield* SubscriptionRef.make<
+    Option.Option<{
+      readonly prepared: PreparedConnection;
+      readonly take: Effect.Effect<Option.Option<DeferredShellSnapshot>>;
+    }>
+  >(Option.none());
+  // Prepared routes arrive before socket/config readiness. Each route owns one
+  // speculative load; replacing or clearing it interrupts the load and drops
+  // its result. Only a published, validated session can consume that result.
+  yield* SubscriptionRef.changes(supervisor.prepared).pipe(
+    Stream.changesWith((left, right) => Option.getOrNull(left) === Option.getOrNull(right)),
+    Stream.switchMap((prepared) =>
+      Stream.fromEffect(
+        Effect.gen(function* () {
+          if (Option.isNone(prepared)) {
+            yield* SubscriptionRef.set(prefetchedSnapshot, Option.none());
+            return;
+          }
+          const result = yield* Deferred.make<Option.Option<DeferredShellSnapshot>>();
+          const pending = yield* Ref.make(Option.some(result));
+          yield* SubscriptionRef.set(
+            prefetchedSnapshot,
+            Option.some({
+              prepared: prepared.value,
+              // Consume once and release the stored result. Session replacements
+              // and same-session HTTP failure retries must refresh again.
+              take: Ref.getAndSet(pending, Option.none()).pipe(
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () => snapshotLoader.load(prepared.value),
+                    onSome: Deferred.await,
+                  }),
+                ),
+              ),
+            }),
+          );
+          yield* snapshotLoader
+            .load(prepared.value)
+            .pipe(Effect.flatMap((snapshot) => Deferred.succeed(result, snapshot)));
+        }),
+      ),
+    ),
+    Stream.runDrain,
+    Effect.forkScoped,
+  );
+
   yield* setSynchronizing;
   yield* Effect.forkScoped(
     subscribeDynamicMapped(
@@ -430,7 +477,22 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
               }),
             ),
           );
-          const httpSnapshot = yield* snapshotLoader.load(prepared);
+          const prefetch = yield* SubscriptionRef.changes(prefetchedSnapshot).pipe(
+            Stream.filter(Option.isSome),
+            Stream.map((value) => value.value),
+            Stream.filter((value) => value.prepared === prepared),
+            Stream.runHead,
+            Effect.map(Option.getOrThrow),
+          );
+          const httpSnapshot = yield* prefetch.take;
+          const activeSession = yield* SubscriptionRef.get(supervisor.session);
+          const activePrepared = yield* SubscriptionRef.get(supervisor.prepared);
+          if (
+            Option.getOrNull(activeSession) !== session ||
+            Option.getOrNull(activePrepared) !== prepared
+          ) {
+            return yield* Effect.never;
+          }
           if (Option.isSome(httpSnapshot)) {
             yield* cancelActiveFill;
             const previous = yield* SubscriptionRef.get(state);
