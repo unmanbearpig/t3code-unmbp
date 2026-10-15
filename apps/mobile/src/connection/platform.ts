@@ -20,6 +20,7 @@ import Constants from "expo-constants";
 import * as Network from "expo-network";
 import { AppState } from "react-native";
 
+import * as MobileConnectionLog from "../features/diagnostics/connection-log";
 import { authClientMetadata } from "../lib/authClientMetadata";
 import * as Runtime from "../lib/runtime";
 import * as MobileStorage from "../persistence/mobile-storage";
@@ -122,38 +123,62 @@ const networkPathChanges = Stream.callback<"network-changed">((queue) =>
   ).pipe(Effect.asVoid),
 );
 
-const layerWakeups = Wakeups.layer({
-  changes: Stream.mergeAll(
-    [
-      Stream.callback<"application-active-probe" | "application-active-reconnect">((queue) =>
-        Effect.acquireRelease(
-          Effect.sync(() => {
-            let backgroundedAtMs = AppState.currentState === "background" ? Date.now() : null;
-            return AppState.addEventListener("change", (state) => {
-              if (state === "background") {
-                backgroundedAtMs = Date.now();
-                return;
-              }
-              if (state === "active") {
-                Queue.offerUnsafe(
-                  queue,
-                  mobileApplicationActiveWakeup(backgroundedAtMs, Date.now()),
-                );
-                backgroundedAtMs = null;
-              }
-            });
-          }),
-          (subscription) => Effect.sync(() => subscription.remove()),
-        ).pipe(Effect.asVoid),
+const layerWakeups = Layer.unwrap(
+  Effect.gen(function* () {
+    const log = yield* MobileConnectionLog.MobileConnectionLog;
+    return Wakeups.layer({
+      changes: Stream.mergeAll(
+        [
+          Stream.callback<"application-active-probe" | "application-active-reconnect">((queue) =>
+            Effect.acquireRelease(
+              Effect.sync(() => {
+                let backgroundedAtMs = AppState.currentState === "background" ? Date.now() : null;
+                return AppState.addEventListener("change", (state) => {
+                  if (state === "background") {
+                    backgroundedAtMs = Date.now();
+                    return;
+                  }
+                  if (state === "active") {
+                    const at = Date.now();
+                    const wakeup = mobileApplicationActiveWakeup(backgroundedAtMs, at);
+                    log.wakeup({
+                      launch: backgroundedAtMs === null ? "running" : "resume",
+                      wakeup,
+                      backgroundMs:
+                        backgroundedAtMs === null ? null : Math.max(0, at - backgroundedAtMs),
+                      at,
+                      monotonic: performance.now(),
+                    });
+                    Queue.offerUnsafe(queue, wakeup);
+                    backgroundedAtMs = null;
+                  }
+                });
+              }),
+              (subscription) => Effect.sync(() => subscription.remove()),
+            ).pipe(Effect.asVoid),
+          ),
+          managedRelayAccountChanges(appAtomRegistry).pipe(
+            Stream.map(() => "credentials-changed" as const),
+          ),
+          networkPathChanges.pipe(
+            Stream.tap((wakeup) =>
+              Effect.sync(() =>
+                log.wakeup({
+                  launch: "running",
+                  wakeup,
+                  backgroundMs: null,
+                  at: Date.now(),
+                  monotonic: performance.now(),
+                }),
+              ),
+            ),
+          ),
+        ],
+        { concurrency: "unbounded" },
       ),
-      managedRelayAccountChanges(appAtomRegistry).pipe(
-        Stream.map(() => "credentials-changed" as const),
-      ),
-      networkPathChanges,
-    ],
-    { concurrency: "unbounded" },
-  ),
-});
+    });
+  }),
+).pipe(Layer.provide(Runtime.layer));
 
 const layerCapabilities = Layer.effectContext(
   Effect.gen(function* () {
