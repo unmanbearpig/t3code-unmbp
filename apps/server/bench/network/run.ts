@@ -68,6 +68,7 @@ const { values } = NodeUtil.parseArgs({
     reduced: { type: "boolean" },
     "variant-options": { type: "string" },
     "calibrate-only": { type: "boolean" },
+    "lock-fd": { type: "string" },
     manifest: { type: "string" },
     "write-manifest": { type: "string" },
     variants: { type: "string" },
@@ -168,25 +169,62 @@ for (const variant of variants)
   if (state(variant.path).dirty)
     throw new Error(`Refusing dirty worktree ${variant.name}: ${variant.path}`);
 if (process.env.NETBENCH_IN_NETNS !== "1") {
+  const lockPath = NodePath.join(NodeOS.homedir(), "codex-tmp", "reconnect-benchmark.lock");
+  const inheritedLock = values["lock-fd"];
+  if (inheritedLock !== undefined) {
+    if (inheritedLock !== "9") throw new Error("The coordinator lock must use fd 9");
+    const actual = NodeFS.fstatSync(9),
+      expected = NodeFS.statSync(lockPath);
+    if (actual.dev !== expected.dev || actual.ino !== expected.ino)
+      throw new Error("Inherited descriptor is not the shared benchmark lock");
+    // The coordinator and this child share one open-file description. Validate
+    // its lock without reopening the path, which would conflict with that owner.
+    NodeChildProcess.execFileSync("flock", ["-n", "9"], {
+      stdio: [
+        "ignore",
+        "inherit",
+        "inherit",
+        "ignore",
+        "ignore",
+        "ignore",
+        "ignore",
+        "ignore",
+        "ignore",
+        9,
+      ],
+    });
+  }
+  const namespaceArgs = [
+    "--user",
+    "--map-root-user",
+    "--net",
+    "--pid",
+    "--fork",
+    "--kill-child=SIGTERM",
+    process.execPath,
+    ...process.execArgv,
+    import.meta.filename,
+    ...process.argv.slice(2),
+  ];
   const child = NodeChildProcess.spawn(
-    "flock",
-    [
-      "-n",
-      NodePath.join(NodeOS.homedir(), "codex-tmp", "reconnect-benchmark.lock"),
-      "unshare",
-      "--user",
-      "--map-root-user",
-      "--net",
-      "--pid",
-      "--fork",
-      "--kill-child=SIGTERM",
-      process.execPath,
-      ...process.execArgv,
-      import.meta.filename,
-      ...process.argv.slice(2),
-    ],
+    inheritedLock === undefined ? "flock" : "unshare",
+    inheritedLock === undefined ? ["-n", lockPath, "unshare", ...namespaceArgs] : namespaceArgs,
     {
-      stdio: ["inherit", "inherit", "inherit", "ipc"],
+      stdio:
+        inheritedLock === undefined
+          ? ["inherit", "inherit", "inherit", "ipc"]
+          : [
+              "inherit",
+              "inherit",
+              "inherit",
+              "ipc",
+              "ignore",
+              "ignore",
+              "ignore",
+              "ignore",
+              "ignore",
+              9,
+            ],
       env: {
         ...process.env,
         NETBENCH_IN_NETNS: "1",
