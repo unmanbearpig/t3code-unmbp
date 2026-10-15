@@ -3144,6 +3144,7 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
   yield* runCommand(
     ChildProcess.make(installCommand.command, installCommand.args, {
       cwd: serverStageDir,
+      extendEnv: true,
       env: webTransportInstallEnvironment("win", input.arch),
       shell: installCommand.shell,
     }),
@@ -3927,6 +3928,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* runCommand(
     ChildProcess.make(installCommand.command, installCommand.args, {
       cwd: stageAppDir,
+      extendEnv: true,
       env: webTransportInstallEnvironment(options.platform, options.arch),
       shell: installCommand.shell,
     }),

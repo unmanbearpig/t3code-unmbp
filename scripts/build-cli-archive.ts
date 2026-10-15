@@ -220,6 +220,7 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
   yield* runCommand(
     ChildProcess.make(install.command, install.args, {
       cwd: input.stageDir,
+      extendEnv: true,
       env: webTransportInstallEnvironment(input.platform, input.arch),
       shell: install.shell,
       stdout: "inherit",
