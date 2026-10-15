@@ -12,7 +12,7 @@ export const makeWebSocketLayer = Effect.gen(function* () {
     ClientCapabilities.WebSocketConstructorWithHeaders,
   );
 
-  return (connection: PreparedConnection) => {
+  return (connection: PreparedConnection, onOpen?: () => void) => {
     const authorization = connection.httpAuthorization;
     const makeWebSocket =
       authorization?._tag === "Bearer" && Option.isSome(constructorWithHeaders)
@@ -22,7 +22,16 @@ export const makeWebSocketLayer = Effect.gen(function* () {
             })
         : constructor;
     return Socket.layerWebSocket(connection.socketUrl, { openTimeout: "15 seconds" }).pipe(
-      Layer.provide(Layer.succeed(Socket.WebSocketConstructor, makeWebSocket)),
+      Layer.provide(
+        Layer.succeed(Socket.WebSocketConstructor, (url) => {
+          const socket = makeWebSocket(url);
+          if (onOpen !== undefined) {
+            if (socket.readyState === 1) onOpen();
+            else socket.addEventListener("open", onOpen, { once: true });
+          }
+          return socket;
+        }),
+      ),
     );
   };
 });
