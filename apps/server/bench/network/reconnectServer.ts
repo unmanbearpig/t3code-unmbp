@@ -7,10 +7,16 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import {
   AuthStandardClientScopes,
+  EnvironmentAuthorizationError,
+  EventId,
+  ProjectId,
+  ThreadId,
+  WS_METHODS,
   EnvironmentHttpApi,
   ORCHESTRATION_V2_WS_METHODS,
   ORCHESTRATION_PROTOCOL_VERSION,
   OrchestrationV2GetThreadProjectionError,
+  OrchestrationV2GetShellSnapshotError,
   OrchestrationV2RpcSchemas,
   WsRpcGroup as ServerWsRpcGroup,
   WsSubscribeServerConfigRpc,
@@ -33,6 +39,7 @@ import * as EventStore from "../../src/orchestration-v2/EventStore.ts";
 import * as EventSink from "../../src/orchestration-v2/EventSink.ts";
 import * as ProjectionStore from "../../src/orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagementService from "../../src/orchestration-v2/ThreadManagementService.ts";
+import * as ProjectService from "../../src/project/ProjectService.ts";
 import * as ProjectStore from "../../src/orchestration-v2/ProjectStore.ts";
 import * as ProjectEnrichmentService from "../../src/project/ProjectEnrichmentService.ts";
 import * as OrchestrationHttp from "../../src/orchestration-v2/http.ts";
@@ -48,6 +55,7 @@ import { layerNodeHttpServer } from "../../src/httpServer.ts";
 import {
   layerWebSocketRoute,
   subscribeOrchestrationV2Thread,
+  subscribeOrchestrationV2Shell,
   WS_RPC_SERVER_OPTIONS,
 } from "../../src/ws.ts";
 import { projectThreadProjectionForWire } from "../../src/orchestration-v2/WireProjection.ts";
@@ -68,6 +76,7 @@ export const reconnectConfig = {
   environment: {
     ...operationServerConfig.environment,
     orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+    capabilities: { ...operationServerConfig.environment.capabilities, connectionProbe: true },
   },
 };
 const persistence = EventSink.layer.pipe(
@@ -110,6 +119,15 @@ const enrichment = Layer.unwrap(
   }),
 );
 const fixtureServices = management.pipe(
+  Layer.provideMerge(
+    Layer.unwrap(
+      Effect.map(ProjectStore.ProjectStoreV2, (store) =>
+        Layer.mock(ProjectService.ProjectService)({
+          getShell: (id) => store.getShell(id).pipe(Effect.orDie),
+        }),
+      ),
+    ).pipe(Layer.provide(ProjectStore.layer)),
+  ),
   Layer.provideMerge(ProjectStore.layer),
   Layer.provideMerge(enrichment),
   Layer.provideMerge(persistence),
@@ -151,6 +169,17 @@ const auth = EnvironmentAuth.layer.pipe(
   Layer.provideMerge(Layer.mock(AnalyticsService.AnalyticsService)({ record: () => Effect.void })),
 );
 const group = RpcGroup.make(
+  Rpc.make(WS_METHODS.serverProbe, {
+    payload: Schema.Struct({}),
+    success: Schema.Struct({}),
+    error: EnvironmentAuthorizationError,
+  }),
+  Rpc.make(ORCHESTRATION_V2_WS_METHODS.subscribeShell, {
+    payload: OrchestrationV2RpcSchemas.subscribeShell.input,
+    success: OrchestrationV2RpcSchemas.subscribeShell.output,
+    error: OrchestrationV2GetShellSnapshotError,
+    stream: true,
+  }),
   WsSubscribeServerConfigRpc,
   Rpc.make(ORCHESTRATION_V2_WS_METHODS.subscribeThread, {
     payload: OrchestrationV2RpcSchemas.subscribeThread.input,
@@ -175,12 +204,15 @@ const handlers = Layer.effectContext(
       ),
     );
     const measured = yield* group.toHandlers({
+      [WS_METHODS.serverProbe]: () => Effect.succeed({}),
+      [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input) =>
+        Stream.unwrap(subscribeOrchestrationV2Shell(input)),
       subscribeServerConfig: () =>
         Stream.concat(
           Stream.make({
             version: 1 as const,
             type: "snapshot" as const,
-            config: reconnectConfig,
+            config: { ...reconnectConfig, shellResumeCompletionMarker: true },
           }),
           Stream.never,
         ),
@@ -224,6 +256,7 @@ const routes = Layer.mergeAll(
   Layer.provide(NodeHttpPlatform.layer),
   Layer.provide(Layer.mock(AnalyticsService.AnalyticsService)({ record: () => Effect.void })),
 );
+const serverRequests: { path: string; connection: number; atMs: number; bytes: number }[] = [];
 const requestSchema = Schema.Struct({ count: Schema.Number });
 const decodeRequest = Schema.decodeUnknownSync(requestSchema);
 const encodeResponse = Schema.encodeSync(Schema.toCodecJson(OperationControlResponse));
@@ -256,21 +289,84 @@ await Effect.runPromise(
           label: "Reconnect benchmark",
         },
       );
+      const projects = Context.get(context, ProjectStore.ProjectStoreV2);
+      for (let i = 0; i < 8; i++) {
+        const projectId = ProjectId.make(i === 0 ? "operation-project" : `bench-project-${i}`);
+        yield* projects.apply({
+          sequence: i + 1,
+          eventId: EventId.make(`bench-project-${i}`),
+          aggregateKind: "project",
+          aggregateId: projectId,
+          occurredAt: "2026-10-14T00:00:00.000Z",
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          type: "project.created",
+          payload: {
+            projectId,
+            title: `Reconnect project ${i}`,
+            workspaceRoot: `/benchmark/project-${i}`,
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: "2026-10-14T00:00:00.000Z",
+            updatedAt: "2026-10-14T00:00:00.000Z",
+          },
+        });
+      }
+      const fixtureEvents = Array.from({ length: 159 }, (_, i) => {
+        if (operationThreadCreated.type !== "thread.created") throw new Error("Fixture changed");
+        const id = ThreadId.make(`bench-shell-thread-${i}`);
+        return {
+          ...operationThreadCreated,
+          id: EventId.make(`bench-shell-created-${i}`),
+          threadId: id,
+          payload: {
+            ...operationThreadCreated.payload,
+            id,
+            projectId: ProjectId.make(i % 8 === 0 ? "operation-project" : `bench-project-${i % 8}`),
+            title: `Thread ${i}: ${operationMessageEvents.name} ${String(i * 7919).padStart(8, "0")} deterministic shell fixture`,
+            lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: id },
+          },
+        };
+      });
+      yield* sink.write({ events: fixtureEvents });
       let messages = 100;
       yield* sink.write({
         events: [operationThreadCreated, ...operationMessageEvents(0, messages)],
       });
       const snapshot = yield* projections.getThreadSnapshot(operationThreadId);
-      const listener = layerNodeHttpServer({ host: "0.0.0.0", port }, () =>
-        scheme === "http"
-          ? NodeHttp.createServer()
-          : NodeHttps.createServer({
-              cert: NodeFS.readFileSync(certPath),
-              key: NodeFS.readFileSync(keyPath),
-              minVersion: "TLSv1.3",
-              maxVersion: "TLSv1.3",
-            }),
-      );
+      const listener = layerNodeHttpServer({ host: "0.0.0.0", port }, () => {
+        const server =
+          scheme === "http"
+            ? NodeHttp.createServer()
+            : NodeHttps.createServer({
+                cert: NodeFS.readFileSync(certPath),
+                key: NodeFS.readFileSync(keyPath),
+                minVersion: "TLSv1.3",
+                maxVersion: "TLSv1.3",
+              });
+        let nextConnection = 0;
+        const connections = new WeakMap<object, number>();
+        const record = (request: NodeHttp.IncomingMessage, response?: NodeHttp.ServerResponse) => {
+          if (!connections.has(request.socket)) connections.set(request.socket, ++nextConnection);
+          const row = {
+            path: new URL(request.url!, "http://bench").pathname,
+            connection: connections.get(request.socket)!,
+            atMs: Number(process.hrtime.bigint()) / 1e6,
+            bytes: 0,
+          };
+          serverRequests.push(row);
+          const socket = request.socket;
+          const before = socket.bytesWritten;
+          response?.once("finish", () => {
+            row.bytes = socket.bytesWritten - before;
+          });
+        };
+        server.prependListener("request", record);
+        server.prependListener("upgrade", (request) => record(request));
+        return server;
+      });
       yield* Layer.buildWithScope(
         HttpRouter.serve(routes, { disableListenLog: true }).pipe(
           Layer.provide(listener),
@@ -300,7 +396,12 @@ await Effect.runPromise(
         }),
       );
       for (;;) {
-        const request = decodeRequest(yield* Queue.take(requests));
+        const raw = yield* Queue.take(requests);
+        if (typeof raw === "object" && raw !== null && "inspect" in raw) {
+          process.send?.({ serverRequests });
+          continue;
+        }
+        const request = decodeRequest(raw);
         if (request.count) {
           yield* sink.write({ events: operationMessageEvents(messages, request.count) });
           messages += request.count;

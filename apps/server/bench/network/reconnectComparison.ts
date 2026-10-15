@@ -1,4 +1,5 @@
 import type { ReconnectCase } from "./reconnectManifest.ts";
+import type { VariantOptions } from "./reconnectOptions.ts";
 import type { Stage } from "./reconnectClient.ts";
 export interface ReconnectRow {
   readonly variant: string;
@@ -8,6 +9,14 @@ export interface ReconnectRow {
   readonly case: ReconnectCase;
   readonly result?: {
     readonly totalMs: number;
+    readonly shellLiveMs: number;
+    readonly switches: VariantOptions;
+    readonly serverRequests: readonly {
+      path: string;
+      connection: number;
+      atMs: number;
+      bytes: number;
+    }[];
     readonly stages: readonly Stage[];
     readonly requests: Readonly<Record<string, number>>;
     readonly bytes: number;
@@ -61,6 +70,7 @@ export function summarize(rows: readonly ReconnectRow[]) {
       successes: results.length,
       failures: group.length - results.length,
       medianMs: median(results.map((r) => r.totalMs)),
+      shellMedianMs: median(results.map((r) => r.shellLiveMs)),
       p90Ms: observedP90(results.map((r) => r.totalMs)),
       stageMediansMs: Object.fromEntries([...stages].map(([key, values]) => [key, median(values)])),
       stageDurationMediansMs: Object.fromEntries(

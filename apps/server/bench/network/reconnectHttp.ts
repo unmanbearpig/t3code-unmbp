@@ -1,3 +1,4 @@
+// @effect-diagnostics globalTimers:off - Let Node fetch release a consumed response before a subsequent request.
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as HttpClient from "effect/http/HttpClient";
@@ -30,6 +31,7 @@ export function observeHttpClient(
           ? "ticket"
           : `http:${path}`;
       const observation: {
+        bytes?: number;
         name: string;
         atMs: number;
         endMs?: number;
@@ -48,14 +50,43 @@ export function observeHttpClient(
       };
       return yield* effect.pipe(
         Effect.map((response) => {
+          // Undici otherwise dispatches the next microtask onto a new TCP connection,
+          // even though this response is fully consumed. One turn makes its idle socket reusable.
+          const released = Effect.promise(
+            () => new Promise<void>((resolve) => setImmediate(resolve)),
+          );
           const arrayBuffer = response.arrayBuffer.pipe(
+            Effect.tap(() => released),
+            Effect.tap((body) =>
+              Effect.sync(() => {
+                observation.bytes = body.byteLength;
+              }),
+            ),
             Effect.onExit((exit) =>
               Effect.sync(() => finish(exit._tag === "Success" ? "succeeded" : "failed")),
             ),
           );
+          const text = response.text.pipe(
+            Effect.tap(() => released),
+            Effect.tap((body) =>
+              Effect.sync(() => {
+                observation.bytes = new TextEncoder().encode(body).byteLength;
+              }),
+            ),
+            Effect.onExit((exit) =>
+              Effect.sync(() => finish(exit._tag === "Success" ? "succeeded" : "failed")),
+            ),
+          );
+          const json = text.pipe(Effect.map((body) => JSON.parse(body) as unknown));
           return new Proxy(response, {
             get: (target, key, receiver) =>
-              key === "arrayBuffer" ? arrayBuffer : Reflect.get(target, key, receiver),
+              key === "arrayBuffer"
+                ? arrayBuffer
+                : key === "text"
+                  ? text
+                  : key === "json"
+                    ? json
+                    : Reflect.get(target, key, receiver),
           });
         }),
         Effect.onExit((exit) =>

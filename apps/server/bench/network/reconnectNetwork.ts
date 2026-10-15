@@ -65,6 +65,38 @@ export function applyProfile(profile: Profile, seed: number, queuePackets: numbe
     stdio: ["pipe", "ignore", "pipe"],
   });
 }
+/** Silently drop both directions of one established socket; all new HTTP/WS flows pass. */
+export function blackholeSocket(clientPort: number) {
+  assertIsolated();
+  for (const [source, destination] of [
+    [clientPort, serverPort],
+    [serverPort, clientPort],
+  ])
+    NodeChildProcess.execFileSync("tc", [
+      "filter",
+      "add",
+      "dev",
+      "lo",
+      "ingress",
+      "protocol",
+      "ip",
+      "pref",
+      "2",
+      "u32",
+      "match",
+      "ip",
+      "sport",
+      String(source),
+      "0xffff",
+      "match",
+      "ip",
+      "dport",
+      String(destination),
+      "0xffff",
+      "action",
+      "drop",
+    ]);
+}
 export function scheduleCommands(
   event: ScheduleEvent,
   profile: Profile,

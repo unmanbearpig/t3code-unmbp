@@ -5,6 +5,7 @@ import {
   balancedOrder,
   lossSeeds,
   makeManifest,
+  makeReducedManifest,
   manifestHash,
   phaseOffsetsMs,
   profiles,
@@ -30,6 +31,9 @@ const row = (
   case: entry,
   result: {
     totalMs,
+    shellLiveMs: totalMs + 20,
+    switches: { websocketHeaders: false, skipDescriptorOnHttpsReconnect: false },
+    serverRequests: [],
     stages,
     requests: { "/.well-known/t3/environment": 2 },
     bytes: 100,
@@ -42,14 +46,14 @@ const row = (
 describe("frozen reconnect inputs", () => {
   it("covers the full matrix, all seeds, both routes/transports/workloads, and every phase", () => {
     const manifest = makeManifest();
-    expect(manifest.cases).toHaveLength(960);
+    expect(manifest.cases).toHaveLength(1920);
     expect(manifest.mtu).toBe(1280);
     const smoke = makeManifest(true);
-    expect(smoke.cases).toHaveLength(25);
+    expect(smoke.cases).toHaveLength(47);
     expect(new Set(smoke.cases.map((c) => `${c.scheme}/${c.routes}`))).toEqual(
       new Set(["http/1", "http/2", "https/1", "https/2"]),
     );
-    expect(new Set(manifest.cases.map((c) => c.id)).size).toBe(960);
+    expect(new Set(manifest.cases.map((c) => c.id)).size).toBe(1920);
     expect(lossSeeds).toHaveLength(20);
     expect(
       new Set(manifest.cases.filter((c) => c.profile.name === "loss-1").map((c) => c.seed)),
@@ -190,4 +194,17 @@ describe("comparison", () => {
       stageDurationMediansMs: { ticket: 30 },
     });
   });
+});
+
+it("keeps every workload and profile in the reduced decision pass", () => {
+  const manifest = makeReducedManifest();
+  expect(manifest.cases).toHaveLength(120);
+  expect(new Set(manifest.cases.map((c) => c.workload))).toEqual(
+    new Set(["idle", "replay-50", "short-probe", "network-changed"]),
+  );
+  expect(new Set(manifest.cases.map((c) => c.profile.name)).size).toBe(11);
+  expect(manifest.cases.every((c) => c.scheme === "https" && c.routes === 2)).toBe(true);
+  expect(new Set(manifest.cases.filter((c) => c.profile.stochastic).map((c) => c.seed)).size).toBe(
+    4,
+  );
 });

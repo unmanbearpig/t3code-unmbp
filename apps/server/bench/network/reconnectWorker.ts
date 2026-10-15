@@ -4,6 +4,7 @@ import * as NodeFS from "node:fs";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { OperationControlResponse } from "./operationsFixture.ts";
+import { VariantOptions, defaultVariantOptions } from "./reconnectOptions.ts";
 import { ReconnectCase } from "./reconnectManifest.ts";
 import { runReconnect } from "./reconnectClient.ts";
 import { serverPort } from "./reconnectNetwork.ts";
@@ -18,7 +19,7 @@ const decodeReady = Schema.decodeUnknownSync(
   ),
 );
 const decodeControl = Schema.decodeUnknownSync(Schema.toCodecJson(OperationControlResponse));
-const [entryFile, cert, key, scratch, queue] = process.argv.slice(2);
+const [entryFile, cert, key, scratch, queue, optionsText] = process.argv.slice(2);
 if (!entryFile || !cert || !key || !scratch || !queue) throw new Error("Missing worker arguments");
 const entry = Schema.decodeUnknownSync(Schema.fromJsonString(ReconnectCase))(
   NodeFS.readFileSync(entryFile, "utf8"),
@@ -38,10 +39,12 @@ process.once("SIGTERM", () => {
 });
 try {
   const ready = decodeReady(await receive(server, 30000));
-  const response = receive(server);
-  // Twenty completed messages are exactly fifty new domain events.
-  server.send({ count: entry.workload === "idle" ? 0 : 20 });
-  const expected = decodeControl(await response);
+  const advance = () =>
+    Effect.tryPromise(async () => {
+      const response = receive(server);
+      server.send({ count: entry.workload === "idle" ? 0 : 20 });
+      return decodeControl(await response);
+    }).pipe(Effect.orDie);
   controller = await startController(entry, Number(queue));
   const result = await Effect.runPromise(
     Effect.scoped(
@@ -51,15 +54,37 @@ try {
         bearer: ready.bearer,
         cert: NodeFS.readFileSync(cert, "utf8"),
         initial: ready.initial,
-        expected,
+        advance,
+        options: optionsText
+          ? Schema.decodeUnknownSync(Schema.fromJsonString(VariantOptions))(optionsText)
+          : defaultVariantOptions,
         startController: controller.start,
       }),
     ).pipe(Effect.timeout(entry.timeoutMs)),
   );
   await controller.done;
+  const inspected = receive(server);
+  server.send({ inspect: true });
+  const diagnostics = Schema.decodeUnknownSync(
+    Schema.Struct({
+      serverRequests: Schema.Array(
+        Schema.Struct({
+          path: Schema.String,
+          connection: Schema.Number,
+          atMs: Schema.Number,
+          bytes: Schema.Number,
+        }),
+      ),
+    }),
+  )(await inspected);
   process.send?.({
     type: "result",
-    result,
+    result: {
+      ...result,
+      serverRequests: diagnostics.serverRequests
+        .filter((r) => r.atMs >= result.measurementStartMs)
+        .map((r) => ({ ...r, atMs: r.atMs - result.measurementStartMs })),
+    },
     controller: controller.records,
     signalNs: controller.signalNs(),
   });

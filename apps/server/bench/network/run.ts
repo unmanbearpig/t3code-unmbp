@@ -7,11 +7,18 @@ import * as NodeUtil from "node:util";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { makeManifest, validateManifest, manifestHash, variantOrder } from "./reconnectManifest.ts";
+import {
+  makeManifest,
+  makeReducedManifest,
+  validateManifest,
+  manifestHash,
+  variantOrder,
+} from "./reconnectManifest.ts";
 import { prepareLoopback } from "./impairments.ts";
 import { applyProfile } from "./reconnectNetwork.ts";
 import { calibrate } from "./reconnectCalibration.ts";
 import { receive, stopChild } from "./reconnectProcess.ts";
+import { VariantOptions, defaultVariantOptions } from "./reconnectOptions.ts";
 import { summarize, type ReconnectRow } from "./reconnectComparison.ts";
 
 const decodeWorker = Schema.decodeUnknownSync(
@@ -22,11 +29,22 @@ const decodeWorker = Schema.decodeUnknownSync(
       controller: Schema.Unknown,
       result: Schema.Struct({
         totalMs: Schema.Number,
+        shellLiveMs: Schema.Number,
+        switches: VariantOptions,
+        serverRequests: Schema.Array(
+          Schema.Struct({
+            path: Schema.String,
+            connection: Schema.Number,
+            atMs: Schema.Number,
+            bytes: Schema.Number,
+          }),
+        ),
         stages: Schema.Array(
           Schema.Struct({
             name: Schema.String,
             atMs: Schema.Number,
             endMs: Schema.optionalKey(Schema.Number),
+            bytes: Schema.optionalKey(Schema.Number),
             outcome: Schema.optionalKey(Schema.Literals(["succeeded", "failed"])),
           }),
         ),
@@ -44,6 +62,8 @@ const decodeWorker = Schema.decodeUnknownSync(
 const { values } = NodeUtil.parseArgs({
   options: {
     smoke: { type: "boolean" },
+    reduced: { type: "boolean" },
+    "variant-options": { type: "string" },
     "calibrate-only": { type: "boolean" },
     manifest: { type: "string" },
     "write-manifest": { type: "string" },
@@ -56,6 +76,8 @@ const { values } = NodeUtil.parseArgs({
 if (values.help) {
   console.log(`node apps/server/bench/network/run.ts [--smoke] [--calibrate-only]
   --write-manifest FILE  Freeze inputs then exit; --smoke creates the small matrix
+  --reduced              HTTPS/two routes, two fixed or four stochastic seeds, four workloads
+  --variant-options FILE JSON mapping variant names to switches
   --manifest FILE        Use exactly these frozen inputs
   --variants A=/abs/worktree,B=/abs/worktree  Clean worktrees containing this bench
   --out DIRECTORY        Durable raw rows, manifest, calibration, and summary
@@ -66,13 +88,20 @@ HTTP = LAN/tailnet IP. HTTPS = Node TLS 1.3 stand-in for tailscaled termination.
 }
 const manifest = values.manifest
   ? validateManifest(JSON.parse(NodeFS.readFileSync(values.manifest, "utf8")))
-  : makeManifest(values.smoke);
+  : values.reduced
+    ? makeReducedManifest()
+    : makeManifest(values.smoke);
 const hash = manifestHash(manifest);
 if (values["write-manifest"]) {
   NodeFS.writeFileSync(values["write-manifest"], JSON.stringify(manifest, null, 2) + "\n");
   process.exit(0);
 }
 const root = NodePath.resolve(import.meta.dirname, "../../../..");
+const optionsByVariant = values["variant-options"]
+  ? Schema.decodeUnknownSync(Schema.Record(Schema.String, VariantOptions))(
+      JSON.parse(NodeFS.readFileSync(values["variant-options"], "utf8")),
+    )
+  : {};
 const variants = (values.variants ?? `baseline=${root}`).split(",").map((spec) => {
   const index = spec.indexOf("=");
   if (index < 1) throw new Error("Variants must be named absolute worktree paths");
@@ -83,7 +112,7 @@ const variants = (values.variants ?? `baseline=${root}`).split(",").map((spec) =
     !NodeFS.existsSync(NodePath.join(path, "apps/server/bench/network/reconnectWorker.ts"))
   )
     throw new Error(`Missing benchmark in ${path}`);
-  return { name, path };
+  return { name, path, options: optionsByVariant[name] ?? defaultVariantOptions };
 });
 if (
   new Set(variants.map((v) => v.name)).size !== variants.length ||
@@ -257,7 +286,14 @@ try {
         applyProfile(entry.profile, entry.seed, manifest.queuePackets);
         active = NodeChildProcess.fork(
           NodePath.join(variant.path, "apps/server/bench/network/reconnectWorker.ts"),
-          [entryFile, cert, key, scratch, String(manifest.queuePackets)],
+          [
+            entryFile,
+            cert,
+            key,
+            scratch,
+            String(manifest.queuePackets),
+            JSON.stringify(variant.options),
+          ],
           {
             cwd: variant.path,
             stdio: ["ignore", "inherit", "inherit", "ipc"],

@@ -27,7 +27,16 @@ it.effect(
       }).pipe(Effect.provideService(HttpClient.HttpClient, measured));
       expect(descriptor.environmentId).toBe(operationServerConfig.environment.environmentId);
       expect(requests).toEqual({ "/.well-known/t3/environment": 1 });
-      expect(stages).toEqual([{ name: "descriptor-1", atMs: 1, endMs: 2, outcome: "succeeded" }]);
+      expect(stages).toEqual([
+        {
+          name: "descriptor-1",
+          atMs: 1,
+          endMs: 2,
+          outcome: "succeeded",
+          bytes: new TextEncoder().encode(JSON.stringify(operationServerConfig.environment))
+            .byteLength,
+        },
+      ]);
     }),
 );
 

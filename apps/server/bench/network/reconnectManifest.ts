@@ -64,7 +64,7 @@ export const ReconnectCase = Schema.Struct({
   profile: Profile,
   scheme: Schema.Literals(["http", "https"]),
   routes: Schema.Literals([1, 2]),
-  workload: Schema.Literals(["idle", "replay-50"]),
+  workload: Schema.Literals(["idle", "replay-50", "short-probe", "network-changed"]),
   repetition: Schema.Number,
   seed: Schema.Number,
   phaseMs: Schema.Number,
@@ -149,8 +149,18 @@ export function makeManifest(smoke = false): Manifest {
         for (const scheme of smoke ? ["https" as const] : ["http" as const, "https" as const])
           for (const routes of smoke ? [2 as const] : [1 as const, 2 as const])
             for (const workload of smoke
-              ? ["idle" as const, "replay-50" as const]
-              : ["idle" as const, "replay-50" as const]) {
+              ? [
+                  "idle" as const,
+                  "replay-50" as const,
+                  "short-probe" as const,
+                  "network-changed" as const,
+                ]
+              : [
+                  "idle" as const,
+                  "replay-50" as const,
+                  "short-probe" as const,
+                  "network-changed" as const,
+                ]) {
               cases.push({
                 id: [profile.name, phaseMs, seed, scheme, routes, workload].join("/"),
                 profile,
@@ -186,6 +196,21 @@ export function makeManifest(smoke = false): Manifest {
     queuePackets: 100000,
     fixture: "100-cached-messages-50-new-domain-events",
     cases,
+  });
+}
+/** First decision pass: HTTPS/two routes, all profiles/workloads, 2 fixed or 4 loss seeds.
+ * Spike onset and post-spike phase are retained; the full sweep remains makeManifest(). */
+export function makeReducedManifest(): Manifest {
+  const full = makeManifest();
+  return validateManifest({
+    ...full,
+    cases: full.cases.filter(
+      (c) =>
+        c.scheme === "https" &&
+        c.routes === 2 &&
+        c.repetition <= (c.profile.stochastic ? 4 : 2) &&
+        (c.profile.name !== "latency-spikes" || c.phaseMs === 0 || c.phaseMs === 750),
+    ),
   });
 }
 export const manifestHash = (manifest: Manifest) =>
