@@ -319,6 +319,8 @@ export type AuthAccessTokenResult = typeof AuthAccessTokenResult.Type;
 export const AuthWebSocketTicketResult = Schema.Struct({
   ticket: TrimmedNonEmptyString,
   expiresAt: Schema.DateTimeUtc,
+  /** Lets a failed upgrade diagnose protocol changes with the same auth request. */
+  orchestrationProtocolVersion: Schema.optionalKey(Schema.Int),
 });
 export type AuthWebSocketTicketResult = typeof AuthWebSocketTicketResult.Type;
 
