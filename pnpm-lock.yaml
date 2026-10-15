@@ -153,7 +153,7 @@ patchedDependencies:
   '@effect/platform-node-shared@4.0.2': 4efe73732a53b7d7bdbd9a9263eed06310fc387f870ef4a5e66429e9d1fd7cd9
   '@effect/vitest@4.0.2': 595b7d26fb635caba9c3d39fcb189bb78a000192f8d3b60ead7174b310d1ade9
   '@expo/metro-config@58.0.6': 90fa980e8b6480631fb2fbb04559834e3c612db40c550cd828f11be297d8d760
-  '@fails-components/webtransport-transport-http3-quiche@1.6.9': 1a3f6c5de1c429ab4d5d91ccc82cf9b636dc4ff0e87ae3ec18fa9627f14113df
+  '@fails-components/webtransport-transport-http3-quiche@1.6.9': f4e09c8a7934d3be0443ac4d5228e68b81e522994da4ad90561398cb9cbb2047
   '@fails-components/webtransport@1.6.9': f88003791627b6e9a62862160b5ddf26694912db63efdbc34f3e925965287e7c
   '@ff-labs/fff-node@0.11.0': 8956d6ed6938a1bce69b2d0b067ff258dd9ca753c5bbe7006f7b68f760ea3ad2
   '@legendapp/list@3.3.5': 680cc6a5c5b4a4032e467e7b3fde22f89a84c0ee2e6eac6fda737d6277cc0806
@@ -776,7 +776,7 @@ importers:
         version: 1.6.9(patch_hash=f88003791627b6e9a62862160b5ddf26694912db63efdbc34f3e925965287e7c)
       '@fails-components/webtransport-transport-http3-quiche':
         specifier: 1.6.9
-        version: 1.6.9(patch_hash=1a3f6c5de1c429ab4d5d91ccc82cf9b636dc4ff0e87ae3ec18fa9627f14113df)
+        version: 1.6.9(patch_hash=f4e09c8a7934d3be0443ac4d5228e68b81e522994da4ad90561398cb9cbb2047)
 
   apps/web:
     dependencies:
@@ -15003,7 +15003,7 @@ snapshots:
       chalk: 4.1.2
       js-yaml: 4.3.2
 
-  '@fails-components/webtransport-transport-http3-quiche@1.6.9(patch_hash=1a3f6c5de1c429ab4d5d91ccc82cf9b636dc4ff0e87ae3ec18fa9627f14113df)':
+  '@fails-components/webtransport-transport-http3-quiche@1.6.9(patch_hash=f4e09c8a7934d3be0443ac4d5228e68b81e522994da4ad90561398cb9cbb2047)':
     dependencies:
       '@types/debug': 4.1.13
       bindings: 1.5.0

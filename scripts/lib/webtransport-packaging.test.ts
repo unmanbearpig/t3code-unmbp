@@ -78,6 +78,12 @@ if (!process.env.TEST_EMPTY_DOWNLOAD) {
 `,
   );
 };
+const writePayload = (directory: string, buildDirectory: string, contents: string) => {
+  const file = NodePath.join(directory, buildDirectory, "Release/webtransport.node");
+  NodeFS.mkdirSync(NodePath.dirname(file), { recursive: true });
+  NodeFS.writeFileSync(file, contents);
+  return file;
+};
 
 describe("optional WebTransport installer", () => {
   it("replaces only normal install and preserves explicit upstream builds", () => {
@@ -97,6 +103,44 @@ describe("optional WebTransport installer", () => {
     assert.include(result.stdout, "unsupported target");
     assert.isFalse(NodeFS.existsSync(NodePath.join(directory, "build")));
   });
+
+  it.each(["missing", "failed"])(
+    "preserves an existing target payload with a %s downloader",
+    (mode) => {
+      const directory = fixture();
+      const payload = writePayload(directory, "build_linux_x64", "bundled-native-payload");
+      if (mode === "failed") fakeDownloader(directory);
+      const result = runInstaller(directory, {
+        ...webTransportInstallEnvironment("linux", "x64"),
+        TEST_DOWNLOAD_FAILURE: "1",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(NodeFS.readFileSync(payload, "utf8"), "bundled-native-payload");
+      assert.isFalse(NodeFS.existsSync(NodePath.join(directory, "download-args.jsonl")));
+    },
+  );
+
+  it.each(["build_linux_arm64", "build"])(
+    "does not reuse a payload from %s for another requested target",
+    (buildDirectory) => {
+      const directory = fixture();
+      const previousPayload = writePayload(directory, buildDirectory, "other-native-payload");
+      fakeDownloader(directory);
+      const result = runInstaller(directory, webTransportInstallEnvironment("linux", "x64"));
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(
+        NodeFS.readFileSync(
+          NodePath.join(directory, "build_linux_x64/Release/webtransport.node"),
+          "utf8",
+        ),
+        "x64",
+      );
+      if (buildDirectory !== "build") {
+        assert.equal(NodeFS.readFileSync(previousPayload, "utf8"), "other-native-payload");
+      }
+      assert.isTrue(NodeFS.existsSync(NodePath.join(directory, "download-args.jsonl")));
+    },
+  );
 
   it.each([
     { npm_config_platform: "win32", npm_config_arch: "x64", npm_config_libc: "glibc" },
@@ -151,6 +195,47 @@ describe("optional WebTransport installer", () => {
       );
     }
   });
+
+  it("preserves both macOS universal payloads without a downloader", () => {
+    const directory = fixture();
+    const arm64 = writePayload(directory, "build_darwin_arm64", "bundled-arm64");
+    const x64 = writePayload(directory, "build_darwin_x64", "bundled-x64");
+    const result = runInstaller(directory, webTransportInstallEnvironment("mac", "universal"));
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(NodeFS.readFileSync(arm64, "utf8"), "bundled-arm64");
+    assert.equal(NodeFS.readFileSync(x64, "utf8"), "bundled-x64");
+    assert.isFalse(NodeFS.existsSync(NodePath.join(directory, "download-args.jsonl")));
+  });
+
+  it.each(["arm64", "x64"])(
+    "downloads only the missing macOS universal architecture when %s is bundled",
+    (existingArch) => {
+      const directory = fixture();
+      const existingPayload = writePayload(
+        directory,
+        `build_darwin_${existingArch}`,
+        "bundled-payload",
+      );
+      fakeDownloader(directory);
+      const result = runInstaller(directory, webTransportInstallEnvironment("mac", "universal"));
+      assert.equal(result.status, 0, result.stderr);
+      const missingArch = existingArch === "arm64" ? "x64" : "arm64";
+      const downloads = NodeFS.readFileSync(NodePath.join(directory, "download-args.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      assert.lengthOf(downloads, 1);
+      assert.equal(downloads[0][downloads[0].indexOf("--arch") + 1], missingArch);
+      assert.equal(NodeFS.readFileSync(existingPayload, "utf8"), "bundled-payload");
+      assert.equal(
+        NodeFS.readFileSync(
+          NodePath.join(directory, `build_darwin_${missingArch}/Release/webtransport.node`),
+          "utf8",
+        ),
+        missingArch,
+      );
+    },
+  );
 
   it.each(["missing", "failed", "empty"])(
     "fails an optional %s download without invoking source tools",
@@ -283,6 +368,30 @@ console.log('staged native preflight and wrapper import passed');
 );
 
 it.layer(NodeServices.layer)("WebTransport artifact target staging", (it) => {
+  it.effect("refreshes an existing payload for the requested artifact target", () =>
+    Effect.gen(function* () {
+      const root = fixture();
+      const packageDir = NodePath.join(
+        root,
+        "node_modules/@fails-components/webtransport-transport-http3-quiche",
+      );
+      const payload = writePayload(packageDir, "build_linux_x64", "same-target-cache");
+      NodeFS.copyFileSync(
+        NodePath.join(root, "install-prebuilt.js"),
+        NodePath.join(packageDir, "install-prebuilt.js"),
+      );
+      NodeFS.writeFileSync(NodePath.join(packageDir, "package.json"), '{"type":"module"}');
+      fakeDownloader(packageDir);
+      yield* stageWebTransportPrebuilt({
+        nodeModulesDir: NodePath.join(root, "node_modules"),
+        platform: "linux",
+        arch: "x64",
+      });
+      assert.equal(NodeFS.readFileSync(payload, "utf8"), "x64");
+      assert.isTrue(NodeFS.existsSync(NodePath.join(packageDir, "download-args.jsonl")));
+    }),
+  );
+
   it.effect("replaces a cached host payload with the requested target", () =>
     Effect.gen(function* () {
       const root = fixture();
