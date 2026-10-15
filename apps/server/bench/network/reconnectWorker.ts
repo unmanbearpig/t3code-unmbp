@@ -10,7 +10,7 @@ import { ResourceResponse, startProcessMeasurement } from "./resourceUsage.ts";
 import { makeBenchmarkConnector } from "./productionConnector.ts";
 import { ReconnectCase } from "./reconnectManifest.ts";
 import { TerminalProtocol } from "./reconnectComparison.ts";
-import { runReconnect } from "./reconnectClient.ts";
+import { linkCounters, runReconnect } from "./reconnectClient.ts";
 import { serverPort } from "./reconnectNetwork.ts";
 import { receive, startController, stopChild } from "./reconnectProcess.ts";
 import {
@@ -52,14 +52,25 @@ let native: Awaited<ReturnType<typeof makeBenchmarkConnector>> | undefined;
 let clientMeter: ReturnType<typeof startProcessMeasurement> | undefined;
 let failureCause: unknown;
 let caseDeadline = false;
-const trace =
-  process.env.RPC_RECONNECT_TRACE === "1" ? makeReconnectDiagnostics("client") : undefined;
+let failureStage = "fixture-startup";
+const caseStartedAt = performance.now();
+let linkBefore: ReturnType<typeof linkCounters> | undefined;
+const observation = makeReconnectDiagnostics("client");
+const trace = process.env.RPC_RECONNECT_TRACE === "1" ? observation : undefined;
 const inspectServer = async () => {
+  if (!server.connected) throw new Error("Fixture server IPC disconnected");
   const inspected = receive(server, 5000);
-  server.send({ inspect: true });
+  server.send({ inspect: true }, () => {});
   return await inspected;
 };
+const resourceRequest = async (_tag: "netbench-resource-start" | "netbench-resource-stop") => {
+  if (!server.connected) throw new Error("Fixture server IPC disconnected");
+  const response = receive(server, 5000);
+  server.send({ _tag }, () => {});
+  return decodeResource(await response).metrics;
+};
 const cleanup = async () => {
+  clientMeter?.stop();
   native?.dispose();
   await stopChild(controller?.child);
   await stopChild(server);
@@ -69,6 +80,7 @@ process.once("SIGTERM", () => {
 });
 try {
   const ready = decodeReady(await receive(server, 30000));
+  failureStage = "native-backend-loading";
   const advance = (count: number) =>
     Effect.tryPromise(async () => {
       const response = receive(server);
@@ -90,13 +102,10 @@ try {
         )
       : undefined;
   controller = await startController(entry, Number(queue));
-  const resourceRequest = async (_tag: "netbench-resource-start" | "netbench-resource-stop") => {
-    const response = receive(server);
-    server.send({ _tag });
-    return decodeResource(await response).metrics;
-  };
   await resourceRequest("netbench-resource-start");
   clientMeter = startProcessMeasurement();
+  linkBefore = linkCounters();
+  failureStage = "application-workload";
   const result = await Effect.runPromise(
     Effect.scoped(
       runReconnect({
@@ -109,7 +118,7 @@ try {
         startController: controller.start,
         requestedTransport: mode,
         ...(native ? { connector: native.connector, nativeEvidence: native.evidence } : {}),
-        ...(trace ? { diagnostic: trace.event } : {}),
+        diagnostic: observation.event,
       }),
     ).pipe(
       Effect.timeoutOrElse({
@@ -129,6 +138,7 @@ try {
       ),
     ),
   );
+  failureStage = "result-validation";
   const clientResources = clientMeter.stop();
   if (
     result.selectedTransport === "webtransport" &&
@@ -189,31 +199,40 @@ try {
     signalNs: controller.signalNs(),
   });
 } catch (error) {
+  const elapsedMs = performance.now() - caseStartedAt;
   const clientResources = clientMeter?.stop();
-  const serverDiagnostics = trace
-    ? await inspectServer().catch((inspectError: unknown) => ({
-        inspectError: diagnosticError(inspectError),
-      }))
-    : undefined;
-  const client = trace?.snapshot();
+  const linkAfter = linkCounters();
+  const serverResources = await resourceRequest("netbench-resource-stop").catch(
+    (resourceError: unknown) => ({ error: diagnosticError(resourceError) }),
+  );
+  const serverDiagnostics = await inspectServer().catch((inspectError: unknown) => ({
+    inspectError: diagnosticError(inspectError),
+  }));
+  const client = observation.snapshot();
   process.send?.({
     type: "failure",
     error: redactDiagnostic(String(error)),
     diagnostics: {
       complete: false,
+      correct: false,
+      elapsedMs,
+      failureStage,
       cause: failureCause ?? diagnosticError(error),
       timeoutOwner: caseDeadline ? "benchmark-case-limit" : "operation-or-production",
       caseTimeoutMs: entry.timeoutMs,
       nativeEvidence: native ? { ...native.evidence } : null,
-      ...(clientResources ? { clientResources } : {}),
-      ...(client
+      serverResources,
+      ...(linkBefore
         ? {
-            client,
-            completedProbeSamples: client.milestones.filter(
-              (item) => item.event === "app-probe-result",
-            ),
+            partialCaseIpTraffic: {
+              bytes: linkAfter.bytes - linkBefore.bytes,
+              packets: linkAfter.packets - linkBefore.packets,
+            },
           }
         : {}),
+      ...(clientResources ? { clientResources } : {}),
+      client,
+      completedProbeSamples: client.milestones.filter((item) => item.event === "app-probe-result"),
       ...(serverDiagnostics ? { server: serverDiagnostics } : {}),
     },
   });

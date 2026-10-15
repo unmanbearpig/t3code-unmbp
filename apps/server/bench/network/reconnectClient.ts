@@ -389,10 +389,13 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     );
     let totalMs: number;
     let overlapMetrics: Record<string, number> | undefined;
-    let probeSamples: { startedMs: number; completedMs: number; rttMs: number }[] | undefined;
+    let probeSamples:
+      | { index: number; startedMs: number; completedMs: number; rttMs: number }[]
+      | undefined;
     if (operation === "bulk-overlap" || operation === "terminal-overlap") {
       const session = Option.getOrThrow(yield* SubscriptionRef.get(supervisor.session));
-      const samples: { startedMs: number; completedMs: number; rttMs: number }[] = [];
+      const samples: { index: number; startedMs: number; completedMs: number; rttMs: number }[] =
+        [];
       const probes = yield* Effect.forEach(
         Array.from({ length: 12 }, (_, index) => index),
         (index) =>
@@ -406,11 +409,13 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
             )
               return yield* Effect.die("Small RPC identity mismatch");
             samples.push({
+              index,
               startedMs: began - start,
               completedMs: completed - start,
               rttMs: completed - began,
             });
             input.diagnostic?.("app-probe-result", {
+              index,
               startedMs: began - start,
               completedMs: completed - start,
               rttMs: completed - began,
@@ -457,27 +462,38 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
               )
                 throw new Error("Missing, reordered or corrupt terminal output");
               received++;
+              if (received % 8 === 0)
+                input.diagnostic?.("app-bulk-progress", {
+                  operation,
+                  chunks: received,
+                  decodedCharacters: received * operationMessageText(0).length,
+                });
             }),
           ),
         );
         totalMs = performance.now() - start;
+        input.diagnostic?.("app-bulk-complete", { operation, totalMs, chunks: received });
         if (received !== 256) return yield* Effect.die("Incomplete terminal stream");
       }
       yield* Fiber.join(probes);
+      if (samples.length !== 12) return yield* Effect.die("Incomplete fixed probe cohort");
       probeSamples = samples.toSorted((a, b) => a.startedMs - b.startedMs);
       const during = samples
         .filter((sample) => sample.startedMs <= totalMs)
         .map((sample) => sample.rttMs)
         .toSorted((a, b) => a - b);
+      const all = samples.map((sample) => sample.rttMs).toSorted((a, b) => a - b);
       overlapMetrics = {
         probeSamples: samples.length,
         probesStartedDuringBulk: during.length,
-        probeMedianMs: during.length
+        activeArrivalProbeMedianMs: during.length
           ? (during[Math.floor((during.length - 1) / 2)]! +
               during[Math.floor(during.length / 2)]!) /
             2
           : 0,
-        probeWorstMs: during.at(-1) ?? 0,
+        activeArrivalProbeWorstMs: during.at(-1) ?? 0,
+        all12ProbeMedianMs: (all[5]! + all[6]!) / 2,
+        all12ProbeWorstMs: all.at(-1)!,
         terminalChunks: operation === "terminal-overlap" ? 256 : 0,
         bulkMessages: operation === "bulk-overlap" ? expected.messages : 0,
       };
@@ -580,6 +596,12 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     return yield* Effect.die(new Error("Offline cache setup performed network I/O"));
   if (input.entry.workload === "blocked-udp") blockFixtureQuic();
   if (isShort) {
+    input.diagnostic?.("app-fault-model", {
+      kind:
+        input.requestedTransport === "webtransport"
+          ? "persistent-endpoint-udp-blockade"
+          : "established-tcp-tuple-blackhole",
+    });
     yield* SubscriptionRef.set(network, "online");
     yield* waitForOperationState(state, input.initial, false);
     yield* waitShell;
@@ -647,6 +669,8 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
         secondConnectMs: number;
         nativeAttemptsFirst: number;
         nativeAttemptsSecond: number;
+        candidateDeadlineMs: number;
+        candidateDeadlineToleranceMs: number;
       }
     | undefined;
   if (input.entry.workload === "blocked-udp") {
@@ -677,6 +701,8 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       secondConnectMs: performance.now() - secondStartedAt,
       nativeAttemptsFirst: attemptsFirst,
       nativeAttemptsSecond: (input.nativeEvidence?.constructed ?? 0) - beforeSecond,
+      candidateDeadlineMs: 2000,
+      candidateDeadlineToleranceMs: 250,
     };
     if (
       fallbackMetrics.nativeAttemptsFirst !==
@@ -686,6 +712,12 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       return yield* Effect.die(
         new Error("Persistent production QUIC cooldown did not suppress the second candidate"),
       );
+    if (
+      input.requestedTransport === "webtransport" &&
+      fallbackMetrics.firstCandidateWaitMs >
+        fallbackMetrics.candidateDeadlineMs + fallbackMetrics.candidateDeadlineToleranceMs
+    )
+      return yield* Effect.die(new Error("Blocked UDP candidate exceeded its deadline tolerance"));
   }
   const totalMs = firstConnectMs;
   const shellLiveMs = yield* Deferred.await(shellDone);
@@ -747,6 +779,13 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     shellLiveMs,
     selectedTransport: selectedTransport!,
     selections,
+    faultModel: isShort
+      ? input.requestedTransport === "webtransport"
+        ? "persistent-endpoint-udp-blockade"
+        : "established-tcp-tuple-blackhole"
+      : input.entry.workload === "blocked-udp"
+        ? "preconnect-persistent-endpoint-udp-blockade"
+        : "scheduled-profile-only",
     ...(fallbackMetrics
       ? { operationMetrics: { operation: "blocked-udp", ...fallbackMetrics } }
       : {}),

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { makeManifest, manifestHash, validateManifest, variantOrder } from "./reconnectManifest.ts";
-import { distribution, summarize, type ReconnectRow } from "./reconnectComparison.ts";
+import {
+  compareProbeCohorts,
+  distribution,
+  summarize,
+  type ReconnectRow,
+} from "./reconnectComparison.ts";
 import { directionCommands, controllerPlan } from "./reconnectNetwork.ts";
 
 const manifest = makeManifest();
@@ -79,6 +84,50 @@ describe("bounded reconnect plan", () => {
 });
 
 describe("paired completion evidence", () => {
+  it("compares the same twelve arrivals and separately matches only early common-active indices", () => {
+    const baseline = {
+      ...row("a", 85).result!,
+      probeSamples: Array.from({ length: 12 }, (_, index) => ({
+        index,
+        startedMs: index * 20,
+        completedMs: index * 20 + (index < 5 ? 10 : 100),
+        rttMs: index < 5 ? 10 : 100,
+      })),
+    };
+    const candidate = {
+      ...row("b", 400).result!,
+      probeSamples: Array.from({ length: 12 }, (_, index) => ({
+        index,
+        startedMs: index * 20 + 5,
+        completedMs: index * 20 + 25,
+        rttMs: 20,
+      })),
+    };
+    expect(compareProbeCohorts(baseline, candidate)).toMatchObject({
+      indexSource: "explicit-schedule-index",
+      all12: {
+        indices: Array.from({ length: 12 }, (_, index) => index),
+        baselineMs: { n: 12, median: 100 },
+        candidateMs: { n: 12, median: 20 },
+        medianDeltaMs: -80,
+      },
+      commonActive: {
+        commonEndMs: 85,
+        indices: [0, 1, 2, 3, 4],
+        baselineMs: { n: 5, median: 10 },
+        candidateMs: { n: 5, median: 20 },
+        medianDeltaMs: 10,
+      },
+    });
+    const incomplete = { ...candidate, probeSamples: candidate.probeSamples.slice(0, 11) };
+    expect(compareProbeCohorts(baseline, incomplete)?.all12).toBeNull();
+    const duplicate = {
+      ...candidate,
+      probeSamples: [candidate.probeSamples[0]!, candidate.probeSamples[0]!],
+    };
+    expect(() => compareProbeCohorts(baseline, duplicate)).toThrow("Duplicate");
+  });
+
   it("keeps per-run resource and probe sample counts separate and excludes failed runs", () => {
     const first = row("a", 10);
     const second = row("a", 20, { case: { ...entry, id: "second", repetition: 2 } });

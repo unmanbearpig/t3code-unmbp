@@ -251,14 +251,19 @@ installed for this fixture.
 
 The default smoke has four resume cases at 50 ms RTT. Each verifies a 100-message
 offline cache, complete replay, and shell catch-up across eight projects and 160
-threads. Short-resume cases silently drop the established TCP flow or the fixture's
-UDP traffic. QUIC failure is expected to recover over WSS and retain its cooldown.
+threads. Short-resume cases blackhole the established TCP tuple for WSS, but block
+all endpoint UDP for QUIC, including new candidates. These are different fallback
+faults, not equivalent migration or handoff measurements. QUIC failure is expected
+to recover over WSS and retain its cooldown.
 `--operations` compares five-message synchronization, replay after 50 missed
 messages, and opening a 2,000-message thread through the same cold HTTP/1 gzip
 snapshot path. `--fallback` blocks UDP before connection and verifies that a second
-connection within the production cooldown starts no QUIC candidate. `--overlap`
-sends small ordinary RPCs during a deliberate full-history bulk response or a
-256-chunk terminal stream. Terminal results include actual wire Acks and the
+connection within the production cooldown starts no QUIC candidate. Its two-second
+candidate deadline allows 250 ms of scheduling tolerance. `--overlap` sends twelve
+indexed small ordinary RPCs in the first 220 ms of a deliberate full-history bulk
+response or 256-chunk terminal stream. It measures early overlap only. Results
+separate the fixed twelve arrivals from each variant's active-arrival statistic;
+paired summaries also retain common-active-window indices. Terminal results include actual wire Acks and the
 maximum outstanding chunk count.
 
 ```sh
@@ -288,6 +293,11 @@ evidence without running application cases. Inputs and MTU 1280 are frozen in
 the manifest. Cases rotate variant order and require
 committed, clean worktrees before and after each run. Raw output preserves HTTP
 stages, attempts, connection IDs, IP traffic, correctness, and process costs.
+Failed rows preserve elapsed time, stage, selection history, completed probes,
+partial traffic and process costs, with incomplete status. `RPC_RECONNECT_TRACE=1`
+adds native/stream closure and framing diagnostics for correctness investigation;
+those runs are excluded from timing claims because the observers add work.
+Resolved backend files and the selected native addon are hashed in environment output.
 Summary deltas pair successful identical inputs only, retaining failures and
 actual sample counts. Observed p90 requires 20 successful repetitions. Process
 costs cover the whole client case, including warmup. Native connection counters
@@ -295,6 +305,10 @@ also cover the whole case. The selected transport comes from the real session,
 and QUIC results require native CONNECT, control-stream and application-stream
 evidence. The host-wide reconnect benchmark lock is shared with other worktrees;
 exit 75 means another benchmark holds it and no fixture started.
+
+All current reconnect fixtures use bearer authorization. They exclude the extra
+ticket request for primary-cookie bootstrap, so they do not establish browser
+cold-connect cost.
 
 The original operation suite contains Node measurements through shared client state code. They do not measure
 browser/Android rendering, disk cache writes, battery use, authentication, environment

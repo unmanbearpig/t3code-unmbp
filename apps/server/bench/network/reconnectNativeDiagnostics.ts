@@ -6,12 +6,8 @@ import * as NodePath from "node:path";
 import * as NodeURL from "node:url";
 import type { makeReconnectDiagnostics } from "./reconnectDiagnostics.ts";
 
-/** Instrument the actual cached backend class; preserve callback return values and native promises. */
-export async function installNativeDiagnostics(
-  trace: ReturnType<typeof makeReconnectDiagnostics>,
-  platform: NodeJS.Platform,
-  arch: string,
-) {
+/** Hash the resolved installed package and selected platform addon without loading or changing them. */
+export function backendProvenance(platform: NodeJS.Platform, arch: string) {
   const origin = new URL("../../package.json", import.meta.url);
   const require = NodeModule.createRequire(origin);
   const manifest = NodeModule.findPackageJSON("@fails-components/webtransport", origin);
@@ -33,12 +29,23 @@ export async function installNativeDiagnostics(
     NodePath.join(addonRoot, "lib/serversocket.js"),
     NodePath.join(build, "Release/webtransport.node"),
   ].map((file) => NodeFS.realpathSync(file));
-  trace.event("app-backend-provenance", {
+  return {
+    root,
     files: paths.map((file) => ({
       path: file,
       sha256: NodeCrypto.createHash("sha256").update(NodeFS.readFileSync(file)).digest("hex"),
     })),
-  });
+  };
+}
+
+/** Instrument the actual cached backend class; preserve callback return values and native promises. */
+export async function installNativeDiagnostics(
+  trace: ReturnType<typeof makeReconnectDiagnostics>,
+  platform: NodeJS.Platform,
+  arch: string,
+) {
+  const { root, files } = backendProvenance(platform, arch);
+  trace.event("app-backend-provenance", { files });
   const loaded: unknown = await import(
     NodeURL.pathToFileURL(NodePath.join(root, "lib/stream.js")).href
   );

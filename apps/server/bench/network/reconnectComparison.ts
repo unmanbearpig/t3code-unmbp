@@ -18,9 +18,15 @@ export const TerminalProtocol = Schema.Struct({
 export const ReconnectResult = Schema.Struct({
   terminalProtocol: Schema.optionalKey(TerminalProtocol),
   totalMs: Schema.Number,
+  faultModel: Schema.optionalKey(Schema.String),
   probeSamples: Schema.optionalKey(
     Schema.Array(
-      Schema.Struct({ startedMs: Schema.Number, completedMs: Schema.Number, rttMs: Schema.Number }),
+      Schema.Struct({
+        index: Schema.optionalKey(Schema.Number),
+        startedMs: Schema.Number,
+        completedMs: Schema.Number,
+        rttMs: Schema.Number,
+      }),
     ),
   ),
   operationMetrics: Schema.optionalKey(
@@ -111,6 +117,48 @@ function numericDistributions(records: readonly Readonly<Record<string, number |
   return Object.fromEntries([...values].map(([key, samples]) => [key, distribution(samples)]));
 }
 
+/** Compare identical scheduled arrivals, keeping the fixed cohort separate from early overlap. */
+export function compareProbeCohorts(baseline: ReconnectResult, candidate: ReconnectResult) {
+  const indexed = (result: ReconnectResult) => {
+    const samples = result.probeSamples?.toSorted((a, b) => a.startedMs - b.startedMs) ?? [];
+    const probes = new Map(samples.map((sample, position) => [sample.index ?? position, sample]));
+    if (probes.size !== samples.length) throw new Error("Duplicate overlap probe index");
+    return probes;
+  };
+  const before = indexed(baseline),
+    after = indexed(candidate);
+  if (!before.size || !after.size) return null;
+  const cohort = (indices: readonly number[]) => {
+    const baselineMs = distribution(indices.map((index) => before.get(index)!.rttMs));
+    const candidateMs = distribution(indices.map((index) => after.get(index)!.rttMs));
+    return {
+      indices,
+      baselineMs,
+      candidateMs,
+      medianDeltaMs: baselineMs && candidateMs ? candidateMs.median - baselineMs.median : null,
+      pairedProbeDeltaMs: distribution(
+        indices.map((index) => after.get(index)!.rttMs - before.get(index)!.rttMs),
+      ),
+    };
+  };
+  const indices = Array.from({ length: 12 }, (_, index) => index);
+  const commonEndMs = Math.min(baseline.totalMs, candidate.totalMs);
+  const commonIndices = indices.filter((index) => {
+    const a = before.get(index),
+      b = after.get(index);
+    return a && b && a.startedMs <= commonEndMs && b.startedMs <= commonEndMs;
+  });
+  return {
+    indexSource: [...(baseline.probeSamples ?? []), ...(candidate.probeSamples ?? [])].every(
+      (sample) => sample.index !== undefined,
+    )
+      ? "explicit-schedule-index"
+      : "legacy-start-order",
+    all12: indices.every((index) => before.has(index) && after.has(index)) ? cohort(indices) : null,
+    commonActive: { commonEndMs, ...cohort(commonIndices) },
+  };
+}
+
 /** Only successful, identical case IDs enter paired deltas. Failures remain visible separately. */
 export function summarize(rows: readonly ReconnectRow[], baselineVariant: string) {
   const indexed = new Map<string, ReconnectRow>();
@@ -175,6 +223,10 @@ export function summarize(rows: readonly ReconnectRow[], baselineVariant: string
       packets: distribution(completed.map((row) => row.result!.packets)),
       pairedAgainst: baselineVariant,
       pairedN: paired.length,
+      pairedProbeCohorts: paired.flatMap(({ row, baseline }) => {
+        const comparison = compareProbeCohorts(baseline.result!, row.result!);
+        return comparison ? [{ caseId: row.case.id, ...comparison }] : [];
+      }),
       pairedDeltaMs: distribution(
         paired.map(({ row, baseline }) => row.result!.totalMs - baseline.result!.totalMs),
       ),

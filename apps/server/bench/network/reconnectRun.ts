@@ -5,12 +5,15 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 import * as Schema from "effect/Schema";
+import * as Effect from "effect/Effect";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { makeManifest, manifestHash, validateManifest, variantOrder } from "./reconnectManifest.ts";
 import { applyProfile } from "./reconnectNetwork.ts";
 import { receive, stopChild } from "./reconnectProcess.ts";
 import { prepareLoopback } from "./impairments.ts";
 import { calibrate } from "./reconnectCalibration.ts";
 import { ReconnectResult, summarize, type ReconnectRow } from "./reconnectComparison.ts";
+import { backendProvenance } from "./reconnectNativeDiagnostics.ts";
 
 const decodeWorker = Schema.decodeUnknownSync(
   Schema.Union([
@@ -241,6 +244,11 @@ try {
     ),
     resourceWindow: "whole-client-case-including-short-resume-warmup",
     diagnosticTrace: process.env.RPC_RECONNECT_TRACE === "1",
+    backendProvenance: await Effect.runPromise(
+      Effect.gen(function* () {
+        return backendProvenance(yield* HostProcess.Platform, yield* HostProcess.Architecture);
+      }),
+    ),
     limits:
       "Node fixture; no browser/mobile/DERP/battery claim; rate/RTT calibration and packet impairment self-test precede measurements",
   });
