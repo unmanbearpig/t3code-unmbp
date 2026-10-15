@@ -136,20 +136,27 @@ const make = Effect.gen(function* () {
     // Native completion is advisory. Never await stop/closed while finalizing
     // handlers, background leases, or the server's own scope.
     let closing = false;
+    let ready = false;
+    let stopRequested = false;
     let stopped = false;
     let drainAdmissions = Effect.void;
     const stop = () => {
+      if (!ready || !stopRequested || stopped) return;
+      stopped = true;
       try {
         server.stopServer();
       } catch {
-        // Startup can fail before the backend creates its native listener.
+        // Native stop errors must not hold up logical cleanup.
       }
     };
     // startServer starts an async initialization without returning its promise.
-    // If it finishes after our deadline, the late listener still belongs to us.
+    // Only fulfilled public readiness makes stop safe: stopping during DNS can
+    // destroy the native server while initialization still owns its pointer.
+    // Late readiness still belongs to us, without holding logical cleanup open.
     void server.ready.then(
       () => {
-        if (stopped) stop();
+        ready = true;
+        stop();
       },
       () => undefined,
     );
@@ -163,7 +170,7 @@ const make = Effect.gen(function* () {
         Effect.andThen(Effect.suspend(() => drainAdmissions)),
         Effect.andThen(
           Effect.sync(() => {
-            stopped = true;
+            stopRequested = true;
             stop();
           }),
         ),
