@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["T3QuicModule"],
+    "podspecPath": "T3Quic.podspec"
+  },
+  "android": {
+    "modules": ["expo.modules.t3quic.T3QuicModule"]
+  }
+}
