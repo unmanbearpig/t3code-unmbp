@@ -1,7 +1,14 @@
-import type { AuthSessionState, EnvironmentId, ServerConfig } from "@t3tools/contracts";
+import {
+  EnvironmentInternalError,
+  type AuthSessionState,
+  type EnvironmentId,
+  type ServerConfig,
+} from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { HttpClient } from "effect/http";
@@ -12,6 +19,11 @@ import * as EnvironmentRegistry from "../connection/registry.ts";
 import type { PreparedConnection } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
+import {
+  RemoteEnvironmentAuthFetchError,
+  RemoteEnvironmentAuthTimeoutError,
+  RemoteEnvironmentAuthUndeclaredStatusError,
+} from "../rpc/http.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import { executeAuthenticatedEnvironmentHttpRequest } from "./environmentHttpAuth.ts";
 import { followStreamInEnvironment } from "./environmentStreams.ts";
@@ -38,6 +50,18 @@ function initialConfigOption<E>(
 // Bounded so a wedged environment cannot pin the permissions check (and with it
 // the settings UI) in a loading state for long.
 const DEFAULT_SESSION_STATE_TIMEOUT_MS = 6_000;
+const SESSION_STATE_RETRY_MS = 5_000;
+const isEnvironmentInternalError = Schema.is(EnvironmentInternalError);
+
+function isRetryableSessionError(error: unknown): boolean {
+  return (
+    error instanceof RemoteEnvironmentAuthFetchError ||
+    error instanceof RemoteEnvironmentAuthTimeoutError ||
+    isEnvironmentInternalError(error) ||
+    (error instanceof RemoteEnvironmentAuthUndeclaredStatusError &&
+      (error.status === 408 || error.status === 429 || error.status >= 500))
+  );
+}
 
 /**
  * Read the granted scopes of this client's session on one environment via its
@@ -127,14 +151,28 @@ function makeEnvironmentSessionAtoms<R, E>(
     ).pipe(Atom.withLabel(`environment-prepared-connection:${environmentId}`)),
   );
 
-  // Keyed on the prepared connection's identity: a reconnect (new credential,
-  // new base URL) swaps the prepared value, which re-runs the fetch, so scope
-  // changes from re-pairing are picked up without an explicit refresh.
-  const sessionStateAtom = Atom.family((environmentId: EnvironmentId) =>
-    runtime
+  const connectedSessionAtom = Atom.family((environmentId: EnvironmentId) =>
+    runtime.atom(
+      followStreamInEnvironment(
+        environmentId,
+        Stream.unwrap(
+          EnvironmentSupervisor.EnvironmentSupervisor.pipe(
+            Effect.map((supervisor) => SubscriptionRef.changes(supervisor.session)),
+          ),
+        ),
+      ),
+      { initialValue: Option.none() },
+    ),
+  );
+
+  const sessionStateAtom = Atom.family((environmentId: EnvironmentId) => {
+    const query = runtime
       .atom((get) => {
         const prepared = Option.getOrNull(get(preparedConnectionValueAtom(environmentId)));
-        if (prepared === null) {
+        const session = Option.flatten(AsyncResult.value(get(connectedSessionAtom(environmentId))));
+        // Preparation can precede socket authentication. Fetch again for every
+        // live session, even when the reconnect reuses its prepared connection.
+        if (prepared === null || Option.isNone(session)) {
           return Effect.never;
         }
         return Effect.gen(function* () {
@@ -151,12 +189,31 @@ function makeEnvironmentSessionAtoms<R, E>(
           }).pipe(Effect.provideService(HttpClient.HttpClient, client.value));
         });
       })
-      .pipe(
-        Atom.swr({ staleTime: 30_000, revalidateOnMount: true }),
-        Atom.setIdleTTL(5 * 60_000),
-        Atom.withLabel(`environment-session-state:${environmentId}`),
-      ),
-  );
+      .pipe(Atom.swr({ staleTime: 30_000, revalidateOnMount: true }), Atom.setIdleTTL(5 * 60_000));
+    const retry = query.pipe(Atom.withRefresh(SESSION_STATE_RETRY_MS), Atom.setIdleTTL(0));
+    return Atom.transform(
+      query,
+      (get) => {
+        const result = get(query);
+        // SWR revalidates on mount, but a mounted view otherwise retains a failed
+        // lookup indefinitely. Retry failures without polling healthy sessions.
+        if (
+          result._tag === "Failure" &&
+          !result.waiting &&
+          result.cause.reasons.some(
+            (reason) => Cause.isFailReason(reason) && isRetryableSessionError(reason.error),
+          )
+        ) {
+          get(retry);
+        }
+        return result;
+      },
+      { initialValueTarget: query },
+    ).pipe(
+      Atom.setIdleTTL(5 * 60_000),
+      Atom.withLabel(`environment-session-state:${environmentId}`),
+    );
+  });
 
   const sessionStateValueAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make(
