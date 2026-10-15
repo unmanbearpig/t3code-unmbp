@@ -29,6 +29,7 @@ import {
   AVAILABLE_CONNECTION_STATE,
   ConnectionTransientError,
   PrimaryConnectionTarget,
+  SshConnectionTarget,
   type PreparedConnection,
   type SupervisorConnectionState,
 } from "../connection/model.ts";
@@ -89,6 +90,7 @@ import type { ConnectionAttemptError } from "../connection/model.ts";
 import * as ConnectionDriver from "../connection/driver.ts";
 import * as ConnectionResolver from "../connection/resolver.ts";
 import * as Connectivity from "../connection/connectivity.ts";
+import { environmentMismatchError } from "../connection/errors.ts";
 
 const makeReconnectHarness = Effect.fnUntraced(function* (
   input: {
@@ -96,6 +98,7 @@ const makeReconnectHarness = Effect.fnUntraced(function* (
     readonly load?: (call: number) => Effect.Effect<Option.Option<DeferredShellSnapshot>>;
     readonly config?: ServerConfig;
     readonly lifecycle?: Stream.Stream<ServerLifecycleStreamEvent>;
+    readonly prefetchWhileWarm?: boolean;
   } = {},
 ) {
   const requests = yield* Queue.unbounded<{
@@ -177,6 +180,7 @@ const makeReconnectHarness = Effect.fnUntraced(function* (
   });
   const loaderCalls = yield* Ref.make(0);
   const cancelledPrefetches = yield* Ref.make(0);
+  const prefetchChecks = yield* Queue.unbounded<boolean>();
   const loader = yield* ShellSnapshotLoader.make.pipe(
     Effect.provideService(
       HttpClient.HttpClient,
@@ -190,6 +194,11 @@ const makeReconnectHarness = Effect.fnUntraced(function* (
     Effect.provideService(Persistence.EnvironmentCacheStore, cache),
     Effect.provideService(ShellSnapshotLoader.ShellSnapshotLoader, {
       ...loader,
+      shouldPrefetch: (id) =>
+        loader.shouldPrefetch!(id).pipe(
+          Effect.map((shouldPrefetch) => input.prefetchWhileWarm || shouldPrefetch),
+          Effect.tap((shouldPrefetch) => Queue.offer(prefetchChecks, shouldPrefetch)),
+        ),
       cancelPrefetch: () => Ref.update(cancelledPrefetches, (count) => count + 1),
       load: () =>
         Ref.updateAndGet(loaderCalls, (count) => count + 1).pipe(
@@ -213,6 +222,8 @@ const makeReconnectHarness = Effect.fnUntraced(function* (
     lifecycleRequests,
     loaderCalls,
     cancelledPrefetches,
+    prefetchChecks,
+    prepare: () => SubscriptionRef.set(supervisor.prepared, Option.some({ ...PREPARED })),
     scope,
     shouldPrefetch: loader.shouldPrefetch!,
     waitForState,
@@ -355,6 +366,70 @@ const makePrefetchHarness = Effect.fnUntraced(function* (
 });
 
 describe("environment shell synchronization", () => {
+  it.effect("skips warm prefetch and refreshes authoritatively when new config rejects reuse", () =>
+    Effect.gen(function* () {
+      const fresh = { ...LIVE_SHELL_SNAPSHOT, snapshotSequence: 9, threads: [] };
+      const harness = yield* makeReconnectHarness({
+        load: (call) => Effect.succeedSome(call === 1 ? LIVE_SHELL_SNAPSHOT : fresh),
+      });
+      const initial = yield* Queue.take(harness.requests);
+      expect(yield* Queue.take(harness.prefetchChecks)).toBe(true);
+      yield* harness.complete(initial);
+      yield* harness.disconnect(initial);
+      yield* harness.prepare();
+      expect(yield* Queue.take(harness.prefetchChecks)).toBe(false);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(1);
+      yield* harness.reconnect();
+      const warm = yield* Queue.take(harness.requests);
+      expect(warm.input.afterSequence).toBe(1);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(1);
+      yield* harness.complete(warm);
+      yield* harness.disconnect(warm);
+      yield* harness.prepare();
+      expect(yield* Queue.take(harness.prefetchChecks)).toBe(false);
+      yield* harness.reconnect({
+        ...INITIAL_CONFIG,
+        environment: { ...INITIAL_CONFIG.environment!, serverVersion: "2.0.0" },
+      });
+      const changed = yield* Queue.take(harness.requests);
+      expect(changed.input.afterSequence).toBe(9);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
+      expect(Option.getOrThrow((yield* SubscriptionRef.get(harness.state)).snapshot)).toEqual(
+        fresh,
+      );
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("cancels a racing warm prefetch and keeps watching later prepared routes", () =>
+    Effect.gen(function* () {
+      const started = yield* Queue.unbounded<number>();
+      const interrupted = yield* Queue.unbounded<number>();
+      const harness = yield* makeReconnectHarness({
+        prefetchWhileWarm: true,
+        load: (call) =>
+          call === 1
+            ? Effect.succeedSome(LIVE_SHELL_SNAPSHOT)
+            : Queue.offer(started, call).pipe(
+                Effect.andThen(Effect.never),
+                Effect.onInterrupt(() => Queue.offer(interrupted, call)),
+              ),
+      });
+      let request = yield* Queue.take(harness.requests);
+      yield* harness.complete(request);
+      for (const call of [2, 3]) {
+        yield* harness.disconnect(request);
+        yield* harness.prepare();
+        expect(yield* Queue.take(started)).toBe(call);
+        yield* harness.reconnect();
+        request = yield* Queue.take(harness.requests);
+        expect(yield* Queue.take(interrupted)).toBe(call);
+        expect(request.input.afterSequence).toBe(1);
+        yield* harness.complete(request);
+      }
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(3);
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("prefetches the new session's authoritative shell before reconnect readiness", () =>
     Effect.gen(function* () {
       const harness = yield* makePrefetchHarness();
@@ -548,7 +623,6 @@ describe("environment shell synchronization", () => {
         expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
       }),
   );
-
 
   it.effect("publishes live state before persistence and preserves it when ready", () =>
     Effect.gen(function* () {
@@ -1045,7 +1119,9 @@ describe("environment shell synchronization", () => {
             : Effect.succeedSome({ ...LIVE_SHELL_SNAPSHOT, snapshotSequence: 10 }),
       });
       yield* Deferred.await(started);
-      // Replacing the session cancels its initial HTTP load before the next starts.
+      // A replacement connection publishes its prepared route before its session.
+      // Retiring the route cancels the old prefetch before the next load starts.
+      yield* harness.prepare();
       yield* harness.reconnect();
       yield* Deferred.await(interrupted);
       const refreshed = yield* Queue.take(harness.requests);

@@ -361,6 +361,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     Option.Option<{
       readonly prepared: PreparedConnection;
       readonly take: Effect.Effect<Option.Option<DeferredShellSnapshot>>;
+      readonly cancel: Effect.Effect<void>;
     }>
   >(Option.none());
   // Prepared routes arrive before socket/config readiness. Each route owns one
@@ -375,12 +376,26 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
             yield* SubscriptionRef.set(prefetchedSnapshot, Option.none());
             return;
           }
+          const shouldPrefetch = yield* (
+            snapshotLoader.shouldPrefetch?.(environmentId) ?? Effect.succeed(true)
+          );
           const result = yield* Deferred.make<Option.Option<DeferredShellSnapshot>>();
-          const pending = yield* Ref.make(Option.some(result));
+          const pending = yield* Ref.make(shouldPrefetch ? Option.some(result) : Option.none());
+          const load = shouldPrefetch
+            ? yield* snapshotLoader.load(prepared.value).pipe(
+                Effect.flatMap((snapshot) => Deferred.succeed(result, snapshot)),
+                Effect.onInterrupt(() => Deferred.succeed(result, Option.none())),
+                Effect.forkChild,
+              )
+            : undefined;
           yield* SubscriptionRef.set(
             prefetchedSnapshot,
             Option.some({
               prepared: prepared.value,
+              cancel: Ref.set(pending, Option.none()).pipe(
+                Effect.andThen(load === undefined ? Effect.void : Fiber.interrupt(load)),
+                Effect.asVoid,
+              ),
               // Consume once and release the stored result. Session replacements
               // and same-session HTTP failure retries must refresh again.
               take: Ref.getAndSet(pending, Option.none()).pipe(
@@ -393,15 +408,23 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
               ),
             }),
           );
-          yield* snapshotLoader
-            .load(prepared.value)
-            .pipe(Effect.flatMap((snapshot) => Deferred.succeed(result, snapshot)));
+          // Cancelling one load must leave the prepared-route watcher running.
+          if (load !== undefined) yield* Fiber.await(load);
         }),
       ),
     ),
     Stream.runDrain,
     Effect.forkScoped,
   );
+
+  const prefetchFor = (prepared: PreparedConnection) =>
+    SubscriptionRef.changes(prefetchedSnapshot).pipe(
+      Stream.filter(Option.isSome),
+      Stream.map((value) => value.value),
+      Stream.filter((value) => value.prepared === prepared),
+      Stream.runHead,
+      Effect.map(Option.getOrThrow),
+    );
 
   yield* setSynchronizing;
   yield* Effect.forkScoped(
@@ -460,6 +483,11 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         let current = yield* SubscriptionRef.get(state);
         if (canResume && Option.isSome(current.snapshot)) {
           yield* snapshotLoader.cancelPrefetch?.(environmentId) ?? Effect.void;
+          const prepared = yield* SubscriptionRef.get(supervisor.prepared);
+          if (Option.isSome(prepared)) {
+            const prefetch = yield* prefetchFor(prepared.value);
+            yield* prefetch.cancel;
+          }
         }
         if (!canResume || Option.isNone(current.snapshot)) {
           subscription.authoritative = false;
@@ -477,13 +505,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
               }),
             ),
           );
-          const prefetch = yield* SubscriptionRef.changes(prefetchedSnapshot).pipe(
-            Stream.filter(Option.isSome),
-            Stream.map((value) => value.value),
-            Stream.filter((value) => value.prepared === prepared),
-            Stream.runHead,
-            Effect.map(Option.getOrThrow),
-          );
+          const prefetch = yield* prefetchFor(prepared);
           const httpSnapshot = yield* prefetch.take;
           const activeSession = yield* SubscriptionRef.get(supervisor.session);
           const activePrepared = yield* SubscriptionRef.get(supervisor.prepared);
