@@ -1,6 +1,7 @@
 import {
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
+  ORCHESTRATION_PROTOCOL_VERSION,
   ProviderDriverKind,
   ProviderInstanceId,
   ServerConfig,
@@ -20,6 +21,20 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
+import * as Redacted from "effect/Redacted";
+import * as Scope from "effect/Scope";
+import { RpcWebTransportConnector } from "../platform/rpcWebTransport.ts";
+import {
+  createTransportByteBudget,
+  makeRpcWebTransportFrameChannel,
+  rpcWebTransportDefaultLimits,
+  transportTry,
+  decodeTransportEnvelope,
+  ClientRequestEnvelopeSchema,
+  type ReliableConnector,
+  type ReliableSession,
+} from "@t3tools/shared/rpcWebTransport";
+import { memorySessionPair } from "../../../shared/src/rpcWebTransport.test-support.ts";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as TestClock from "effect/testing/TestClock";
@@ -213,6 +228,7 @@ const LEGACY_SERVER_CONFIG = {
 
 const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* (
   options: RpcSession.RpcSessionOptions = {},
+  connector?: ReliableConnector,
 ) {
   const sockets: TestWebSocket[] = [];
   const layerConstructor = Layer.succeed(Socket.WebSocketConstructor, (url) => {
@@ -220,7 +236,14 @@ const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* (
     sockets.push(socket);
     return socket as unknown as globalThis.WebSocket;
   });
-  const layer = RpcSession.layer(options).pipe(Layer.provide(layerConstructor));
+  const layer = RpcSession.layer(options).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        layerConstructor,
+        connector === undefined ? Layer.empty : Layer.succeed(RpcWebTransportConnector, connector),
+      ),
+    ),
+  );
   const factory = yield* RpcSession.RpcSessionFactory.pipe(Effect.provide(layer));
   return { factory, sockets };
 });
@@ -1267,5 +1290,325 @@ describe("RpcSessionFactory", () => {
       });
       expect(sockets[0]?.readyState).toBe(TestWebSocket.CLOSED);
     }).pipe(Effect.provide(TestClock.layer())),
+  );
+});
+
+const QUIC_PREPARED: PreparedConnection = {
+  ...PREPARED,
+  rpcTicket: {
+    value: Redacted.make("issued-rpc-ticket"),
+    expiresAtEpochMs: Number.MAX_SAFE_INTEGER,
+  },
+  rpcWebTransport: {
+    url: "https://environment.example.test:4443/rpc/custom",
+    wireVersion: 1,
+    orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+    clientMetadata: { surface: "web", deviceType: "desktop" },
+  },
+};
+const quicReady = {
+  _tag: "Ready",
+  wireVersion: 1,
+  orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+  environmentId: TARGET.environmentId,
+  encoding: "deflate",
+  limits: rpcWebTransportDefaultLimits,
+};
+const acceptQuicControl = Effect.fnUntraced(function* (pair: ReturnType<typeof memorySessionPair>) {
+  const stream = yield* transportTry((signal) => pair.server.acceptBidirectionalStream(signal));
+  const channel = makeRpcWebTransportFrameChannel(
+    stream,
+    createTransportByteBudget(65536),
+    createTransportByteBudget(65536),
+    rpcWebTransportDefaultLimits,
+  );
+  expect(yield* channel.readPreface()).toBe("control");
+  expect(yield* channel.read({ first: true, control: true })).toMatchObject({ _tag: "Hello" });
+  return channel;
+});
+const acceptQuicRequest = Effect.fnUntraced(function* (pair: ReturnType<typeof memorySessionPair>) {
+  const stream = yield* transportTry((signal) => pair.server.acceptBidirectionalStream(signal));
+  const channel = makeRpcWebTransportFrameChannel(
+    stream,
+    createTransportByteBudget(1024 * 1024),
+    createTransportByteBudget(1024 * 1024),
+    rpcWebTransportDefaultLimits,
+  );
+  expect(yield* channel.readPreface()).toBe("request");
+  const request = yield* channel
+    .read({ first: true })
+    .pipe(Effect.flatMap((value) => decodeTransportEnvelope(ClientRequestEnvelopeSchema, value)));
+  if (request._tag !== "Request") return yield* Effect.die(new Error("Expected request"));
+  return { channel, request };
+});
+const completeQuicConfig = Effect.fnUntraced(function* (
+  pair: ReturnType<typeof memorySessionPair>,
+) {
+  const { channel, request } = yield* acceptQuicRequest(pair);
+  expect(request.tag).toBe(WS_METHODS.subscribeServerConfig);
+  yield* channel.write({
+    _tag: "Chunk",
+    requestId: request.id,
+    values: [{ version: 1, type: "snapshot", config: ENCODED_SERVER_CONFIG }],
+  });
+});
+
+describe("RpcSessionFactory transport selection", () => {
+  it.effect(
+    "waits for full Ready before creating any application RPC and selects the real QUIC protocol",
+    () =>
+      Effect.gen(function* () {
+        const pair = memorySessionPair();
+        const urls: string[] = [];
+        const { factory, sockets } = yield* makeFactory(
+          {},
+          {
+            connect: async ({ url }) => {
+              urls.push(url);
+              return pair.client;
+            },
+          },
+        );
+        const connecting = yield* factory.connect(QUIC_PREPARED).pipe(Effect.forkScoped);
+        const control = yield* acceptQuicControl(pair);
+        expect(sockets).toHaveLength(0);
+        expect(pair.opened()).toBe(1);
+        yield* control.write(quicReady, true);
+        const session = yield* Fiber.join(connecting);
+        expect(session.transport).toBe("webtransport");
+        expect(new URL(urls[0]!).pathname).toBe("/rpc/custom");
+        expect(new URL(urls[0]!).searchParams.get("wsTicket")).toBe("issued-rpc-ticket");
+        expect(new URL(urls[0]!).searchParams.get("connectionMethod")).toBe("direct");
+        yield* completeQuicConfig(pair);
+        yield* session.ready;
+        expect(yield* session.initialConfig).toEqual(SERVER_CONFIG);
+        expect(sockets).toHaveLength(0);
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect("rejects the candidate without touching the WSS winner's lifecycle", () =>
+    Effect.gen(function* () {
+      const pair = memorySessionPair({ neverAcknowledgeClose: true });
+      const { factory, sockets } = yield* makeFactory({}, { connect: async () => pair.client });
+      const connecting = yield* factory.connect(QUIC_PREPARED).pipe(Effect.forkScoped);
+      const control = yield* acceptQuicControl(pair);
+      yield* control.write({ ...quicReady, environmentId: "wrong-environment" }, true);
+      const session = yield* Fiber.join(connecting);
+      expect(session.transport).toBe("websocket");
+      const socket = yield* awaitSocket(sockets);
+      socket.open();
+      yield* completeInitialConfig(socket);
+      yield* session.ready;
+      socket.close();
+      expect((yield* Effect.flip(session.closed)).detail).toContain("disconnected");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("shares one two-second deadline across connect and control negotiation", () =>
+    Effect.gen(function* () {
+      const pair = memorySessionPair({ neverAcknowledgeClose: true });
+      const started = Promise.withResolvers<AbortSignal>();
+      const connected = Promise.withResolvers<ReliableSession>();
+      const { factory, sockets } = yield* makeFactory(
+        {},
+        {
+          connect: ({ signal }) => {
+            started.resolve(signal);
+            return connected.promise;
+          },
+        },
+      );
+      const connecting = yield* factory.connect(QUIC_PREPARED).pipe(Effect.forkScoped);
+      yield* Effect.promise(() => started.promise);
+      yield* TestClock.adjust(1500);
+      connected.resolve(pair.client);
+      yield* acceptQuicControl(pair);
+      yield* TestClock.adjust(499);
+      expect(sockets).toHaveLength(0);
+      yield* TestClock.adjust(1);
+      const session = yield* Fiber.join(connecting);
+      expect(session.transport).toBe("websocket");
+      const socket = yield* awaitSocket(sockets);
+      socket.open();
+      yield* completeInitialConfig(socket);
+      yield* session.ready;
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("falls back at two seconds and closes an ignored late native connect completion", () =>
+    Effect.gen(function* () {
+      const started = Promise.withResolvers<AbortSignal>();
+      const late = Promise.withResolvers<ReliableSession>();
+      const closed = Promise.withResolvers<void>();
+      const { factory, sockets } = yield* makeFactory(
+        {},
+        {
+          connect: ({ signal }) => {
+            started.resolve(signal);
+            return late.promise;
+          },
+        },
+      );
+      const connecting = yield* factory.connect(QUIC_PREPARED).pipe(Effect.forkScoped);
+      const signal = yield* Effect.promise(() => started.promise);
+      yield* TestClock.adjust(2000);
+      const session = yield* Fiber.join(connecting);
+      expect(session.transport).toBe("websocket");
+      expect(signal.aborted).toBe(true);
+      const socket = yield* awaitSocket(sockets);
+      socket.open();
+      yield* completeInitialConfig(socket);
+      yield* session.ready;
+      late.resolve({
+        closed: new Promise(() => {}),
+        close: () => closed.resolve(),
+        openBidirectionalStream: () => Promise.reject(new Error("must not open")),
+      });
+      yield* Effect.promise(() => closed.promise);
+      yield* session.ready;
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect.each(["unsupported", "expired"] as const)(
+    "uses WSS without a candidate for %s capability",
+    (reason) =>
+      Effect.gen(function* () {
+        let connects = 0;
+        const connector = {
+          connect: () => {
+            connects++;
+            return Promise.reject(new Error("unused"));
+          },
+        };
+        const { factory, sockets } = yield* makeFactory(
+          {},
+          reason === "unsupported" ? undefined : connector,
+        );
+        const session = yield* factory.connect(
+          reason === "expired"
+            ? {
+                ...QUIC_PREPARED,
+                rpcTicket: { value: Redacted.make("expired"), expiresAtEpochMs: 0 },
+              }
+            : QUIC_PREPARED,
+        );
+        expect(session.transport).toBe("websocket");
+        expect(connects).toBe(0);
+        const socket = yield* awaitSocket(sockets);
+        socket.open();
+        yield* completeInitialConfig(socket);
+        yield* session.ready;
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect("preserves cooldown between sessions after native SessionRejected", () =>
+    Effect.gen(function* () {
+      let connects = 0;
+      const { factory } = yield* makeFactory(
+        {},
+        {
+          connect: () => {
+            connects++;
+            return Promise.reject(new Error("SessionRejected"));
+          },
+        },
+      );
+      const connection = {
+        ...QUIC_PREPARED,
+        httpAuthorization: {
+          _tag: "Dpop" as const,
+          accessToken: "still-valid",
+          expiresAtEpochMs: Number.MAX_SAFE_INTEGER,
+        },
+      };
+      yield* factory.connect(connection).pipe(Effect.scoped);
+      yield* factory.connect(connection).pipe(Effect.scoped);
+      expect(connects).toBe(1);
+      expect(connection.httpAuthorization.accessToken).toBe("still-valid");
+      yield* TestClock.adjust(30_000);
+      yield* factory.connect(connection).pipe(Effect.scoped);
+      expect(connects).toBe(2);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect.each(["normal-disposal", "peer-failure"] as const)(
+    "counts %s correctly across owner scopes",
+    (reason) =>
+      Effect.gen(function* () {
+        const pairs = [memorySessionPair(), memorySessionPair()];
+        let connects = 0;
+        const { factory } = yield* makeFactory(
+          {},
+          { connect: async () => pairs[connects++]!.client },
+        );
+        const owner = yield* Scope.make();
+        const connecting = yield* factory
+          .connect(QUIC_PREPARED)
+          .pipe(Effect.provideService(Scope.Scope, owner), Effect.forkScoped);
+        const control = yield* acceptQuicControl(pairs[0]!);
+        yield* control.write(quicReady, true);
+        const session = yield* Fiber.join(connecting);
+        yield* completeQuicConfig(pairs[0]!);
+        yield* session.ready;
+        if (reason === "peer-failure") {
+          pairs[0]!.rawServer.close({ closeCode: 17 });
+          yield* Effect.flip(session.closed);
+        }
+        yield* Scope.close(owner, Exit.void);
+        const next = yield* factory.connect(QUIC_PREPARED).pipe(Effect.forkScoped);
+        if (reason === "normal-disposal") {
+          const control = yield* acceptQuicControl(pairs[1]!);
+          yield* control.write(quicReady, true);
+        }
+        const second = yield* Fiber.join(next);
+        expect(second.transport).toBe(reason === "normal-disposal" ? "webtransport" : "websocket");
+        expect(connects).toBe(reason === "normal-disposal" ? 2 : 1);
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect("retains a Ready-to-publication control failure for the selected session", () =>
+    Effect.gen(function* () {
+      const pair = memorySessionPair();
+      const { factory, sockets } = yield* makeFactory({}, { connect: async () => pair.client });
+      const connecting = yield* factory.connect(QUIC_PREPARED).pipe(Effect.forkScoped);
+      const control = yield* acceptQuicControl(pair);
+      yield* control.write(quicReady, true);
+      yield* control.write({ _tag: "Eof" }, true);
+      const session = yield* Fiber.join(connecting);
+      expect(session.transport).toBe("webtransport");
+      expect((yield* Effect.flip(session.ready)).reason).toBe("transport");
+      expect(sockets).toHaveLength(0);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("does not replay a mutation whose committed response is lost after selection", () =>
+    Effect.gen(function* () {
+      const pair = memorySessionPair();
+      const { factory, sockets } = yield* makeFactory({}, { connect: async () => pair.client });
+      const connecting = yield* factory.connect(QUIC_PREPARED).pipe(Effect.forkScoped);
+      const control = yield* acceptQuicControl(pair);
+      yield* control.write(quicReady, true);
+      const session = yield* Fiber.join(connecting);
+      yield* completeQuicConfig(pair);
+      yield* session.ready;
+      const mutation = yield* session.client[WS_METHODS.serverUpdateSettings]({ patch: {} }).pipe(
+        Effect.exit,
+        Effect.forkScoped,
+      );
+      const request = yield* acceptQuicRequest(pair);
+      expect(request.request.tag).toBe(WS_METHODS.serverUpdateSettings);
+      let committed = 0;
+      committed++;
+      pair.rawServer.close({ closeCode: 17 });
+      expect(Exit.isFailure(yield* Fiber.join(mutation))).toBe(true);
+      expect(
+        Exit.isFailure(
+          yield* session.client[WS_METHODS.serverUpdateSettings]({ patch: {} }).pipe(Effect.exit),
+        ),
+      ).toBe(true);
+      expect(committed).toBe(1);
+      expect(pair.opened()).toBe(3);
+      expect(sockets).toHaveLength(0);
+    }).pipe(Effect.scoped),
   );
 });

@@ -6,6 +6,8 @@ import {
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Duration from "effect/Duration";
+import * as TestClock from "effect/testing/TestClock";
 import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
@@ -707,5 +709,75 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       } as never);
       expect(verified.sessionId).toBe(bearer.sessionId);
     }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "192.168.1.50" }))),
+  );
+  it.effect(
+    "authenticates the same issued RPC ticket for both transports and rechecks revocation",
+    () =>
+      Effect.gen(function* () {
+        const auth = yield* EnvironmentAuth.EnvironmentAuth;
+        const sessions = yield* SessionStore.SessionStore;
+        const bearer = yield* auth.issueSession({ scopes: ["orchestration:read"] });
+        const ticket = yield* auth.issueWebSocketTicket(bearer);
+        const first = yield* auth.authenticateRpcTicket(ticket.ticket);
+        const second = yield* auth.authenticateWebSocketUpgrade({
+          url: `/ws?wsTicket=${encodeURIComponent(ticket.ticket)}`,
+          cookies: {},
+          headers: { host: "localhost:13773" },
+        } as never);
+        expect(first).toEqual(second);
+        expect(first.scopes).toEqual(["orchestration:read"]);
+        yield* sessions.revoke(bearer.sessionId);
+        expect((yield* Effect.flip(auth.authenticateRpcTicket(ticket.ticket)))._tag).toBe(
+          "ServerAuthInvalidCredentialError",
+        );
+      }).pipe(Effect.provide(layerEnvironmentAuth())),
+  );
+
+  it.effect("rejects expired RPC tickets and tickets whose underlying session expired", () =>
+    Effect.gen(function* () {
+      const auth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const session = yield* sessions.issue({ ttl: Duration.seconds(2) });
+      const short = yield* sessions.issueWebSocketToken(session.sessionId, {
+        ttl: Duration.seconds(1),
+      });
+      const long = yield* sessions.issueWebSocketToken(session.sessionId, {
+        ttl: Duration.minutes(5),
+      });
+      yield* TestClock.adjust("1 second");
+      expect((yield* Effect.flip(auth.authenticateRpcTicket(short.token)))._tag).toBe(
+        "ServerAuthInvalidCredentialError",
+      );
+      yield* auth.authenticateRpcTicket(long.token);
+      yield* TestClock.adjust("1 second");
+      expect((yield* Effect.flip(auth.authenticateRpcTicket(long.token)))._tag).toBe(
+        "ServerAuthInvalidCredentialError",
+      );
+    }).pipe(Effect.provide(layerEnvironmentAuth())),
+  );
+
+  it.effect(
+    "rejects MCP-audience tickets and accepts tickets issued for proof-bound sessions",
+    () =>
+      Effect.gen(function* () {
+        const auth = yield* EnvironmentAuth.EnvironmentAuth;
+        const sessions = yield* SessionStore.SessionStore;
+        const mcp = yield* auth.issueMcpClientSession({
+          label: "agent",
+          access: "read-only",
+          client: { deviceType: "bot" },
+        });
+        const mcpSession = yield* sessions.verify(mcp.token);
+        const mcpTicket = yield* sessions.issueWebSocketToken(mcpSession.sessionId);
+        expect((yield* Effect.flip(auth.authenticateRpcTicket(mcpTicket.token)))._tag).toBe(
+          "ServerAuthInvalidCredentialError",
+        );
+        const dpop = yield* sessions.issue({
+          method: "dpop-access-token",
+          proofKeyThumbprint: "test-key",
+        });
+        const ticket = yield* auth.issueWebSocketTicket(dpop);
+        expect((yield* auth.authenticateRpcTicket(ticket.ticket)).method).toBe("dpop-access-token");
+      }).pipe(Effect.provide(layerEnvironmentAuth())),
   );
 });

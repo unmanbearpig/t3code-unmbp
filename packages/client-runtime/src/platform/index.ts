@@ -1,4 +1,5 @@
 export * as ClientCapabilities from "./capabilities.ts";
+export { RpcWebTransportConnector } from "./rpcWebTransport.ts";
 export * as Persistence from "./persistence.ts";
 // Flat so consumers' inferred types can name it.
 export { ConnectionPersistenceError } from "./persistence.ts";

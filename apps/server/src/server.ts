@@ -31,6 +31,9 @@ import * as ServerHttp from "./http.ts";
 import { guardHttpResponseWriteErrors } from "./httpResponseErrorGuard.ts";
 import { fixPath } from "./os-jank.ts";
 import * as Ws from "./ws.ts";
+import * as AuthenticatedRpcSession from "./AuthenticatedRpcSession.ts";
+import * as WebTransportListener from "./transport/WebTransportListener.ts";
+import * as WebTransportAvailability from "./transport/WebTransportAvailability.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
@@ -713,6 +716,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerBrowserStream.routeLayer,
     ServerHttp.layerStaticAndDevRoute,
     Ws.layer,
+    WebTransportListener.layerListening,
   ),
   // The MCP session registry is provided globally (shared with V2 provider
   // sessions) rather than inline here. The orchestrator toolkit resolves
@@ -724,6 +728,7 @@ const layerMakeRoutes = Layer.mergeAll(
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
   ),
 ).pipe(
+  Layer.provide(AuthenticatedRpcSession.layer),
   // Guides read through the same pull request service as every other surface.
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
@@ -1116,6 +1121,7 @@ const layerMakeServer = Layer.unwrap(
       Layer.provide(VcsProcess.layer),
       // Every agent and terminal spawn reads this, so it sits below everything.
       Layer.provideMerge(AgentScopeLive.layer),
+      Layer.provideMerge(WebTransportAvailability.layer),
       Layer.provideMerge(layerPlatformServices),
     );
   }),

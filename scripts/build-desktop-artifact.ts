@@ -35,7 +35,9 @@ import { getDefaultBuildArch } from "./lib/build-target-arch.ts";
 import {
   findInlinedExternalPackages,
   selectCliRuntimeExternalDependencies,
+  webTransportInstallEnvironment,
 } from "./lib/cli-external-packages.ts";
+import { stageWebTransportPrebuilt } from "./lib/stage-webtransport.ts";
 import { loadRepoEnv } from "./lib/public-config.ts";
 import { selectDesktopRuntimeExternalDependencies } from "./lib/desktop-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
@@ -959,6 +961,7 @@ interface StagePackageJson {
   readonly main: string;
   readonly build: Record<string, unknown>;
   readonly dependencies: Record<string, unknown>;
+  readonly optionalDependencies: Record<string, string>;
   readonly devDependencies: {
     readonly electron: string;
   };
@@ -3079,6 +3082,7 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
   readonly arch: typeof BuildArch.Type;
   readonly appVersion: string;
   readonly runtimeExternalDependencies: Record<string, string>;
+  readonly runtimeExternalOptionalDependencies: Record<string, string>;
   readonly fffNodeVersion: string;
   readonly allowBuilds: Record<string, boolean>;
   readonly patchedDependencies: Record<string, string>;
@@ -3097,16 +3101,17 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
     ...input.runtimeExternalDependencies,
     ...resolveFffNativeDependencies("win", input.arch, input.fffNodeVersion),
   };
-  const sidecarPatchedDependencies = createStagePatchedDependencies(
-    input.patchedDependencies,
-    sidecarDependencies,
-  );
+  const sidecarPatchedDependencies = createStagePatchedDependencies(input.patchedDependencies, {
+    ...sidecarDependencies,
+    ...input.runtimeExternalOptionalDependencies,
+  });
   const sidecarPackageJson = {
     name: "t3code-server",
     version: input.appVersion,
     private: true,
     packageManager: rootPackageJson.packageManager,
     dependencies: sidecarDependencies,
+    optionalDependencies: input.runtimeExternalOptionalDependencies,
   };
   const sidecarPackageJsonString = yield* encodeJsonString(sidecarPackageJson);
   yield* fs.writeFileString(
@@ -3139,10 +3144,17 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
   yield* runCommand(
     ChildProcess.make(installCommand.command, installCommand.args, {
       cwd: serverStageDir,
+      env: webTransportInstallEnvironment("win", input.arch),
       shell: installCommand.shell,
     }),
     { label: "vp install --prod (server sidecar)", verbose: input.verbose },
   );
+
+  yield* stageWebTransportPrebuilt({
+    nodeModulesDir: path.join(serverStageDir, "node_modules"),
+    platform: "win",
+    arch: input.arch,
+  });
 
   yield* Effect.log("[desktop-artifact] Packing server.asar...");
   yield* fs.makeDirectory(path.dirname(input.asarPath), { recursive: true });
@@ -3583,6 +3595,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const resolvedServerRuntimeExternalDependencies = selectCliRuntimeExternalDependencies(
     resolvedServerDependencies,
   );
+  const resolvedServerRuntimeExternalOptionalDependencies = selectCliRuntimeExternalDependencies(
+    resolveCatalogDependencies(
+      serverPackageJson.optionalDependencies,
+      workspaceCatalog,
+      "apps/server",
+    ),
+  );
   const resolvedDesktopRuntimeDependencies = yield* Effect.try({
     try: () => resolveDesktopRuntimeDependencies(desktopPackageJson.dependencies, workspaceCatalog),
     catch: (cause) =>
@@ -3835,10 +3854,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
           arch: options.arch,
           fffNodeVersion: serverPackageJson.dependencies["@ff-labs/fff-node"],
         });
-  const stagePatchedDependencies = createStagePatchedDependencies(
-    workspacePatchedDependencies,
-    stageDependencies,
-  );
+  const stageOptionalDependencies =
+    options.platform === "win" ? {} : resolvedServerRuntimeExternalOptionalDependencies;
+  const stagePatchedDependencies = createStagePatchedDependencies(workspacePatchedDependencies, {
+    ...stageDependencies,
+    ...stageOptionalDependencies,
+  });
   const windowsServerAsarPath =
     options.platform === "win"
       ? path.join(stageAppDir, WINDOWS_SERVER_RESOURCE_SOURCE_DIR, WINDOWS_SERVER_ASAR_RESOURCE)
@@ -3876,6 +3897,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       options.arch,
     ),
     dependencies: stageDependencies,
+    optionalDependencies: stageOptionalDependencies,
     devDependencies: {
       electron: electronVersion,
     },
@@ -3905,10 +3927,18 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* runCommand(
     ChildProcess.make(installCommand.command, installCommand.args, {
       cwd: stageAppDir,
+      env: webTransportInstallEnvironment(options.platform, options.arch),
       shell: installCommand.shell,
     }),
     { label: "vp install --prod", verbose: options.verbose },
   );
+  if (options.platform !== "win") {
+    yield* stageWebTransportPrebuilt({
+      nodeModulesDir: path.join(stageAppDir, "node_modules"),
+      platform: options.platform,
+      arch: options.arch,
+    });
+  }
   yield* stageClerkPasskeyNativeBinaries(stageAppDir, options.platform, options.arch);
   yield* stageKeyringNativeBinaries(stageAppDir, options.platform, options.arch);
 
@@ -3922,6 +3952,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       arch: options.arch,
       appVersion,
       runtimeExternalDependencies: resolvedServerRuntimeExternalDependencies,
+      runtimeExternalOptionalDependencies: resolvedServerRuntimeExternalOptionalDependencies,
       fffNodeVersion: serverPackageJson.dependencies["@ff-labs/fff-node"],
       allowBuilds: workspaceAllowBuilds,
       patchedDependencies: workspacePatchedDependencies,

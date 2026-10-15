@@ -9,7 +9,7 @@ packages:
 # true = allowed to run build scripts; false mirrors the pnpm 10 behavior
 # where anything outside onlyBuiltDependencies was silently not built.
 allowBuilds:
-  # Install script downloads the prebuilt QUICHE binary (network bench only).
+  # Patched installer downloads supported QUICHE prebuilts and never builds from source.
   "@fails-components/webtransport-transport-http3-quiche": true
   browser-tabs-lock: false
   bufferutil: false
@@ -292,6 +292,8 @@ packageExtensions:
       vite-plus: "catalog:"
 
 patchedDependencies:
+  "@fails-components/webtransport@1.6.9": patches/@fails-components__webtransport@1.6.9.patch
+  "@fails-components/webtransport-transport-http3-quiche@1.6.9": patches/@fails-components__webtransport-transport-http3-quiche@1.6.9.patch
   alchemy@2.0.0-beta.80: patches/alchemy@2.0.0-beta.80.patch
   expo-glass-effect@58.0.3: patches/expo-glass-effect@58.0.3.patch
   expo-blur@58.0.3: patches/expo-blur@58.0.3.patch

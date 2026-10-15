@@ -216,14 +216,112 @@ cold connect/echo, 128 sequential echoes, one streamed subscription, eight subsc
 and a 4MiB raw response or 2,000-message RPC snapshot with concurrent pings. Use it to
 investigate transport behavior separately from the application operation suite.
 
-These are Node measurements through the shared client state code. They do not measure
-browser/Android rendering, disk cache writes, CPU/battery use, authentication, environment
+For transport implementation comparisons, keep snapshot HTTP protocol, compression
+and pool state equal. A small WSS control that also records process costs is:
+
+```sh
+node apps/server/bench/network/run.ts --layer operations \
+  --transports rpc-wss --workloads sync-five,reconnect-replay,open-long \
+  --scenarios clean,wan,loss2 --seed-list 731,947,1163,1381,1597 \
+  --http-protocol h1 --http-encoding gzip --mtu 1280 --resources \
+  --out ~/codex-tmp/wss-control.json
+```
+
+`--mtu` changes only the private namespace's loopback and impairment device. Both
+manual options are excluded from fixed suites. `--resources` adds separate
+`resource.client.*` and `resource.server.*` metrics to raw JSON. Their window covers
+the entire client case, including setup and state validation, rather than only
+`operationMs`. CPU includes native threads. Memory peaks sample RSS and JS heap
+every 50 ms, including both endpoints, so brief peaks may be missed. Event-loop
+delay samples have 10 ms resolution; an observed p99 appears only with at least
+100 samples. The observer itself adds work. Host load and CPU activity remain
+shared with other worktrees and are recorded to expose contention. These process
+measurements exclude the separate snapshot proxy and curl process. Compare them
+within the same fixture and distinguish them from total system or mobile costs.
+
+The separate reconnect runner uses the production resolver, bearer authorization,
+session factory, supervisor, shell loader and thread reducers. It compares WSS
+with the production QUIC protocol through a Node connector on the same committed revision. Both
+modes start the real QUIC listener and WSS route. Discovery, ticket admission,
+session ownership, revocation, protocol shutdown and terminal flow control use
+production code. Controlled handlers replace provider execution and the full
+application handler tree. TCP HTTPS and UDP QUIC bind the same port, so both
+transports cross the same directional packet filters. The QUIC backend must be
+installed for this fixture.
+
+The default smoke has four resume cases at 50 ms RTT. Each verifies a 100-message
+offline cache, complete replay, and shell catch-up across eight projects and 160
+threads. Short-resume cases blackhole the established TCP tuple for WSS, but block
+all endpoint UDP for QUIC, including new candidates. These are different fallback
+faults, not equivalent migration or handoff measurements. QUIC failure is expected
+to recover over WSS and retain its cooldown.
+`--operations` compares five-message synchronization, replay after 50 missed
+messages, and opening a 2,000-message thread through the same cold HTTP/1 gzip
+snapshot path. `--fallback` blocks UDP before connection and verifies that a second
+connection within the production cooldown starts no QUIC candidate. Its two-second
+candidate deadline allows 250 ms of scheduling tolerance. `--overlap` sends twelve
+indexed small ordinary RPCs in the first 220 ms of a deliberate full-history bulk
+response or 256-chunk terminal stream. It measures early overlap only. Results
+separate the fixed twelve arrivals from each variant's active-arrival statistic;
+paired summaries also retain common-active-window indices. Terminal results include actual wire Acks and the
+maximum outstanding chunk count.
+
+```sh
+node apps/server/bench/network/reconnectRun.ts --dry-run
+node apps/server/bench/network/reconnectRun.ts --smoke --out ~/codex-tmp/reconnect-smoke
+node apps/server/bench/network/reconnectRun.ts --operations --measure \
+  --transports websocket,webtransport --out ~/codex-tmp/production-quic-operations
+node apps/server/bench/network/reconnectRun.ts --fallback \
+  --transports websocket,webtransport --out ~/codex-tmp/production-quic-fallback
+node apps/server/bench/network/reconnectRun.ts --overlap \
+  --transports websocket,webtransport --out ~/codex-tmp/production-quic-overlap
+node apps/server/bench/network/reconnectRun.ts --measure \
+  --write-manifest ~/codex-tmp/reconnect-inputs.json
+node apps/server/bench/network/reconnectRun.ts --manifest ~/codex-tmp/reconnect-inputs.json \
+  --variants before=/absolute/before,after=/absolute/after \
+  --out ~/codex-tmp/reconnect-paired
+```
+
+The optional measurement plans use clean loopback, 50 ms RTT, and 50 ms RTT with
+2% seeded loss in each direction, with five seeds per workload. There are 60
+resume inputs, 45 operation inputs, 30 overlap inputs, or 15 fallback inputs per
+transport. Both directions have a configured 100 Mbit/s rate. Before application
+cases, calibration verifies packetization, numbered UDP echoes for each profile,
+and TCP throughput in each direction for each distinct configured rate. Rate
+checks remove delay, jitter and loss, so they validate the configured cap rather
+than throughput under the full profile. Failed
+calibration prevents application measurements. `--calibrate-only` saves that
+evidence without running application cases. Inputs and MTU 1280 are frozen in
+the manifest. Cases rotate variant order and require
+committed, clean worktrees before and after each run. Raw output preserves HTTP
+stages, attempts, connection IDs, IP traffic, correctness, and process costs.
+Failed rows preserve elapsed time, stage, selection history, completed probes,
+partial traffic and process costs, with incomplete status. `RPC_RECONNECT_TRACE=1`
+adds native/stream closure and framing diagnostics for correctness investigation;
+those runs are excluded from timing claims because the observers add work.
+Resolved backend files and the selected native addon are hashed in environment output.
+Summary deltas pair successful identical inputs only, retaining failures and
+actual sample counts. Observed p90 requires 20 successful repetitions. Process
+costs cover the whole client case, including warmup. Native connection counters
+also cover the whole case. The selected transport comes from the real session,
+and QUIC results require native CONNECT, control-stream and application-stream
+evidence. The host-wide reconnect benchmark lock is shared with other worktrees;
+exit 75 means another benchmark holds it and no fixture started. Add `--wait-lock`
+to queue before starting the guarded namespace. The same lock stays owned through
+execution, avoiding a release/reacquire gap between a preliminary wait and the runner.
+
+All current reconnect fixtures use bearer authorization. They exclude the extra
+ticket request for primary-cookie bootstrap, so they do not establish browser
+cold-connect cost.
+
+The original operation suite contains Node measurements through shared client state code. They do not measure
+browser/Android rendering, disk cache writes, battery use, authentication, environment
 or shell synchronization, automatic reconnect scheduling, relay/tunnel operation, or
-network handoffs. Provider execution and authorization use isolated fixtures. Production
-clients still use WebSocket. The QUIC adapters remain experimental and require native
-mobile support, authentication, heartbeat/reconnect integration, relay support, and TCP
-fallback before a production migration. Temporary certificates and namespace lock files
-live below `~/codex-tmp` and are removed on exit.
+network handoffs. Provider execution and authorization use isolated fixtures. The QUIC
+adapters in that original suite remain experimental and use a different codec.
+Do not label those measurements as production QUIC. Temporary certificates and
+per-run namespace files live below `~/codex-tmp` and are removed on exit. The shared
+host lock file remains in place.
 
 ### Sharing and remote debugging
 

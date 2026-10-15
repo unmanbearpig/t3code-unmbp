@@ -10,9 +10,11 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
 
-import { appendClientConnectionParams } from "../authorization/remote.ts";
+import { appendClientConnectionParams, issuePrimaryRpcTicket } from "../authorization/remote.ts";
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
+import { RpcWebTransportConnector } from "../platform/rpcWebTransport.ts";
+import { eligibleRpcWebTransport } from "./rpcWebTransport.ts";
 import {
   BearerConnectionCredential,
   BearerConnectionProfile,
@@ -167,11 +169,7 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
       connectionMethod: "direct",
     });
     return {
-      environmentId: authorized.environmentId,
-      label: authorized.label,
-      httpBaseUrl: authorized.httpBaseUrl,
-      socketUrl: authorized.socketUrl,
-      httpAuthorization: authorized.httpAuthorization,
+      ...authorized,
       target,
     } satisfies PreparedConnection;
   });
@@ -186,11 +184,7 @@ const makeRelayBroker = Effect.fn("clientRuntime.connection.broker.makeRelay")(f
         expectedEnvironmentId: target.environmentId,
       });
       return {
-        environmentId: authorized.environmentId,
-        label: authorized.label,
-        httpBaseUrl: authorized.httpBaseUrl,
-        socketUrl: authorized.socketUrl,
-        httpAuthorization: authorized.httpAuthorization,
+        ...authorized,
         target,
       } satisfies PreparedConnection;
     },
@@ -250,11 +244,7 @@ const makeSshBroker = Effect.fn("clientRuntime.connection.broker.makeSsh")(funct
       connectionMethod: "ssh",
     });
     return {
-      environmentId: authorized.environmentId,
-      label: authorized.label,
-      httpBaseUrl: authorized.httpBaseUrl,
-      socketUrl: authorized.socketUrl,
-      httpAuthorization: authorized.httpAuthorization,
+      ...authorized,
       target,
     } satisfies PreparedConnection;
   });
@@ -267,6 +257,8 @@ export const make = Effect.gen(function* () {
   const relay = yield* makeRelayBroker();
   const ssh = yield* makeSshBroker();
   const httpClient = yield* HttpClient.HttpClient;
+  const connector = yield* Effect.serviceOption(RpcWebTransportConnector);
+  const presentation = yield* ClientCapabilities.ClientPresentation;
 
   const authorize = Effect.fn("clientRuntime.connection.broker.authorize")(function* (
     entry: ConnectionCatalogEntry,
@@ -276,7 +268,7 @@ export const make = Effect.gen(function* () {
       "connection.environment.id": target.environmentId,
       "connection.target.kind": target._tag,
     });
-    const prepared = yield* (() => {
+    const prepared: PreparedConnection = yield* (() => {
       switch (target._tag) {
         case "PrimaryConnectionTarget":
           return primary(target);
@@ -311,9 +303,35 @@ export const make = Effect.gen(function* () {
     if (compatibilityError !== null) {
       return yield* compatibilityError;
     }
+    const candidate = eligibleRpcWebTransport({
+      target: prepared.target,
+      httpBaseUrl: prepared.httpBaseUrl,
+      descriptor,
+      connectorAvailable: Option.isSome(connector),
+    });
+    const rpcTicket =
+      prepared.rpcTicket ??
+      (candidate !== undefined && prepared.httpAuthorization === null
+        ? yield* issuePrimaryRpcTicket({ httpBaseUrl: prepared.httpBaseUrl }).pipe(
+            Effect.provideService(HttpClient.HttpClient, httpClient),
+            Effect.option,
+            Effect.map(Option.getOrUndefined),
+          )
+        : undefined);
     return {
       ...prepared,
       socketUrl: appendOrchestrationProtocol(prepared.socketUrl),
+      ...(rpcTicket === undefined ? {} : { rpcTicket }),
+      ...(candidate === undefined || rpcTicket === undefined
+        ? {}
+        : {
+            rpcWebTransport: {
+              ...candidate,
+              ...(presentation.metadata === undefined
+                ? {}
+                : { clientMetadata: presentation.metadata }),
+            },
+          }),
     };
   });
 

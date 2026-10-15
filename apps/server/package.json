@@ -64,8 +64,6 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@fails-components/webtransport": "1.6.9",
-    "@fails-components/webtransport-transport-http3-quiche": "1.6.9",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@t3tools/contracts": "workspace:*",
     "@t3tools/provider-testing": "workspace:*",
@@ -83,6 +81,10 @@
     "node-libcurl": "5.1.2",
     "vite-plus": "catalog:",
     "ws": "catalog:"
+  },
+  "optionalDependencies": {
+    "@fails-components/webtransport": "1.6.9",
+    "@fails-components/webtransport-transport-http3-quiche": "1.6.9"
   },
   "engines": {
     "node": "^22.16 || ^23.11 || >=24.10"

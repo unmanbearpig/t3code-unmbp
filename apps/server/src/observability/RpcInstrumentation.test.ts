@@ -36,7 +36,7 @@ const groupOf = <const Tags extends ReadonlyArray<WsRpcMethod>>(...tags: Tags) =
     ),
   ).middleware(RpcInstrumentation);
 
-/** The middleware ws.ts installs for a connection with `scopes`. */
+/** The middleware AuthenticatedRpcSession installs for a connection with `scopes`. */
 const connectionMiddleware = (scopes: ReadonlyArray<AuthEnvironmentScope>) =>
   Layer.merge(RpcAuthorization.layer(scopes), rpcInstrumentationLayer);
 const readOnlyConnection = connectionMiddleware([AuthOrchestrationReadScope]);
@@ -69,7 +69,7 @@ const withTelemetry = <A, E, R>(
 const rpcSpans = (ended: ReadonlyArray<Tracer.NativeSpan>) =>
   ended.filter((span) => span.name.startsWith("ws.rpc."));
 
-// RpcTest keeps Effect's own RpcServer/RpcClient spans, which ws.ts turns off with
+// RpcTest keeps Effect's own RpcServer/RpcClient spans, which AuthenticatedRpcSession turns off with
 // `disableTracing: true`. Everything else comes from the middleware or the handlers.
 const appSpans = (ended: ReadonlyArray<Tracer.NativeSpan>) =>
   ended.filter((span) => span.attributes.get("rpc.system.name") !== "effect_rpc");
