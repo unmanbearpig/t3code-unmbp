@@ -20,6 +20,7 @@ import * as Scheduler from "effect/Scheduler";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as TokenStore from "../authorization/tokenStore.ts";
@@ -1512,6 +1513,8 @@ describe("EnvironmentRegistry", () => {
         yield* registry.reconcilePlatform([registration("new-bearer")]);
         yield* Deferred.await(cancelled);
         yield* Deferred.await(credentialsUpdated);
+        // Let the refreshed preparation finish before ending the probe.
+        yield* TestClock.adjust("0 millis");
         expect(yield* Ref.get(harness.releasedSessions)).toBe(0);
         yield* Deferred.fail(
           answer,

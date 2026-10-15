@@ -495,7 +495,14 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           yield* Fiber.interrupt(pending.fiber);
           return yield* driver.connect(latest, progress);
         }
-        const result = yield* Fiber.join(pending.fiber);
+        // Requests started during an outage can outlast fresh ones after the
+        // probe fails. Reuse only completed work, without waiting on it.
+        const completed = yield* Effect.sync(() => pending.fiber.pollUnsafe());
+        if (completed === undefined || Exit.isFailure(completed)) {
+          yield* Fiber.interrupt(pending.fiber);
+          return yield* driver.connect(latest, progress);
+        }
+        const result = completed.value;
         if (
           pending.entry === latest &&
           pending.entry === (yield* Ref.get(currentEntry)) &&
