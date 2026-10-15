@@ -121,11 +121,18 @@ shows these links as QR codes in **Settings → General → Mobile app**.
   Google account, open the [Google Play testing page](https://play.google.com/apps/testing/com.t3tools.t3code)
   and become a tester.
 
-If the app crashes during launch, open Settings → Diagnostics on the next launch
+If the app crashes during launch, open Settings → About T3 Code → Diagnostics on the next launch
 that succeeds. It lists startup crashes from the last 7 days with the error and
 component stack that store crash reports leave out. Copy the report and paste it
 into a GitHub issue. Error messages can quote values from the app, so read it over
 before sharing.
+
+For slow mobile reconnects, open **Settings → About T3 Code → Diagnostics** and
+expand a recent connection. The phone keeps the last 200 records locally, including
+background time, connection stages, and the visible thread's catch-up result.
+**Copy connection log** copies all records; **Share connection log** exports a JSON
+file through the phone's share sheet. The log excludes credentials, addresses, and
+thread content. **Clear connection log** removes the saved records.
 
 ## Providers
 
