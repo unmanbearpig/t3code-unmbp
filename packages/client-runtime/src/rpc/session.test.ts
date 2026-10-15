@@ -23,7 +23,6 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
-import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import * as Redacted from "effect/Redacted";
 import * as Scope from "effect/Scope";
