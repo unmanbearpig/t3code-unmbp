@@ -66,7 +66,7 @@ public final class T3QuicModuleTest {
   }
 
   private void open(double owner, double operation, Capture promise) throws Exception {
-    enqueue("submit", promise, owner, operation, 1, 0.0, new byte[0], 0);
+    enqueue("submit", promise, owner, operation, 2, 0.0, new byte[0], 0);
   }
 
   private void successfulOpenAfterCancel() throws Exception {
