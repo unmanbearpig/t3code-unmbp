@@ -23,6 +23,7 @@ import {
   type ServerAuthSessionMethod,
   type AuthWebSocketTicketResult,
   DpopFailureReason,
+  ORCHESTRATION_PROTOCOL_VERSION,
   type DpopFailureReason as DpopFailureReasonType,
 } from "@t3tools/contracts";
 import { encodeOAuthScope } from "@t3tools/shared/oauthScope";
@@ -1238,6 +1239,7 @@ export const make = Effect.gen(function* () {
           ({
             ticket: issued.token,
             expiresAt: DateTime.toUtc(issued.expiresAt),
+            orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
           }) satisfies AuthWebSocketTicketResult,
       ),
       Effect.withSpan("EnvironmentAuth.issueWebSocketTicket"),
