@@ -1,3 +1,5 @@
+import * as Cause from "effect/Cause";
+import * as Diagnostics from "./diagnostics.ts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -140,6 +142,7 @@ export const make = Effect.gen(function* () {
   const resolver = yield* ConnectionResolver.ConnectionResolver;
   const sessions = yield* RpcSession.RpcSessionFactory;
   const httpClient = yield* HttpClient.HttpClient;
+  const diagnostics = yield* Diagnostics.ConnectionDiagnostics;
 
   const checkRoute = (entry: ConnectionCatalogEntry, route: ConnectionRoute) => {
     const httpBaseUrl = routeHttpBaseUrl(route);
@@ -171,18 +174,61 @@ export const make = Effect.gen(function* () {
       "connection.target.kind": target._tag,
       "connection.route.count": connectionRoutes(entry).length,
     });
+    diagnostics?.record({ kind: "attempt-start", environmentId: target.environmentId });
+    diagnostics?.record({ kind: "stage", environmentId: target.environmentId, stage: "preparing" });
     yield* reportProgress({ stage: "preparing" });
     return yield* connectOverRoutes(
       entry,
       (route) => checkRoute(entry, route),
       Effect.fnUntraced(function* (route) {
+        diagnostics?.record({
+          kind: "stage",
+          environmentId: target.environmentId,
+          stage: "preparing",
+          route: Diagnostics.diagnosticRoute(route.target._tag, routeHttpBaseUrl(route) ?? ""),
+        });
         const prepared = yield* resolver.prepare(routeEntry(entry, route));
+        diagnostics?.record({
+          kind: "stage",
+          environmentId: target.environmentId,
+          stage: "opening",
+          route: Diagnostics.diagnosticRoute(prepared.target._tag, prepared.httpBaseUrl),
+        });
         yield* reportProgress({ stage: "opening", prepared });
         const session = yield* sessions.connect(prepared);
+        diagnostics?.record({
+          kind: "stage",
+          environmentId: target.environmentId,
+          stage: "synchronizing",
+        });
         yield* reportProgress({ stage: "synchronizing", prepared });
         yield* session.ready;
         return { prepared, session } satisfies EnvironmentConnectionLease;
       }),
+    ).pipe(
+      Effect.provideService(
+        Diagnostics.PreparationDiagnosticContext,
+        diagnostics === null
+          ? null
+          : { environmentId: target.environmentId, record: diagnostics.record },
+      ),
+      Effect.onExit((exit) =>
+        Effect.sync(() => {
+          const failure = Exit.isFailure(exit)
+            ? exit.cause.reasons.find(Cause.isFailReason)?.error
+            : undefined;
+          diagnostics?.record({
+            kind: "attempt-end",
+            environmentId: target.environmentId,
+            outcome: Exit.isSuccess(exit)
+              ? "connected"
+              : Cause.hasInterruptsOnly(exit.cause)
+                ? "interrupted"
+                : "failed",
+            error: failure?.reason ?? null,
+          });
+        }),
+      ),
     );
   });
 

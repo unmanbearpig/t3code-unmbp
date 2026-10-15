@@ -16,6 +16,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as Tracer from "effect/Tracer";
 
 import type { ConnectionCatalogEntry, ConnectionRoute } from "./catalog.ts";
+import * as Diagnostics from "./diagnostics.ts";
 import * as Connectivity from "./connectivity.ts";
 import * as ConnectionDriver from "./driver.ts";
 import {
@@ -278,6 +279,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
   const connectivity = yield* Connectivity.Connectivity;
   const driver = yield* ConnectionDriver.ConnectionDriver;
+  const diagnostics = yield* Diagnostics.ConnectionDiagnostics;
+  const record = (event: Diagnostics.ConnectionDiagnosticDetail) =>
+    diagnostics?.record({ ...event, environmentId: target.environmentId });
   const wakeups = yield* ConnectionWakeups.ConnectionWakeups;
   const initialIntent: SupervisorIntent = {
     desired: options?.initiallyDesired ?? false,
@@ -402,6 +406,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     next: SupervisorConnectionState,
   ) {
     yield* SubscriptionRef.set(state, next);
+    if (next.phase === "offline" || next.phase === "backoff" || next.phase === "blocked")
+      record({ kind: "state", phase: next.phase, error: next.lastFailure?.reason ?? null });
   });
 
   const signal = Effect.fn("EnvironmentSupervisor.signal")(function* (next: SupervisorSignal) {
@@ -610,6 +616,12 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const monitorConnectedLease = Effect.fnUntraced(function* (
     lease: ConnectionDriver.EnvironmentConnectionLease,
   ) {
+    let probing = false;
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (probing) record({ kind: "probe", result: "interrupted" });
+      }),
+    );
     // A probe answers an explicit retry here, so the retry must not also reset
     // the backoff of a later, unrelated failure.
     const takeSignal = Queue.take(signals).pipe(
@@ -641,6 +653,12 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       if (probeTimeout === undefined) {
         continue;
       }
+      probing = true;
+      record({
+        kind: "probe",
+        result: "started",
+        route: Diagnostics.diagnosticRoute(lease.prepared.target._tag, lease.prepared.httpBaseUrl),
+      });
       yield* Ref.set(probeUnanswered, true);
       const probe = yield* Effect.forkChild(lease.session.probe);
       // Monotonic nanoseconds, so a wall-clock correction cannot move the deadline.
@@ -657,6 +675,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           ),
         ]);
         if (probeEvent._tag === "TimedOut") {
+          probing = false;
+          record({ kind: "probe", result: "timeout" });
           yield* Fiber.interrupt(probe);
           return yield* new ConnectionTransientError({
             reason: "timeout",
@@ -664,6 +684,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           });
         }
         if (probeEvent._tag === "ProbeCompleted") {
+          probing = false;
+          record({
+            kind: "probe",
+            result: Exit.isSuccess(probeEvent.exit) ? "answered" : "failed",
+          });
           if (Exit.isSuccess(probeEvent.exit)) {
             yield* Ref.set(probeUnanswered, false);
           }
@@ -672,6 +697,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         }
         const endDuringProbe = yield* connectedLeaseEnd(probeEvent.signal, lease);
         if (endDuringProbe !== undefined) {
+          probing = false;
+          record({ kind: "probe", result: "interrupted" });
           yield* Fiber.interrupt(probe);
           return endDuringProbe === "reset";
         }
@@ -819,6 +846,12 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
     const connectedExit = yield* Effect.raceFirst(
       active.lease.session.closed.pipe(
+        Effect.onExit((exit) =>
+          Effect.sync(() => {
+            if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause))
+              record({ kind: "session-closed" });
+          }),
+        ),
         Effect.mapError((error): TracedAttemptFailure => ({
           error,
           attemptSpan: active.attemptSpan,
@@ -1032,7 +1065,17 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     Effect.forkScoped,
   );
   yield* wakeups.changes.pipe(
-    Stream.runForEach((reason) => signal({ _tag: "Wakeup", reason })),
+    Stream.runForEach((reason) =>
+      Effect.gen(function* () {
+        record({
+          kind: "wakeup",
+          reason,
+          hasSession: Option.isSome(yield* SubscriptionRef.get(session)),
+          desired: (yield* Ref.get(intent)).desired,
+        });
+        yield* signal({ _tag: "Wakeup", reason });
+      }),
+    ),
     Effect.forkScoped,
   );
   yield* Queue.take(betterRouteChecks).pipe(

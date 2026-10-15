@@ -1,3 +1,4 @@
+import * as Diagnostics from "../connection/diagnostics.ts";
 import {
   EnvironmentId,
   EventId,
@@ -2008,7 +2009,14 @@ describe("EnvironmentThreads", () => {
 
   it.effect("keeps replayed updates synchronizing until the completion marker arrives", () =>
     Effect.gen(function* () {
-      const harness = yield* makeHarness({ cached: BASE_PROJECTION, completionMarker: true });
+      const observations = yield* Queue.unbounded<Diagnostics.ConnectionDiagnosticEvent>();
+      const harness = yield* makeHarness({ cached: BASE_PROJECTION, completionMarker: true }).pipe(
+        Effect.provideService(Diagnostics.ConnectionDiagnostics, {
+          record: (event) => {
+            Queue.offerUnsafe(observations, event);
+          },
+        }),
+      );
       yield* awaitThreadState(
         harness.observed,
         (value) => value.status === "synchronizing" && Option.isSome(value.data),
@@ -2027,6 +2035,12 @@ describe("EnvironmentThreads", () => {
           value.data.value.thread.title === "Caught-up title",
       );
       expect(catchingUp.status).toBe("synchronizing");
+      expect(yield* Queue.take(observations)).toMatchObject({
+        kind: "thread-sync",
+        milestone: "started",
+        mode: "replay",
+        completion: "marker",
+      });
 
       yield* Queue.offer(harness.inputs, synchronized());
       const live = yield* awaitThreadState(
@@ -2034,6 +2048,13 @@ describe("EnvironmentThreads", () => {
         (value) => value.status === "live" && Option.isSome(value.data),
       );
       expect(Option.getOrThrow(live.data).thread.title).toBe("Caught-up title");
+      const completed = yield* Queue.take(observations);
+      expect(completed).toMatchObject({
+        kind: "thread-sync",
+        milestone: "live",
+        mode: "replay",
+        completion: "marker",
+      });
     }),
   );
 
