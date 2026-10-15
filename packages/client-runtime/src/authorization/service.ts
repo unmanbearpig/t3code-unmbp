@@ -69,6 +69,7 @@ export class RemoteEnvironmentAuthorization extends Context.Service<
       readonly wsBaseUrl: string;
       readonly bearerToken: string;
       readonly connectionMethod: ClientConnectionMethod;
+      readonly purpose?: "connect" | "preflight";
     }) => Effect.Effect<AuthorizedRemoteEnvironment, ConnectionAttemptError>;
     readonly authorizeDpop: (input: {
       readonly expectedEnvironmentId: EnvironmentId;
@@ -194,6 +195,7 @@ export const make = Effect.gen(function* () {
       readonly wsBaseUrl: string;
       readonly bearerToken: string;
       readonly connectionMethod: ClientConnectionMethod;
+      readonly purpose?: "connect" | "preflight";
     }) {
       const descriptor = yield* verifyDirectEndpoint(input);
       const socketInput = {
@@ -203,12 +205,14 @@ export const make = Effect.gen(function* () {
         clientMetadata: presentation.metadata,
         connectionMethod: input.connectionMethod,
       };
-      const socketUrl = Option.isSome(webSocketConstructorWithHeaders)
-        ? remoteWebSocketUrl(socketInput)
-        : yield* resolveRemoteWebSocketConnectionUrl(socketInput).pipe(
-            Effect.mapError(mapRemoteEnvironmentError),
-            Effect.provideService(HttpClient.HttpClient, httpClient),
-          );
+      // Preflight must validate the credential before retiring a healthy route.
+      const socketUrl =
+        Option.isSome(webSocketConstructorWithHeaders) && input.purpose !== "preflight"
+          ? remoteWebSocketUrl(socketInput)
+          : yield* resolveRemoteWebSocketConnectionUrl(socketInput).pipe(
+              Effect.mapError(mapRemoteEnvironmentError),
+              Effect.provideService(HttpClient.HttpClient, httpClient),
+            );
       return {
         environmentId: descriptor.environmentId,
         label: descriptor.label,

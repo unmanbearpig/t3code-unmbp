@@ -190,7 +190,7 @@ export const make = Effect.gen(function* () {
     checkRoute(entry, route).pipe(
       Effect.flatMap((check) =>
         check === "answered"
-          ? resolver.prepare(routeEntry(entry, route)).pipe(
+          ? resolver.prepare(routeEntry(entry, route), "preflight").pipe(
               Effect.as(true),
               Effect.orElseSucceed(() => false),
             )
