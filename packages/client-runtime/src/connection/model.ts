@@ -1,4 +1,5 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, type AuthClientPresentationMetadata } from "@t3tools/contracts";
+import type * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 
 const ConnectionTargetBase = {
@@ -125,6 +126,21 @@ export interface PreparedConnection {
   readonly socketUrl: string;
   readonly httpAuthorization: PreparedHttpAuthorization | null;
   readonly target: ConnectionTarget;
+  readonly rpcTicket?: PreparedRpcTicket;
+  readonly rpcWebTransport?: PreparedRpcWebTransport;
+}
+
+export interface PreparedRpcTicket {
+  readonly value: Redacted.Redacted<string>;
+  readonly expiresAtEpochMs: number;
+}
+
+export interface PreparedRpcWebTransport {
+  /** Canonical advertised endpoint, without the admission ticket or attribution. */
+  readonly url: string;
+  readonly wireVersion: number;
+  readonly orchestrationProtocolVersion: number;
+  readonly clientMetadata?: AuthClientPresentationMetadata;
 }
 
 export type SupervisorConnectionPhase =

@@ -59,6 +59,7 @@ import {
 } from "./desktopLocal";
 import * as ConnectionStorage from "./storage";
 import { clientPresentationMetadata } from "./clientMetadata";
+import * as BrowserWebTransport from "./browserWebTransport";
 
 let nextObservedRpcRequestId = 0;
 
@@ -774,7 +775,8 @@ type ConnectionPlatformLayerSource =
   | typeof layerCapabilities
   | typeof layerPlatformConnectionSource
   | typeof layerEnvironmentOwnedDataCleanup
-  | typeof layerRpcRequestObserver;
+  | typeof layerRpcRequestObserver
+  | typeof BrowserWebTransport.layer;
 
 export const layer: Layer.Layer<
   Layer.Success<ConnectionPlatformLayerSource>,
@@ -788,4 +790,5 @@ export const layer: Layer.Layer<
   layerPlatformConnectionSource,
   layerEnvironmentOwnedDataCleanup,
   layerRpcRequestObserver,
+  BrowserWebTransport.layer,
 );
