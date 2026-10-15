@@ -17,22 +17,31 @@ const hasPidNamespace =
 const processModule = new URL("./reconnectProcess.ts", import.meta.url).href;
 const controlledChild = String.raw`
 import * as fs from 'node:fs';
-const [journal, label, role, helper] = process.argv.slice(1);
+import * as readline from 'node:readline';
+const [journal, label, role, helper, disconnectCleanup] = process.argv.slice(1);
 const mark = event => {
   fs.appendFileSync(journal, JSON.stringify({label, event, pid:process.pid})+'\n');
   process.stdout.write(event+'\n');
 };
 let cleaning = false;
-process.on('message', message => {
+const interrupted = () => {
+  if (cleaning) return;
+  cleaning = true;
+  mark('cleanup-start');
+};
+const command = message => {
   if (message === 'finish') process.exit(cleaning ? 143 : 0);
-  if (message === 'interrupt') {
-    cleaning = true;
-    mark('cleanup-start');
-  }
+  if (message === 'interrupt') interrupted();
   if (message === 'release-cleanup') {
     mark('cleanup-done');
     process.exit(143);
   }
+};
+process.on('message', command);
+readline.createInterface({input:process.stdin}).on('line', command);
+process.on('disconnect', () => {
+  mark('ipc-disconnected');
+  if (disconnectCleanup !== 'ignore') interrupted();
 });
 process.on('SIGINT', () => process.exit(130));
 process.on('SIGTERM', () => process.exit(143));
@@ -80,7 +89,12 @@ function harness(name: string) {
   const launch = (
     label: string,
     role: "holder" | "queued" | "active",
-    options: { wait?: boolean; controlled?: boolean; namespace?: boolean } = {},
+    options: {
+      wait?: boolean;
+      controlled?: boolean;
+      namespace?: boolean;
+      ignoreDisconnect?: boolean;
+    } = {},
   ) => {
     const node = [
       process.execPath,
@@ -91,6 +105,7 @@ function harness(name: string) {
       label,
       role,
       processModule,
+      options.ignoreDisconnect ? "ignore" : "cleanup",
     ];
     const command = options.namespace ? ["unshare", ...namespaceArgs, ...node] : node;
     const child = NodeChildProcess.spawn(
@@ -156,6 +171,13 @@ function harness(name: string) {
               realBenchmarkLockTouched: false,
               fixtureListenersStarted: 0,
               events: events(),
+              startGrantsByLabel: Object.fromEntries(
+                exits.map(({ label }) => [
+                  label,
+                  events().filter((event) => event.label === label && event.event === "started")
+                    .length,
+                ]),
+              ),
               exits,
               allCapturedChildrenReaped: children.every(
                 (child) => child.exitCode !== null || child.signalCode !== null,
@@ -190,6 +212,125 @@ it.skipIf(!hasFlock).each(["SIGINT", "SIGTERM"] as const)(
       expect(h.events().map((event) => `${event.label}/${event.event}`)).toEqual([
         "holder/holding",
         "after-cancellation/started",
+      ]);
+    } finally {
+      await h.close();
+    }
+  },
+  20000,
+);
+
+it.skipIf(!hasPidNamespace).each(["SIGINT", "SIGTERM"] as const)(
+  "cancels acquired %s before a start grant and retains the namespace lock through cleanup",
+  async (signal) => {
+    const h = harness(`acquired-${signal}`);
+    try {
+      const acquired = h.launch("acquired", "active", { controlled: true, namespace: true });
+      acquired.child.prependListener("message", (message) => {
+        if (message === "benchmark-lock-ready") acquired.controller!.interrupt(signal);
+      });
+      await acquired.line("cleanup-start");
+      expect(acquired.child.exitCode).toBeNull();
+      const contender = h.launch("contender", "queued", { controlled: true });
+      const denied = h.launch("denied-during-cleanup", "queued", { controlled: true, wait: false });
+      expect(await denied.done()).toBe(75);
+      expect(h.events().map((event) => `${event.label}/${event.event}`)).toEqual([
+        "acquired/cleanup-start",
+      ]);
+      acquired.child.send("release-cleanup");
+      expect(await acquired.done()).toBe(143);
+      expect(acquired.child.signalCode).toBeNull();
+      expect(await contender.done()).toBe(0);
+      expect(h.events().map((event) => `${event.label}/${event.event}`)).toEqual([
+        "acquired/cleanup-start",
+        "acquired/cleanup-done",
+        "contender/started",
+      ]);
+    } finally {
+      await h.close();
+    }
+  },
+  20000,
+);
+
+it.skipIf(!hasPidNamespace).each(["disconnected", "send-error", "send-throws"] as const)(
+  "cleans up an acquired namespace after %s IPC without granting start",
+  async (failure) => {
+    const h = harness(`failed-ipc-${failure}`);
+    try {
+      const acquired = h.launch("acquired", "active", { controlled: true, namespace: true });
+      if (failure !== "disconnected") {
+        acquired.child.send = (_message: NodeChildProcess.Serializable, ...args: unknown[]) => {
+          const error = new Error("Controlled IPC failure");
+          if (failure === "send-throws") throw error;
+          const callback = args.find(
+            (arg): arg is (error: Error | null) => void => typeof arg === "function",
+          );
+          callback?.(error);
+          return false;
+        };
+      }
+      acquired.child.prependListener("message", (message) => {
+        if (message !== "benchmark-lock-ready") return;
+        if (failure === "disconnected") acquired.child.disconnect();
+        acquired.controller!.interrupt("SIGTERM");
+      });
+      await acquired.line("cleanup-start");
+      expect(acquired.child.exitCode).toBeNull();
+      const contender = h.launch("contender", "queued", { controlled: true });
+      const denied = h.launch("denied-during-cleanup", "queued", { controlled: true, wait: false });
+      expect(await denied.done()).toBe(75);
+      expect(h.events().map((event) => `${event.label}/${event.event}`)).toEqual([
+        "acquired/ipc-disconnected",
+        "acquired/cleanup-start",
+      ]);
+      acquired.child.stdin!.write("release-cleanup\n");
+      expect(await acquired.done()).toBe(143);
+      expect(acquired.child.signalCode).toBeNull();
+      expect(await contender.done()).toBe(0);
+      expect(h.events().map((event) => `${event.label}/${event.event}`)).toEqual([
+        "acquired/ipc-disconnected",
+        "acquired/cleanup-start",
+        "acquired/cleanup-done",
+        "contender/started",
+      ]);
+    } finally {
+      await h.close();
+    }
+  },
+  20000,
+);
+
+it.skipIf(!hasPidNamespace)(
+  "reaps an unresponsive namespace guard after start-grant IPC fails",
+  async () => {
+    const h = harness("failed-start-ipc-escalation");
+    try {
+      const acquired = h.launch("acquired", "active", {
+        controlled: true,
+        namespace: true,
+        ignoreDisconnect: true,
+      });
+      acquired.child.send = (_message: NodeChildProcess.Serializable, ...args: unknown[]) => {
+        const callback = args.find(
+          (arg): arg is (error: Error | null) => void => typeof arg === "function",
+        );
+        callback?.(new Error("Controlled start-grant IPC failure"));
+        return false;
+      };
+      await acquired.line("ipc-disconnected");
+      const denied = h.launch("denied-before-escalation", "queued", {
+        controlled: true,
+        wait: false,
+      });
+      expect(await denied.done()).toBe(75);
+      expect(await acquired.done()).toBe(1);
+      expect(acquired.child.signalCode).toBe("SIGKILL");
+      const after = h.launch("after-escalation", "queued", { controlled: true });
+      expect(await after.done()).toBe(0);
+      expect(h.events().map((event) => `${event.label}/${event.event}`)).toEqual([
+        "acquired/ipc-disconnected",
+        "after-escalation/started",
       ]);
     } finally {
       await h.close();

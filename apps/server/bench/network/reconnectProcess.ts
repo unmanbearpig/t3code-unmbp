@@ -22,18 +22,34 @@ export function benchmarkLockArguments(
 export function controlBenchmarkCommand(child: NodeChildProcess.ChildProcess) {
   let phase: "waiting" | "active" | "finished" = "waiting";
   let cancellation: "SIGINT" | "SIGTERM" | undefined;
+  let ipcFailed = false;
+  const failIpc = () => {
+    if (phase === "finished" || ipcFailed) return;
+    ipcFailed = true;
+    // Disconnect reaches the inner runner's cleanup handler; SIGTERM alone can leave unshare alive.
+    try {
+      if (child.connected) child.disconnect();
+    } catch {
+      // A broken channel must not prevent the captured guard's bounded termination.
+    }
+    void stopChild(child);
+  };
   const send = (message: string) => {
     if (!child.connected) {
-      child.kill("SIGTERM");
+      failIpc();
       return;
     }
-    child.send(message, (error) => {
-      if (error && phase !== "finished") child.kill("SIGTERM");
-    });
+    try {
+      child.send(message, (error) => {
+        if (error) failIpc();
+      });
+    } catch {
+      failIpc();
+    }
   };
   const onMessage = (message: unknown) => {
     if (message !== "benchmark-lock-ready" || phase !== "waiting") return;
-    if (cancellation) child.kill(cancellation);
+    if (cancellation) send("interrupt");
     else {
       phase = "active";
       send("benchmark-start");
