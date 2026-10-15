@@ -17,6 +17,7 @@ const LEGACY_CACHE_DIRECTORIES = [
 ] as const;
 
 export const ClientCacheKind = Schema.Literals([
+  "hello-support",
   "shell",
   "thread",
   "server-config",

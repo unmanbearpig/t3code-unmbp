@@ -40,12 +40,13 @@ import * as Stream from "effect/Stream";
 import { projectFaviconCache } from "../assets/projectFaviconCache";
 
 const DATABASE_NAME = "t3code:connection-runtime";
-const DATABASE_VERSION = 4;
+const DATABASE_VERSION = 5;
 const CATALOG_STORE_NAME = "catalog";
 const SHELL_STORE_NAME = "shell";
 const THREAD_STORE_NAME = "thread";
 const SERVER_CONFIG_STORE_NAME = "server-config";
 const VCS_REFS_STORE_NAME = "vcs-refs";
+const HELLO_SUPPORT_STORE_NAME = "hello-support";
 const CATALOG_KEY = "document";
 const StoredShellSnapshot = StoredOrchestrationShellSnapshot;
 const StoredShellSnapshotJson = Schema.fromJsonString(StoredShellSnapshot);
@@ -64,6 +65,11 @@ const StoredVcsRefs = Schema.Struct({
   refs: VcsListRefsResult,
 });
 const StoredVcsRefsJson = Schema.fromJsonString(StoredVcsRefs);
+const StoredHelloSupportJson = Schema.fromJsonString(Persistence.StoredHelloSupport);
+const decodeStoredHelloSupport = Schema.decodeUnknownEffect(StoredHelloSupportJson);
+const encodeStoredHelloSupport = Schema.encodeEffect(StoredHelloSupportJson);
+const helloSupportKey = (id: EnvironmentId, http: string, ws: string) =>
+  `${id}:${Persistence.helloSupportEndpointKey(http, ws)}`;
 const ConnectionCatalogDocumentJson = Schema.fromJsonString(ConnectionCatalogDocument);
 const decodeConnectionCatalogDocument = Schema.decodeUnknownEffect(ConnectionCatalogDocumentJson);
 const encodeConnectionCatalogDocument = Schema.encodeEffect(ConnectionCatalogDocumentJson);
@@ -91,6 +97,9 @@ function persistenceError(
     | "set-connection-routes"
     | "remove-connection"
     | "set-connection-enabled"
+    | "load-hello-support"
+    | "save-hello-support"
+    | "remove-hello-support"
     | "load-shell"
     | "save-shell"
     | "load-thread"
@@ -122,6 +131,9 @@ const openDatabase = Effect.fn("web.connectionStorage.openDatabase")(function* (
     try {
       const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
       request.addEventListener("upgradeneeded", () => {
+        if (!request.result.objectStoreNames.contains(HELLO_SUPPORT_STORE_NAME)) {
+          request.result.createObjectStore(HELLO_SUPPORT_STORE_NAME);
+        }
         if (!request.result.objectStoreNames.contains(CATALOG_STORE_NAME)) {
           request.result.createObjectStore(CATALOG_STORE_NAME);
         }
@@ -710,6 +722,54 @@ export const layer = Layer.effectContext(
         })),
     });
     const cacheStore = Persistence.EnvironmentCacheStore.of({
+      helloSupport: {
+        load: (environmentId, httpBaseUrl, wsBaseUrl) => {
+          const key = helloSupportKey(environmentId, httpBaseUrl, wsBaseUrl);
+          return readDatabaseValue(database, HELLO_SUPPORT_STORE_NAME, key).pipe(
+            Effect.flatMap((raw) =>
+              typeof raw !== "string"
+                ? Effect.succeed(false)
+                : decodeStoredHelloSupport(raw).pipe(
+                    Effect.map(
+                      (stored) =>
+                        stored.environmentId === environmentId &&
+                        stored.httpBaseUrl === httpBaseUrl &&
+                        stored.wsBaseUrl === wsBaseUrl,
+                    ),
+                    Effect.catch(() =>
+                      removeDatabaseValue(database, HELLO_SUPPORT_STORE_NAME, key).pipe(
+                        Effect.as(false),
+                      ),
+                    ),
+                  ),
+            ),
+            Effect.mapError((cause) => persistenceError("load-hello-support", cause)),
+          );
+        },
+        save: (environmentId, httpBaseUrl, wsBaseUrl) =>
+          encodeStoredHelloSupport({
+            schemaVersion: 1,
+            environmentId,
+            httpBaseUrl,
+            wsBaseUrl,
+          }).pipe(
+            Effect.flatMap((raw) =>
+              writeDatabaseValue(
+                database,
+                HELLO_SUPPORT_STORE_NAME,
+                helloSupportKey(environmentId, httpBaseUrl, wsBaseUrl),
+                raw,
+              ),
+            ),
+            Effect.mapError((cause) => persistenceError("save-hello-support", cause)),
+          ),
+        remove: (environmentId, httpBaseUrl, wsBaseUrl) =>
+          removeDatabaseValue(
+            database,
+            HELLO_SUPPORT_STORE_NAME,
+            helloSupportKey(environmentId, httpBaseUrl, wsBaseUrl),
+          ).pipe(Effect.mapError((cause) => persistenceError("remove-hello-support", cause))),
+      },
       loadShell: (environmentId) =>
         readDatabaseValue(database, SHELL_STORE_NAME, environmentId).pipe(
           Effect.tap(() => Effect.promise(() => projectFaviconCache.hydrate())),
@@ -893,6 +953,11 @@ export const layer = Layer.effectContext(
         Effect.all(
           [
             Effect.promise(() => projectFaviconCache.clearEnvironment(environmentId)),
+            removeDatabaseValuesInRange(
+              database,
+              HELLO_SUPPORT_STORE_NAME,
+              IDBKeyRange.bound(`${environmentId}:`, `${environmentId}:\uffff`),
+            ),
             removeDatabaseValue(database, SHELL_STORE_NAME, environmentId),
             removeDatabaseValuesInRange(
               database,

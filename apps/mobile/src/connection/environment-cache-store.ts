@@ -33,6 +33,10 @@ const StoredVcsRefs = Schema.Struct({
   refs: VcsListRefsResult,
 });
 
+const StoredHelloSupportJson = Schema.fromJsonString(Persistence.StoredHelloSupport);
+const decodeStoredHelloSupport = Schema.decodeUnknownEffect(StoredHelloSupportJson);
+const encodeStoredHelloSupport = Schema.encodeEffect(StoredHelloSupportJson);
+
 const decodeStoredThreadSnapshot = Schema.decodeUnknownEffect(
   Schema.fromJsonString(StoredOrchestrationThreadSnapshot),
 );
@@ -102,6 +106,44 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
   attachProjectFaviconDatabase(database);
   const encodeStoredShellSnapshot = makeStoredShellSnapshotEncoder();
   return Persistence.EnvironmentCacheStore.of({
+    helloSupport: {
+      load: (environmentId, httpBaseUrl, wsBaseUrl) =>
+        loadDecodedCache({
+          database,
+          environmentId,
+          kind: "hello-support",
+          cacheKey: Persistence.helloSupportEndpointKey(httpBaseUrl, wsBaseUrl),
+          operation: "load-hello-support",
+          decode: decodeStoredHelloSupport,
+          select: (stored) =>
+            stored.environmentId === environmentId &&
+            stored.httpBaseUrl === httpBaseUrl &&
+            stored.wsBaseUrl === wsBaseUrl
+              ? Option.some(true)
+              : Option.none(),
+        }).pipe(Effect.map(Option.getOrElse(() => false))),
+      save: (environmentId, httpBaseUrl, wsBaseUrl) =>
+        encodeStoredHelloSupport({ schemaVersion: 1, environmentId, httpBaseUrl, wsBaseUrl }).pipe(
+          Effect.flatMap((raw) =>
+            database.saveCache(
+              environmentId,
+              "hello-support",
+              Persistence.helloSupportEndpointKey(httpBaseUrl, wsBaseUrl),
+              1,
+              raw,
+            ),
+          ),
+          Effect.mapError((cause) => persistenceError("save-hello-support", cause)),
+        ),
+      remove: (environmentId, httpBaseUrl, wsBaseUrl) =>
+        database
+          .removeCache(
+            environmentId,
+            "hello-support",
+            Persistence.helloSupportEndpointKey(httpBaseUrl, wsBaseUrl),
+          )
+          .pipe(Effect.mapError(mapDatabaseError("remove-hello-support"))),
+    },
     loadShell: Effect.fn("MobileEnvironmentCache.loadShell")((environmentId) =>
       loadDecodedCache({
         database,
