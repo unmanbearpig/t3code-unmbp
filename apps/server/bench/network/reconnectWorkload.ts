@@ -2,7 +2,7 @@ import type { ReconnectCase } from "./reconnectManifest.ts";
 
 /** State transitions are explicit so setup cannot accidentally enter the measured window. */
 export function workloadPlan(entry: ReconnectCase) {
-  const warm = entry.workload.startsWith("warm-");
+  const warm = entry.workload.startsWith("warm-") || entry.workload === "pre-active-retry";
   const keep = entry.workload === "healthy-slow" || entry.workload === "refocus";
   return {
     warm,
@@ -10,7 +10,7 @@ export function workloadPlan(entry: ReconnectCase) {
     establishOld:
       warm || keep || entry.workload === "short-probe" || entry.workload === "network-changed",
     oldSocket:
-      entry.workload === "warm-closed"
+      entry.workload === "warm-closed" || entry.workload === "pre-active-retry"
         ? "closed"
         : entry.workload === "warm-half-open" ||
             entry.workload === "short-probe" ||

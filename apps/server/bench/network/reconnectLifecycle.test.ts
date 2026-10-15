@@ -123,7 +123,7 @@ it("distinguishes warm state, pre-active ordering, healthy probes, and cold dela
     wakeup: "application-active-reconnect",
   });
   expect(get("warm-healthy")).toMatchObject({ oldSocket: "healthy", addedMessages: 0 });
-  expect(get("pre-active-retry")).toMatchObject({ preActive: true, establishOld: false });
+  expect(get("pre-active-retry")).toMatchObject({ preActive: true, establishOld: true });
   expect(get("healthy-slow")).toMatchObject({
     keep: true,
     establishOld: true,

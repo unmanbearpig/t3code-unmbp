@@ -129,6 +129,9 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   const synchronized = yield* Deferred.make<void>();
   const preparationStarted = yield* Deferred.make<void>();
   let activeSocket: NodeWebSocket | undefined;
+  let oldSocket: NodeWebSocket | undefined;
+  const liveSockets = new Set<NodeWebSocket>();
+  let peakSockets = 0;
   let activeSocketPort: number | undefined;
 
   const switches = {
@@ -231,6 +234,9 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       maxVersion: "TLSv1.3",
       perMessageDeflate: true,
     });
+    liveSockets.add(socket);
+    peakSockets = Math.max(peakSockets, liveSockets.size);
+    socket.once("close", () => liveSockets.delete(socket));
     const requestTags = new Map<string, unknown>();
     input.registerSocket(socket);
     const old = activeSocket === undefined;
@@ -475,6 +481,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     yield* waitShell;
     if (!activeSocket || activeSocket.readyState !== NodeWebSocket.OPEN || !activeSocketPort)
       return yield* Effect.die(new Error("Missing live old socket"));
+    oldSocket = activeSocket;
     if (plan.oldSocket === "half-open" || plan.oldSocket === "closed")
       blackholeSocket(activeSocketPort);
     if (input.entry.workload === "healthy-slow")
@@ -525,6 +532,13 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     yield* Deferred.await(preparationStarted);
     stamp("pre-active-preparation");
   }
+  const oldSocketStateAtActive = oldSocket?.readyState ?? -1;
+  if (
+    plan.establishOld &&
+    oldSocketStateAtActive !==
+      (plan.oldSocket === "closed" ? NodeWebSocket.CLOSED : NodeWebSocket.OPEN)
+  )
+    return yield* Effect.die(new Error("Incorrect old socket state at active"));
   const active = performance.now();
   const shift = active - start;
   // Keep observation objects: in-flight HTTP completions still write into them.
@@ -612,6 +626,8 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     switches,
     simulatedBackgroundMs: plan.simulatedBackgroundMs,
     backgroundHttpPoolExpired: plan.warm,
+    oldSocketStateAtActive,
+    clientPeakSockets: peakSockets,
     falseReplacements: plan.keep ? sockets : 0,
     extraRequests: plan.keep
       ? [...Object.values(requests), ...Object.values(rpcRequests)].reduce((a, b) => a + b, 0)

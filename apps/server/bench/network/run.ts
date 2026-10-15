@@ -58,6 +58,8 @@ const decodeWorker = Schema.decodeUnknownSync(
         correct: Schema.Boolean,
         simulatedBackgroundMs: Schema.Number,
         backgroundHttpPoolExpired: Schema.Boolean,
+        oldSocketStateAtActive: Schema.Number,
+        clientPeakSockets: Schema.Number,
         falseReplacements: Schema.Number,
         extraRequests: Schema.Number,
         isolation: Schema.Unknown,
