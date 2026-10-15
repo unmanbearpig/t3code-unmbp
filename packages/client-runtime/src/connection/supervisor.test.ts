@@ -1,6 +1,7 @@
 import { AuthStandardClientScopes, EnvironmentId, type ServerConfig } from "@t3tools/contracts";
 import { RelayClientTracer } from "@t3tools/shared/relayTracing";
 import { describe, expect, it } from "@effect/vitest";
+import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -1169,6 +1170,7 @@ describe("EnvironmentSupervisor", () => {
         yield* awaitState(supervisor.state, (state) => state.phase === "connected");
         yield* signal === "retry" ? supervisor.retryNow : harness.wake(signal);
         yield* Deferred.await(prepared);
+        yield* TestClock.adjust("0 millis");
         expect(yield* Ref.get(harness.sessionCount)).toBe(1);
         expect(yield* Ref.get(harness.releaseCount)).toBe(0);
         expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared))).toBe(
@@ -1230,6 +1232,8 @@ describe("EnvironmentSupervisor", () => {
         yield* awaitState(supervisor.state, (state) => state.phase === "connected");
         yield* signal === "retry" ? supervisor.retryNow : harness.wake(signal);
         yield* Deferred.await(prepared);
+        // Let the entire preparation finish, including its route-check scope.
+        yield* TestClock.adjust("0 millis");
         expect(yield* Ref.get(harness.sessionCount)).toBe(1);
         yield* Deferred.fail(answer, transient());
         yield* awaitState(
@@ -1299,37 +1303,144 @@ describe("EnvironmentSupervisor", () => {
     }),
   );
 
-  it.effect("continues unfinished preparation after the probe fails", () =>
+  it.effect.each(
+    (["application-active-probe", "network-changed", "retry"] as const).flatMap((signal) =>
+      (["failure", "timeout"] as const).map((outcome) => ({ signal, outcome })),
+    ),
+  )(
+    "starts fresh preparation immediately on $signal probe $outcome while speculation is pending",
+    ({ signal, outcome }) =>
+      Effect.gen(function* () {
+        const preparing = yield* Deferred.make<void>();
+        const cancelled = yield* Deferred.make<void>();
+        const freshStartedAt = yield* Deferred.make<number>();
+        const finishPreparation = yield* Deferred.make<void>();
+        const answer = yield* Deferred.make<void, ConnectionAttemptError>();
+        const checks = yield* Ref.make(0);
+        const checkBatches = yield* Effect.forEach([0, 1, 2], () => Deferred.make<void>());
+        const harness = yield* makeHarness({
+          checkRoute: () =>
+            Effect.gen(function* () {
+              const check = yield* Ref.updateAndGet(checks, (count) => count + 1);
+              const batch = checkBatches[Math.floor((check - 1) / 2)]!;
+              if (check % 2 === 0) yield* Deferred.succeed(batch, undefined);
+              yield* Deferred.await(batch);
+              return "answered" as const;
+            }),
+          prepare: (attempt, target) =>
+            Effect.gen(function* () {
+              if (attempt === 2) {
+                yield* Deferred.succeed(preparing, undefined);
+                yield* Deferred.await(finishPreparation).pipe(
+                  Effect.onInterrupt(() => Deferred.succeed(cancelled, undefined)),
+                );
+              }
+              if (attempt === 3) {
+                // Fresh requests start after cancellation, without another clock advance.
+                expect(yield* Deferred.isDone(cancelled)).toBe(true);
+                yield* Deferred.succeed(freshStartedAt, yield* Clock.currentTimeMillis);
+              }
+              return {
+                ...preparedFor(target),
+                socketUrl: `wss://environment.example.test/ws?attempt=${attempt}`,
+              };
+            }),
+          probe: () => Deferred.await(answer),
+        });
+        const supervisor = yield* EnvironmentSupervisor.make(LAN_THEN_RELAY_ENTRY, {
+          initiallyDesired: true,
+        }).pipe(Effect.provide(harness.dependencies));
+        yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+        const startedAt = yield* Clock.currentTimeMillis;
+        yield* signal === "retry" ? supervisor.retryNow : harness.wake(signal);
+        yield* Deferred.await(preparing);
+        expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+        if (outcome === "timeout") {
+          yield* TestClock.adjust("2999 millis");
+          expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+          expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+          expect(yield* Deferred.isDone(cancelled)).toBe(false);
+          yield* TestClock.adjust("1 milli");
+        } else {
+          yield* Deferred.fail(answer, transient());
+          yield* TestClock.adjust("0 millis");
+        }
+        expect(yield* Deferred.isDone(freshStartedAt)).toBe(true);
+        expect(yield* Deferred.await(freshStartedAt)).toBe(
+          startedAt + (outcome === "timeout" ? 3_000 : 0),
+        );
+        yield* awaitState(
+          supervisor.state,
+          (state) => state.phase === "connected" && state.generation === 2 && state.attempt === 1,
+        );
+        expect(yield* Ref.get(harness.prepareCount)).toBe(3);
+        expect(yield* Ref.get(checks)).toBe(6);
+        expect(yield* Ref.get(harness.sessionCount)).toBe(2);
+        expect(yield* Ref.get(harness.releaseCount)).toBe(1);
+        expect(
+          Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).socketUrl,
+        ).toContain("attempt=3");
+        // Releasing the abandoned request cannot open another replacement socket.
+        yield* Deferred.succeed(finishPreparation, undefined);
+        yield* TestClock.adjust("0 millis");
+        expect(yield* Ref.get(harness.sessionCount)).toBe(2);
+        expect(yield* Ref.get(harness.prepareCount)).toBe(3);
+      }),
+  );
+
+  it.effect("restarts both route checks at the probe deadline when speculative checks stall", () =>
     Effect.gen(function* () {
-      const preparing = yield* Deferred.make<void>();
-      const finishPreparation = yield* Deferred.make<void>();
-      const answer = yield* Deferred.make<void, ConnectionAttemptError>();
+      const checks = yield* Ref.make(0);
+      const initialChecks = yield* Deferred.make<void>();
+      const checksStarted = yield* Deferred.make<void>();
+      const cancelledChecks = yield* Ref.make(0);
+      const freshChecks = yield* Deferred.make<void>();
+      const freshChecksStartedAt = yield* Deferred.make<number>();
       const harness = yield* makeHarness({
-        prepare: (attempt) =>
-          attempt === 2
-            ? Deferred.succeed(preparing, undefined).pipe(
-                Effect.andThen(Deferred.await(finishPreparation)),
-                Effect.as(PREPARED_CONNECTION),
-              )
-            : Effect.succeed(PREPARED_CONNECTION),
-        probe: () => Deferred.await(answer),
+        checkRoute: () =>
+          Effect.gen(function* () {
+            const check = yield* Ref.updateAndGet(checks, (count) => count + 1);
+            if (check <= 2) {
+              if (check === 2) yield* Deferred.succeed(initialChecks, undefined);
+              yield* Deferred.await(initialChecks);
+            }
+            if (check === 3 || check === 4) {
+              if (check === 4) yield* Deferred.succeed(checksStarted, undefined);
+              return yield* Effect.never.pipe(
+                Effect.onInterrupt(() => Ref.update(cancelledChecks, (count) => count + 1)),
+              );
+            }
+            if (check === 5) {
+              expect(yield* Ref.get(cancelledChecks)).toBe(2);
+              yield* Deferred.succeed(freshChecksStartedAt, yield* Clock.currentTimeMillis);
+            }
+            if (check >= 5) {
+              if (check === 6) yield* Deferred.succeed(freshChecks, undefined);
+              yield* Deferred.await(freshChecks);
+            }
+            return "answered" as const;
+          }),
+        prepare: (_attempt, target) => Effect.succeed(preparedFor(target)),
+        probe: () => Effect.never,
       });
-      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+      const supervisor = yield* EnvironmentSupervisor.make(LAN_THEN_RELAY_ENTRY, {
         initiallyDesired: true,
       }).pipe(Effect.provide(harness.dependencies));
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      const startedAt = yield* Clock.currentTimeMillis;
       yield* harness.wake("application-active-probe");
-      yield* Deferred.await(preparing);
-      yield* Deferred.fail(answer, transient());
-      yield* awaitState(supervisor.state, (state) => state.phase === "connecting");
-      expect(yield* Ref.get(harness.releaseCount)).toBe(1);
-      expect(yield* Ref.get(harness.sessionCount)).toBe(1);
-      yield* Deferred.succeed(finishPreparation, undefined);
+      yield* Deferred.await(checksStarted);
+      yield* TestClock.adjust("3 seconds");
+      expect(yield* Deferred.isDone(freshChecksStartedAt)).toBe(true);
+      expect(yield* Deferred.await(freshChecksStartedAt)).toBe(startedAt + 3_000);
       yield* awaitState(
         supervisor.state,
-        (state) => state.phase === "connected" && state.generation === 2,
+        (state) => state.phase === "connected" && state.generation === 2 && state.attempt === 1,
       );
+      expect(yield* Ref.get(checks)).toBe(6);
       expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+      expect(yield* Ref.get(harness.sessionCount)).toBe(2);
+      expect(yield* Ref.get(harness.releaseCount)).toBe(1);
     }),
   );
 
@@ -1430,6 +1541,7 @@ describe("EnvironmentSupervisor", () => {
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
       yield* harness.wake("application-active-probe");
       yield* Deferred.await(prepared);
+      yield* TestClock.adjust("0 millis");
       yield* Deferred.fail(answer, transient());
       yield* awaitState(
         supervisor.state,
