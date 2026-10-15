@@ -5,12 +5,9 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 import * as Schema from "effect/Schema";
-import {
-  makeManifest,
-  validateManifest,
-  manifestHash,
-  balancedOrder,
-} from "./reconnectManifest.ts";
+import * as Effect from "effect/Effect";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import { makeManifest, validateManifest, manifestHash, variantOrder } from "./reconnectManifest.ts";
 import { prepareLoopback } from "./impairments.ts";
 import { applyProfile } from "./reconnectNetwork.ts";
 import { calibrate } from "./reconnectCalibration.ts";
@@ -193,11 +190,30 @@ process.on("message", (message) => {
   if (message === "interrupt") void cleanup().finally(() => process.exit(143));
 });
 const rows: ReconnectRow[] = [];
-const write = (name: string, value: unknown) =>
-  NodeFS.writeFileSync(NodePath.join(out, name), JSON.stringify(value, null, 2) + "\n");
+const write = (name: string, value: unknown) => {
+  const target = NodePath.join(out, name);
+  NodeFS.writeFileSync(target + ".next", JSON.stringify(value, null, 2) + "\n");
+  NodeFS.renameSync(target + ".next", target);
+};
 try {
   prepareLoopback(scratch, true, undefined, manifest.mtu);
   write("manifest.json", manifest);
+  const metricsSave = NodeFS.readFileSync("/proc/sys/net/ipv4/tcp_no_metrics_save", "utf8").trim();
+  if (metricsSave !== "1")
+    throw new Error("tcp_no_metrics_save must be 1 in the private namespace");
+  write("environment.json", {
+    node: process.version,
+    versions: process.versions,
+    platform: Effect.runSync(HostProcess.Platform),
+    arch: Effect.runSync(HostProcess.Architecture),
+    kernel: NodeOS.release(),
+    cpu: NodeOS.cpus()[0]?.model,
+    tcpNoMetricsSave: metricsSave,
+    links: JSON.parse(
+      NodeChildProcess.execFileSync("ip", ["-json", "link", "show"], { encoding: "utf8" }),
+    ),
+    variants: variants.map((variant) => ({ ...variant, ...state(variant.path) })),
+  });
   NodeChildProcess.execFileSync(
     "openssl",
     [
@@ -227,7 +243,7 @@ try {
     throw new Error("Calibration failed; measured matrix refused. See calibration.json");
   if (!values["calibrate-only"]) {
     for (const entry of manifest.cases)
-      for (const variant of balancedOrder(variants, entry.repetition - 1)) {
+      for (const variant of variantOrder(variants, entry)) {
         const provenance = state(variant.path);
         if (provenance.dirty) throw new Error(`Worktree became dirty: ${variant.name}`);
         const entryFile = NodePath.join(scratch, "case.json");

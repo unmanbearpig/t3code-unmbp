@@ -26,7 +26,15 @@ def serve():
         with connection:
             mode = connection.recv(1)
             if mode == b'D':
-                connection.sendall(b'x' * (1024 * 1024))
+                size = b''
+                while len(size) < 8:
+                    size += connection.recv(8 - len(size))
+                remaining = int.from_bytes(size, 'big')
+                block = b'x' * 65536
+                while remaining:
+                    data = block[:remaining]
+                    connection.sendall(data)
+                    remaining -= len(data)
             else:
                 while connection.recv(65536):
                     pass
@@ -73,14 +81,14 @@ def echo_client(duration_ms):
     print(json.dumps({'type': 'result', 'sent': number, 'echoes': received}), flush=True)
 
 
-def bulk_client(direction):
+def bulk_client(direction, size):
     client = socket.socket()
     client.settimeout(60)
     client.connect(('127.0.0.1', PORT))
     start = time.monotonic_ns()
     count = 0
     if direction == 'down':
-        client.sendall(b'D')
+        client.sendall(b'D' + size.to_bytes(8, 'big'))
         while True:
             data = client.recv(65536)
             if not data:
@@ -88,7 +96,7 @@ def bulk_client(direction):
             count += len(data)
     else:
         client.sendall(b'U')
-        data = b'x' * (1024 * 1024)
+        data = b'x' * size
         client.sendall(data)
         client.shutdown(socket.SHUT_WR)
         if client.recv(1) != b'K':
@@ -106,4 +114,4 @@ if __name__ == '__main__':
     elif sys.argv[1] == 'echo':
         echo_client(int(sys.argv[2]))
     else:
-        bulk_client(sys.argv[2])
+        bulk_client(sys.argv[2], int(sys.argv[3]))

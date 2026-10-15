@@ -4,6 +4,7 @@ import * as NodeReadline from "node:readline";
 import * as Schema from "effect/Schema";
 import { applyProfile, directionCommands } from "./reconnectNetwork.ts";
 import { profiles, type Manifest, type Profile, type ReconnectCase } from "./reconnectManifest.ts";
+import { verifyPacketImpairments } from "./packetizationCheck.ts";
 import { median } from "./reconnectComparison.ts";
 import { startController, stopChild } from "./reconnectProcess.ts";
 const EchoResult = Schema.Struct({
@@ -87,6 +88,8 @@ export async function calibrate(manifest: Manifest, report: (message: string) =>
   const echoRows = [];
   const bulkRows = [];
   try {
+    report("calibrating segmentation and periodic filter packetization");
+    verifyPacketImpairments();
     await server.next();
     for (const profile of profiles) {
       report(`calibrating ${profile.name}`);
@@ -115,6 +118,10 @@ export async function calibrate(manifest: Manifest, report: (message: string) =>
         const result = decodeEcho(await echo.next());
         await controller.done;
         const errors = validateEcho(profile, result);
+        for (const record of controller.records) {
+          if (record.type === "applied" && Math.abs(record.appliedMs! - record.plannedMs!) > 30)
+            errors.push(`Controller missed ${record.action} deadline by more than 30 ms`);
+        }
         echoRows.push({
           profile: profile.name,
           ...result,
@@ -127,33 +134,42 @@ export async function calibrate(manifest: Manifest, report: (message: string) =>
         await stopChild(controller.child);
       }
     }
-    // Test rates in isolation from jitter, loss, and scheduled changes, once for each configured cap.
+    // Verify every distinct configured rate, independently of random loss and jitter.
     const constrained = profiles.find((p) => p.name === "constrained")!;
-    for (const direction of ["down", "up"] as const) {
-      report(`calibrating constrained ${direction} throughput`);
-      applyProfile(
-        {
-          ...constrained,
-          down: { ...constrained.down, jitterMs: 0 },
-          up: { ...constrained.up, jitterMs: 0 },
-        },
-        104729,
-        manifest.queuePackets,
-      );
-      const bulk = python(["bulk", direction]);
-      try {
-        const result = decodeBulk(await bulk.next());
-        const configured = constrained[direction].rateKbit;
-        const ratio = result.kbitPerSecond / configured;
-        bulkRows.push({
-          ...result,
-          configuredKbit: configured,
-          ratio,
-          errors:
-            ratio < 0.65 || ratio > 1.08 ? ["Directional throughput outside 65-108% of cap"] : [],
-        });
-      } finally {
-        await stopChild(bulk.child);
+    const cellular = profiles.find((p) => p.name === "cellular")!;
+    for (const profile of [cellular, constrained]) {
+      for (const direction of ["down", "up"] as const) {
+        const configured = profile[direction].rateKbit;
+        report(`calibrating ${profile.name} ${direction} throughput at ${configured} kbit/s`);
+        applyProfile(
+          {
+            ...profile,
+            down: { ...profile.down, jitterMs: 0 },
+            up: { ...profile.up, jitterMs: 0 },
+          },
+          104729,
+          manifest.queuePackets,
+        );
+        // Large fast-link transfers amortize TCP slow start; one MiB suffices for slow links.
+        const bulk = python([
+          "bulk",
+          direction,
+          String(configured > 1000 ? 32 * 1024 * 1024 : 1024 * 1024),
+        ]);
+        try {
+          const result = decodeBulk(await bulk.next());
+          const ratio = result.kbitPerSecond / configured;
+          bulkRows.push({
+            profile: profile.name,
+            ...result,
+            configuredKbit: configured,
+            ratio,
+            errors:
+              ratio < 0.65 || ratio > 1.08 ? ["Directional throughput outside 65-108% of cap"] : [],
+          });
+        } finally {
+          await stopChild(bulk.child);
+        }
       }
     }
     return {

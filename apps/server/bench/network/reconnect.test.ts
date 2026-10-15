@@ -10,6 +10,7 @@ import {
   profiles,
   validateManifest,
   validateSchedule,
+  variantOrder,
   type ReconnectCase,
 } from "./reconnectManifest.ts";
 import { controllerPlan, directionCommands, netemArgs } from "./reconnectNetwork.ts";
@@ -81,6 +82,18 @@ describe("frozen reconnect inputs", () => {
     expect(orders.every((order) => new Set(order).size === 4)).toBe(true);
     expect(variants.map((v) => orders.filter((o) => o[0] === v).length)).toEqual([2, 2, 2, 2]);
   });
+});
+it("balances each loss cell across twenty seeds instead of repeating global-index order", () => {
+  const cells = makeManifest().cases.filter(
+    (c) =>
+      c.profile.name === "loss-1" &&
+      c.routes === 2 &&
+      c.scheme === "https" &&
+      c.workload === "idle",
+  );
+  const orders = cells.map((c) => variantOrder(["baseline", "change"], c));
+  expect(orders.filter((o) => o[0] === "baseline")).toHaveLength(10);
+  expect(orders.filter((o) => o[0] === "change")).toHaveLength(10);
 });
 describe("directional network and controller", () => {
   it("classifies downloads by source port and uses FIFO below both directional netems", () => {

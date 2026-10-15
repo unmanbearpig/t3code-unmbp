@@ -9,11 +9,13 @@ import { runReconnect } from "./reconnectClient.ts";
 import { serverPort } from "./reconnectNetwork.ts";
 import { receive, startController, stopChild } from "./reconnectProcess.ts";
 const decodeReady = Schema.decodeUnknownSync(
-  Schema.Struct({
-    type: Schema.Literal("ready"),
-    bearer: Schema.String,
-    initial: OperationControlResponse,
-  }),
+  Schema.toCodecJson(
+    Schema.Struct({
+      type: Schema.Literal("ready"),
+      bearer: Schema.String,
+      initial: OperationControlResponse,
+    }),
+  ),
 );
 const decodeControl = Schema.decodeUnknownSync(Schema.toCodecJson(OperationControlResponse));
 const [entryFile, cert, key, scratch, queue] = process.argv.slice(2);

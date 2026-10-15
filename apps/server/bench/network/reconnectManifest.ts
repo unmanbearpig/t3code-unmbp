@@ -182,3 +182,16 @@ export function balancedOrder<T>(variants: readonly T[], caseIndex: number): rea
   const offset = Math.floor(caseIndex / 2) % variants.length;
   return [...order.slice(offset), ...order.slice(0, offset)];
 }
+
+/** Balance within a cell, then rotate cells so small repetition counts spread first position. */
+export function variantOrder<T>(variants: readonly T[], entry: ReconnectCase): readonly T[] {
+  const key = [entry.profile.name, entry.scheme, entry.routes, entry.workload, entry.phaseMs].join(
+    "/",
+  );
+  const rotation =
+    [...key].reduce((sum, c) => (sum * 31 + c.charCodeAt(0)) >>> 0, 0) % variants.length;
+  return balancedOrder(
+    [...variants.slice(rotation), ...variants.slice(0, rotation)],
+    entry.repetition - 1,
+  );
+}

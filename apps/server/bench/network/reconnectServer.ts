@@ -226,6 +226,15 @@ const routes = Layer.mergeAll(
 const requestSchema = Schema.Struct({ count: Schema.Number });
 const decodeRequest = Schema.decodeUnknownSync(requestSchema);
 const encodeResponse = Schema.encodeSync(Schema.toCodecJson(OperationControlResponse));
+const encodeReady = Schema.encodeSync(
+  Schema.toCodecJson(
+    Schema.Struct({
+      type: Schema.Literal("ready"),
+      bearer: Schema.String,
+      initial: OperationControlResponse,
+    }),
+  ),
+);
 
 await Effect.runPromise(
   Effect.scoped(
@@ -270,23 +279,25 @@ await Effect.runPromise(
       );
       const requests = yield* Queue.unbounded<unknown>();
       process.on("message", (message) => Queue.offerUnsafe(requests, message));
-      process.send?.({
-        type: "ready",
-        bearer: paired.access_token,
-        initial: {
-          startedAt: 0,
-          sequence: snapshot.snapshotSequence,
-          messages,
-          windowMessageIds: [],
-          windowRunIds: [],
-          hasMoreHistory: false,
-          latestLocalTurnOrdinal: null,
-          initialSnapshot: {
-            snapshotSequence: snapshot.snapshotSequence,
-            projection: projectThreadProjectionForWire(snapshot.projection),
+      process.send?.(
+        encodeReady({
+          type: "ready",
+          bearer: paired.access_token,
+          initial: {
+            startedAt: 0,
+            sequence: snapshot.snapshotSequence,
+            messages,
+            windowMessageIds: [],
+            windowRunIds: [],
+            hasMoreHistory: false,
+            latestLocalTurnOrdinal: null,
+            initialSnapshot: {
+              snapshotSequence: snapshot.snapshotSequence,
+              projection: projectThreadProjectionForWire(snapshot.projection),
+            },
           },
-        },
-      });
+        }),
+      );
       for (;;) {
         const request = decodeRequest(yield* Queue.take(requests));
         if (request.count) {

@@ -113,8 +113,8 @@ A separate Python controller uses monotonic deadlines and one long-lived
 times. Outages use a priority-1 matchall drop ahead of the IFB redirect.
 
 Calibration runs once before any measured case. Numbered UDP echoes check base
-RTT, ordering, recovery, spikes, and outages. TCP bulk checks each constrained
-rate. `calibration.json` preserves samples, controller timing, and configuration;
+RTT, ordering, recovery, spikes, and outages. TCP bulk checks every distinct configured
+rate in each direction. Controller application must stay within 30 ms of its schedule. `calibration.json` preserves samples, controller timing, and configuration;
 a failed calibration prevents the matrix from running. A fixed seed fixes netem
 random draws, but variants can consume draws with different packetization.
 

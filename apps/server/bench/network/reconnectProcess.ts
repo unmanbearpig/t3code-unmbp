@@ -45,6 +45,7 @@ const ControllerMessage = Schema.Struct({
 });
 const decodeController = Schema.decodeUnknownSync(Schema.fromJsonString(ControllerMessage));
 export async function startController(entry: ReconnectCase, queuePackets: number) {
+  const plan = controllerPlan(entry.profile, entry.seed, queuePackets, entry.phaseMs);
   const child = NodeChildProcess.spawn(
     "python3",
     [new URL("./reconnectController.py", import.meta.url).pathname],
@@ -52,30 +53,51 @@ export async function startController(entry: ReconnectCase, queuePackets: number
   );
   const records: (typeof ControllerMessage.Type)[] = [];
   let readyResolve!: () => void;
-  let doneResolve!: () => void;
-  let fail!: (error: Error) => void;
+  let readyReject!: (error: Error) => void;
+  let failure: Error | undefined;
   const ready = new Promise<void>((resolve, reject) => {
     readyResolve = resolve;
-    fail = reject;
+    readyReject = reject;
   });
-  const done = new Promise<void>((resolve) => {
-    doneResolve = resolve;
+  const fail = (error: Error) => {
+    failure = error;
+    readyReject(error);
+  };
+  const timer = setTimeout(() => fail(new Error("Controller readiness timed out")), 5000);
+  const done = new Promise<void>((resolve, reject) => {
+    child.once("exit", (code) => {
+      if (code !== 0 || failure || !records.some((r) => r.type === "done")) {
+        const error =
+          failure ?? new Error(`Controller exited ${code} before successful completion`);
+        readyReject(error);
+        reject(error);
+      } else resolve();
+    });
   });
+  // It may fail while the client is still reconnecting. Preserve that failure until awaited.
+  void done.catch(() => {});
   const lines = NodeReadline.createInterface({ input: child.stdout! });
   lines.on("line", (line) => {
-    const record = decodeController(line);
-    records.push(record);
-    if (record.type === "ready") readyResolve();
-    if (record.type === "done") doneResolve();
+    try {
+      const record = decodeController(line);
+      records.push(record);
+      if (record.type === "ready") readyResolve();
+    } catch (error) {
+      fail(new Error(`Invalid controller output: ${String(error)}`));
+      child.kill("SIGTERM");
+    }
   });
   child.on("error", fail);
-  child.once("exit", (code) => {
-    if (code !== 0) fail(new Error(`Controller exited ${code}`));
-  });
-  child.stdin!.write(
-    JSON.stringify(controllerPlan(entry.profile, entry.seed, queuePackets, entry.phaseMs)) + "\n",
-  );
-  await ready;
+  child.stdin!.on("error", fail);
+  child.stdin!.write(JSON.stringify(plan) + "\n");
+  try {
+    await ready;
+  } catch (error) {
+    await stopChild(child);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   let signalNs: string | undefined;
   return {
     child,

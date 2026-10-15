@@ -117,6 +117,8 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   };
   const socketConstructor: Socket.WebSocketConstructor["Service"] = (url, options) => {
     sockets++;
+    const path = new URL(url).pathname;
+    requests[path] = (requests[path] ?? 0) + 1;
     stamp("socket-start");
     const wsOptions = typeof options === "object" && !Array.isArray(options) ? options : {};
     const protocols = typeof options === "string" || Array.isArray(options) ? options : [];
