@@ -7,6 +7,7 @@ import { RelayEnvironmentConnectScope } from "@t3tools/contracts/relay";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import {
   exchangeRemoteDpopAccessToken,
+  remoteWebSocketUrl,
   type RemoteEnvironmentAuthError,
   resolveRemoteDpopWebSocketConnectionUrl,
   resolveRemoteWebSocketConnectionUrl,
@@ -112,6 +113,9 @@ export const make = Effect.gen(function* () {
   const cloudSession = yield* ClientCapabilities.CloudSession;
   const deviceIdentity = yield* ClientCapabilities.RelayDeviceIdentity;
   const presentation = yield* ClientCapabilities.ClientPresentation;
+  const webSocketConstructorWithHeaders = yield* Effect.serviceOption(
+    ClientCapabilities.WebSocketConstructorWithHeaders,
+  );
   const tokenStore = yield* TokenStore.RemoteDpopAccessTokenStore;
   const httpClient = yield* HttpClient.HttpClient;
   const tokenLock = yield* Semaphore.make(1);
@@ -192,16 +196,19 @@ export const make = Effect.gen(function* () {
       readonly connectionMethod: ClientConnectionMethod;
     }) {
       const descriptor = yield* verifyDirectEndpoint(input);
-      const socketUrl = yield* resolveRemoteWebSocketConnectionUrl({
+      const socketInput = {
         wsBaseUrl: input.wsBaseUrl,
         httpBaseUrl: input.httpBaseUrl,
         bearerToken: input.bearerToken,
         clientMetadata: presentation.metadata,
         connectionMethod: input.connectionMethod,
-      }).pipe(
-        Effect.mapError(mapRemoteEnvironmentError),
-        Effect.provideService(HttpClient.HttpClient, httpClient),
-      );
+      };
+      const socketUrl = Option.isSome(webSocketConstructorWithHeaders)
+        ? remoteWebSocketUrl(socketInput)
+        : yield* resolveRemoteWebSocketConnectionUrl(socketInput).pipe(
+            Effect.mapError(mapRemoteEnvironmentError),
+            Effect.provideService(HttpClient.HttpClient, httpClient),
+          );
       return {
         environmentId: descriptor.environmentId,
         label: descriptor.label,
