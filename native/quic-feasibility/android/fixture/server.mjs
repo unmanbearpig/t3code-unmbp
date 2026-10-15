@@ -1,6 +1,9 @@
-import { readFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
-import { resolve } from "node:path";
+import * as NodeFS from "node:fs";
+import * as NodeURL from "node:url";
+import * as NodePath from "node:path";
+const { readFileSync } = NodeFS;
+const { pathToFileURL } = NodeURL;
+const { resolve } = NodePath;
 
 // Import the repository's already-installed, pinned backend without installing another copy.
 const [moduleDirectory, certPath, keyPath, port] = process.argv.slice(2);
@@ -27,10 +30,14 @@ async function serveStream(stream) {
   const writer = stream.writable.getWriter();
   let op;
   let bytes = 0;
-  writer.closed.catch((error) => log({
-    event: "send-stopped", op, error: error.message,
-    streamErrorCode: Number(error.message.match(/code:(\d+)/)?.[1]),
-  }));
+  writer.closed.catch((error) =>
+    log({
+      event: "send-stopped",
+      op,
+      error: error.message,
+      streamErrorCode: Number(error.message.match(/code:(\d+)/)?.[1]),
+    }),
+  );
   try {
     while (true) {
       const next = await reader.read();
@@ -46,7 +53,11 @@ async function serveStream(stream) {
       log({ event: "echo-finished", bytes });
     }
   } catch (error) {
-    log({ event: "receive-reset", op, bytes, error: error.message,
+    log({
+      event: "receive-reset",
+      op,
+      bytes,
+      error: error.message,
       streamErrorCode: Number(error.message.match(/code:(\d+)/)?.[1]),
     });
     await writer.abort(error).catch(() => {});
@@ -55,7 +66,10 @@ async function serveStream(stream) {
 
 async function serveSession(session) {
   await session.ready;
-  session.closed.then(() => log({ event: "session-closed" }), () => log({ event: "session-failed" }));
+  session.closed.then(
+    () => log({ event: "session-closed" }),
+    () => log({ event: "session-failed" }),
+  );
   const streams = session.incomingBidirectionalStreams.getReader();
   while (true) {
     const next = await streams.read();
@@ -76,5 +90,7 @@ for (const signal of ["SIGTERM", "SIGINT"]) {
 while (true) {
   const next = await sessions.read();
   if (next.done) break;
-  void serveSession(next.value).catch((error) => log({ event: "session-handler-error", error: error.message }));
+  void serveSession(next.value).catch((error) =>
+    log({ event: "session-handler-error", error: error.message }),
+  );
 }

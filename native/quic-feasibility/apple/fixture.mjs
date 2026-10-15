@@ -1,10 +1,17 @@
-import { readFile } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
-import { resolve } from "node:path";
-import { randomBytes } from "node:crypto";
+import * as NodeFSP from "node:fs/promises";
+import * as NodeURL from "node:url";
+import * as NodePath from "node:path";
+import * as NodeCrypto from "node:crypto";
+const { readFile } = NodeFSP;
+const { pathToFileURL } = NodeURL;
+const { resolve } = NodePath;
+const { randomBytes } = NodeCrypto;
 
 // Resolve the exact pinned Node backend from a caller-owned fixture installation.
-const backend = resolve(process.env.T3_PROBE_NODE_MODULES, "node_modules/@fails-components/webtransport/lib/index.node.js");
+const backend = resolve(
+  process.env.T3_PROBE_NODE_MODULES,
+  "node_modules/@fails-components/webtransport/lib/index.node.js",
+);
 const { Http3Server, quicheLoaded } = await import(pathToFileURL(backend).href);
 await quicheLoaded;
 const [certPath, keyPath] = process.argv.slice(2);
@@ -68,7 +75,9 @@ void (async () => {
       await session.ready;
       session.closed.catch(() => {});
       const cancellation = {};
-      cancellation.promise = new Promise((resolve) => { cancellation.resolve = resolve; });
+      cancellation.promise = new Promise((resolve) => {
+        cancellation.resolve = resolve;
+      });
       const streams = session.incomingBidirectionalStreams.getReader();
       for (;;) {
         const { value, done } = await streams.read();
