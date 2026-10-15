@@ -82,7 +82,7 @@ export const prepareRpcWebTransportServer = Effect.fn("prepareRpcWebTransportSer
       readonly channel: ReturnType<typeof makeRpcWebTransportFrameChannel>;
       readonly writes: Semaphore.Semaphore;
       readonly finished: Deferred.Deferred<void>;
-      exited: boolean;
+      terminal?: Deferred.Deferred<void>;
     }
     const requests = new Map<string | number, RequestEntry>();
     const streams = Semaphore.makeUnsafe(limits.ordinaryRequestStreams + 1);
@@ -136,7 +136,6 @@ export const prepareRpcWebTransportServer = Effect.fn("prepareRpcWebTransportSer
             channel,
             writes: Semaphore.makeUnsafe(1),
             finished,
-            exited: false,
           };
           requests.set(requestId, entry);
           yield* receive(0, {
@@ -146,10 +145,13 @@ export const prepareRpcWebTransportServer = Effect.fn("prepareRpcWebTransportSer
           while (true) {
             const value = yield* channel.read();
             if (value === null) {
-              if (!entry.exited)
+              if (!entry.terminal)
                 return yield* Effect.fail(
                   new RpcWebTransportError("protocol", "Request FIN before Exit"),
                 );
+              // Exit can reach the client before our write Promise settles. Keep
+              // this request's ownership until the terminal send and local FIN finish.
+              yield* Deferred.await(entry.terminal);
               completed = true;
               lifetime.release(stream);
               return;
@@ -161,7 +163,7 @@ export const prepareRpcWebTransportServer = Effect.fn("prepareRpcWebTransportSer
               );
             // An Ack already in flight when Exit was sent remains legal. No further Request
             // is legal on this stream, and its FIN deadline is enforced by send below.
-            if (!entry.exited) yield* receive(0, message);
+            if (!entry.terminal) yield* receive(0, message);
           }
         }).pipe(
           Effect.ensuring(
@@ -180,15 +182,26 @@ export const prepareRpcWebTransportServer = Effect.fn("prepareRpcWebTransportSer
           ),
         );
       });
-    const finishRequest = (entry: RequestEntry) =>
-      entry.channel.finish.pipe(
-        Effect.andThen(Deferred.await(entry.finished)),
-        Effect.timeoutOrElse({
-          duration: RPC_WEBTRANSPORT_LIMITS.assemblyIdleTimeoutMs,
-          orElse: () => Effect.fail(new RpcWebTransportError("protocol", "Request FIN stalled")),
-        }),
+    const finishRequest = (
+      entry: RequestEntry,
+      message: RpcMessage.ResponseExitEncoded,
+      terminal: Deferred.Deferred<void>,
+    ) =>
+      entry.channel.write(message).pipe(
+        Effect.andThen(
+          entry.channel.finish.pipe(
+            Effect.andThen(Deferred.succeed(terminal, undefined)),
+            Effect.andThen(Deferred.await(entry.finished)),
+            Effect.timeoutOrElse({
+              duration: RPC_WEBTRANSPORT_LIMITS.assemblyIdleTimeoutMs,
+              orElse: () =>
+                Effect.fail(new RpcWebTransportError("protocol", "Request FIN stalled")),
+            }),
+          ),
+        ),
         lifetime.race,
         Effect.catch(lifetime.close),
+        Effect.interruptible,
       );
     const protocol: RpcServer.Protocol["Service"] = {
       run(receive) {
@@ -255,22 +268,23 @@ export const prepareRpcWebTransportServer = Effect.fn("prepareRpcWebTransportSer
               );
             return entry.writes.withPermits(1)(
               Effect.suspend(() => {
-                if (entry.exited)
+                if (entry.terminal)
                   return lifetime.close(
                     new RpcWebTransportError("protocol", "Response after Exit"),
                   );
-                return entry.channel.write(message).pipe(
-                  Effect.andThen(
-                    message._tag === "Exit"
-                      ? Effect.gen(function* () {
-                          entry.exited = true;
-                          yield* finishRequest(entry).pipe(Effect.forkIn(scope));
-                        })
-                      : Effect.void,
-                  ),
-                  lifetime.race,
-                  Effect.catch(lifetime.close),
-                );
+                if (message._tag === "Exit")
+                  return Effect.uninterruptibleMask(() => {
+                    // Publish terminal intent before any bytes can reach the peer.
+                    // RpcServer's finalizer only schedules this session-owned send.
+                    const terminal = (entry.terminal = Deferred.makeUnsafe<void>());
+                    return finishRequest(entry, message, terminal).pipe(
+                      Effect.forkIn(scope),
+                      Effect.asVoid,
+                    );
+                  });
+                return entry.channel
+                  .write(message)
+                  .pipe(lifetime.race, Effect.catch(lifetime.close));
               }),
             );
           }
