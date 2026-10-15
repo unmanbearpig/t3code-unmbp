@@ -153,11 +153,12 @@ const makeWarmReconnectHarness = Effect.fnUntraced(function* (
     network: "online" as const,
     phase: "connected" as const,
   });
+  const activePrepared = yield* SubscriptionRef.make(Option.some({ ...PREPARED }));
   const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
     target: TARGET,
     state: supervisorState,
     session: activeSession,
-    prepared: yield* SubscriptionRef.make(Option.some(PREPARED)),
+    prepared: activePrepared,
     connect: Effect.void,
     disconnect: Effect.void,
     retryNow: Effect.void,
@@ -223,6 +224,7 @@ const makeWarmReconnectHarness = Effect.fnUntraced(function* (
       ),
     disconnect: (request: { readonly stopped: Deferred.Deferred<void> }) =>
       SubscriptionRef.set(activeSession, Option.none()).pipe(
+        Effect.andThen(SubscriptionRef.set(activePrepared, Option.none())),
         Effect.andThen(Deferred.await(request.stopped)),
         Effect.andThen(
           SubscriptionRef.set(supervisorState, {
@@ -239,6 +241,7 @@ const makeWarmReconnectHarness = Effect.fnUntraced(function* (
         network: "online" as const,
         phase: "connected" as const,
       }).pipe(
+        Effect.andThen(SubscriptionRef.set(activePrepared, Option.some({ ...PREPARED }))),
         Effect.andThen(
           SubscriptionRef.set(activeSession, Option.some(makeSession(config, startedAt))),
         ),

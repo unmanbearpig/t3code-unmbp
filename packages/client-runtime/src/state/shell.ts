@@ -361,6 +361,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     Option.Option<{
       readonly prepared: PreparedConnection;
       readonly take: Effect.Effect<Option.Option<DeferredShellSnapshot>>;
+      readonly cancel: Effect.Effect<void>;
     }>
   >(Option.none());
   // Prepared routes arrive before socket/config readiness. Each route owns one
@@ -375,12 +376,31 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
             yield* SubscriptionRef.set(prefetchedSnapshot, Option.none());
             return;
           }
+          const shouldPrefetch = yield* (
+            snapshotLoader.shouldPrefetch?.(environmentId) ?? Effect.succeed(true)
+          );
+          if (!shouldPrefetch) {
+            yield* SubscriptionRef.set(
+              prefetchedSnapshot,
+              Option.some({
+                prepared: prepared.value,
+                take: snapshotLoader.load(prepared.value),
+                cancel: Effect.void,
+              }),
+            );
+            return;
+          }
           const result = yield* Deferred.make<Option.Option<DeferredShellSnapshot>>();
+          const load = yield* snapshotLoader.load(prepared.value).pipe(
+            Effect.flatMap((snapshot) => Deferred.succeed(result, snapshot)),
+            Effect.forkChild,
+          );
           const pending = yield* Ref.make(Option.some(result));
           yield* SubscriptionRef.set(
             prefetchedSnapshot,
             Option.some({
               prepared: prepared.value,
+              cancel: Fiber.interrupt(load).pipe(Effect.asVoid),
               // Consume once and release the stored result. Session replacements
               // and same-session HTTP failure retries must refresh again.
               take: Ref.getAndSet(pending, Option.none()).pipe(
@@ -393,15 +413,19 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
               ),
             }),
           );
-          yield* snapshotLoader
-            .load(prepared.value)
-            .pipe(Effect.flatMap((snapshot) => Deferred.succeed(result, snapshot)));
+          yield* Fiber.join(load);
         }),
       ),
     ),
     Stream.runDrain,
     Effect.forkScoped,
   );
+
+  const cancelPrefetch = Effect.gen(function* () {
+    const prefetch = yield* SubscriptionRef.get(prefetchedSnapshot);
+    if (Option.isSome(prefetch)) yield* prefetch.value.cancel;
+    yield* snapshotLoader.cancelPrefetch?.(environmentId) ?? Effect.void;
+  });
 
   yield* setSynchronizing;
   yield* Effect.forkScoped(
@@ -459,7 +483,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         subscription.authoritative = canResume;
         let current = yield* SubscriptionRef.get(state);
         if (canResume && Option.isSome(current.snapshot)) {
-          yield* snapshotLoader.cancelPrefetch?.(environmentId) ?? Effect.void;
+          yield* cancelPrefetch;
         }
         if (!canResume || Option.isNone(current.snapshot)) {
           subscription.authoritative = false;
