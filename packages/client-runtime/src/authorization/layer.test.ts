@@ -2,6 +2,7 @@ import {
   AuthAdministrativeScopes,
   AuthStandardClientScopes,
   EnvironmentId,
+  ORCHESTRATION_PROTOCOL_VERSION,
 } from "@t3tools/contracts";
 import {
   RelayEnvironmentConnectScope,
@@ -16,8 +17,30 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
+import {
+  BearerConnectionCredential,
+  BearerConnectionProfile,
+  SshConnectionProfile,
+  type ConnectionCatalogEntry,
+  type ConnectionRoute,
+} from "../connection/catalog.ts";
+import * as ConnectionCredentialStore from "../connection/credentialStore.ts";
+import * as ConnectionDriver from "../connection/driver.ts";
+import * as ConnectionProfileStore from "../connection/profileStore.ts";
+import * as ConnectionResolver from "../connection/resolver.ts";
+import {
+  BearerConnectionTarget,
+  PrimaryConnectionTarget,
+  RelayConnectionTarget,
+  SshConnectionTarget,
+  type PreparedConnection,
+} from "../connection/model.ts";
+import * as RpcSession from "../rpc/session.ts";
 import { DPOP_UNKNOWN_HINT } from "../relay/errorPresentation.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
 import * as RpcHttp from "../rpc/http.ts";
@@ -39,6 +62,7 @@ const DESCRIPTOR = {
     arch: "x64",
   },
   serverVersion: "0.0.0-test",
+  orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
   capabilities: {
     repositoryIdentity: true,
   },
@@ -116,6 +140,7 @@ const makeHarness = Effect.fn("TestRemoteAuthorization.makeHarness")(function* (
   readonly beforeBootstrap?: Effect.Effect<void, ManagedRelay.ManagedRelayClientError>;
   readonly beforePut?: Effect.Effect<void>;
   readonly clerkToken?: ClientCapabilities.CloudSession["Service"]["clerkToken"];
+  readonly httpClient?: Layer.Layer<HttpClient.HttpClient>;
 }) {
   const tokens = yield* Ref.make(
     new Map(
@@ -194,35 +219,33 @@ const makeHarness = Effect.fn("TestRemoteAuthorization.makeHarness")(function* (
     getAgentActivitySnapshot: unexpected,
     resetTokenCache: Effect.void,
   });
-  const layer = RemoteEnvironmentAuthorization.layer.pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        RpcHttp.layerRemoteHttpClient(fetch.fetchFn),
-        Layer.succeed(ManagedRelay.ManagedRelayDpopSigner, signer),
-        Layer.succeed(ManagedRelay.ManagedRelayClient, relay),
-        Layer.succeed(ClientCapabilities.CloudSession, {
-          identity: Ref.get(session),
-          clerkToken: input.clerkToken ?? Effect.succeed("clerk-session"),
-        }),
-        Layer.succeed(ClientCapabilities.RelayDeviceIdentity, {
-          deviceId: Effect.succeedSome("device-1"),
-        }),
-        Layer.succeed(TokenStore.RemoteDpopAccessTokenStore, tokenStore),
-        Layer.succeed(
-          ClientCapabilities.ClientPresentation,
-          ClientCapabilities.ClientPresentation.of({
-            metadata: {
-              label: "T3 Code Test",
-              deviceType: "mobile",
-              os: "test",
-            },
-          }),
-        ),
-      ),
+  const dependencies = Layer.mergeAll(
+    input.httpClient ?? RpcHttp.layerRemoteHttpClient(fetch.fetchFn),
+    Layer.succeed(ManagedRelay.ManagedRelayDpopSigner, signer),
+    Layer.succeed(ManagedRelay.ManagedRelayClient, relay),
+    Layer.succeed(ClientCapabilities.CloudSession, {
+      identity: Ref.get(session),
+      clerkToken: input.clerkToken ?? Effect.succeed("clerk-session"),
+    }),
+    Layer.succeed(ClientCapabilities.RelayDeviceIdentity, {
+      deviceId: Effect.succeedSome("device-1"),
+    }),
+    Layer.succeed(TokenStore.RemoteDpopAccessTokenStore, tokenStore),
+    Layer.succeed(
+      ClientCapabilities.ClientPresentation,
+      ClientCapabilities.ClientPresentation.of({
+        metadata: {
+          label: "T3 Code Test",
+          deviceType: "mobile",
+          os: "test",
+        },
+      }),
     ),
   );
+  const layer = RemoteEnvironmentAuthorization.layer.pipe(Layer.provide(dependencies));
   return {
     layer,
+    dependencies,
     tokens,
     bootstrapCalls,
     proofInputs,
@@ -232,6 +255,558 @@ const makeHarness = Effect.fn("TestRemoteAuthorization.makeHarness")(function* (
     thumbprint,
     tokenReads,
   };
+});
+
+function bearerRoute(connectionId: string, httpBaseUrl = ENDPOINT.httpBaseUrl): ConnectionRoute {
+  return {
+    target: new BearerConnectionTarget({
+      environmentId: ENVIRONMENT_ID,
+      label: "Saved",
+      connectionId,
+    }),
+    profile: Option.some(
+      new BearerConnectionProfile({
+        environmentId: ENVIRONMENT_ID,
+        label: "Saved",
+        connectionId,
+        httpBaseUrl,
+        wsBaseUrl: httpBaseUrl.replace(/^http/, "ws"),
+      }),
+    ),
+  };
+}
+
+function connectionEntry(routes: ReadonlyArray<ConnectionRoute>): ConnectionCatalogEntry {
+  const [first, ...alternateRoutes] = routes;
+  if (first === undefined) throw new Error("A test connection needs a route.");
+  return { ...first, enabled: true, alternateRoutes };
+}
+
+const SSH_TARGET = { alias: "test", hostname: "ssh.example.test", username: "test", port: 22 };
+
+const makeConnectionHarness = Effect.fn("TestConnectionDescriptors.makeHarness")(function* (
+  input: Parameters<typeof makeHarness>[0] & { readonly primaryBearerToken?: string },
+) {
+  const harness = yield* makeHarness(input);
+  const opened: Array<PreparedConnection> = [];
+  const dependencies = Layer.mergeAll(
+    harness.dependencies,
+    Layer.succeed(ConnectionCredentialStore.ConnectionCredentialStore, {
+      get: () => Effect.succeedSome(new BearerConnectionCredential({ token: "bearer-token" })),
+      put: () => Effect.void,
+      remove: () => Effect.void,
+    }),
+    Layer.succeed(ConnectionProfileStore.ConnectionProfileStore, {
+      get: () => Effect.succeedNone,
+      put: () => Effect.void,
+      remove: () => Effect.void,
+    }),
+    Layer.succeed(ClientCapabilities.PrimaryEnvironmentAuth, {
+      bearerToken: Effect.succeed(Option.fromUndefinedOr(input.primaryBearerToken)),
+    }),
+    Layer.succeed(ClientCapabilities.SshEnvironmentGateway, {
+      provision: () => Effect.die("unused"),
+      prepare: () =>
+        Effect.succeed({
+          bootstrap: { ...ENDPOINT, target: SSH_TARGET, pairingToken: null },
+          bearerToken: "ssh-bearer",
+        }),
+      disconnect: () => Effect.void,
+    }),
+    Layer.succeed(RpcSession.RpcSessionFactory, {
+      connect: (prepared) =>
+        Effect.sync(() => {
+          opened.push(prepared);
+          return {
+            client: {} as RpcSession.RpcSession["client"],
+            initialConfig: Effect.die("unused"),
+            subscribeServerConfig: () => Stream.die("unused"),
+            ready: Effect.void,
+            probe: Effect.void,
+            closed: Effect.never,
+          };
+        }),
+    }),
+  );
+  const layer = ConnectionDriver.layer.pipe(
+    Layer.provideMerge(ConnectionResolver.layer),
+    Layer.provideMerge(harness.layer),
+    Layer.provide(dependencies),
+  );
+  return { ...harness, layer, opened };
+});
+
+function requestSequence(harness: {
+  readonly fetch: Pick<ReturnType<typeof recordedFetch>, "calls">;
+}) {
+  return harness.fetch.calls.map(([url, init]) => `${init.method} ${String(url)}`);
+}
+
+describe("Connection descriptor reuse", () => {
+  it.effect.each([true, false])(
+    "tries a slow route last and reuses or cancels its pending descriptor when fallback succeeds: %s",
+    (fallbackSucceeds) =>
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const fallbackTried = yield* Deferred.make<void>();
+        const finished = yield* Deferred.make<void>();
+        const calls: Array<string> = [];
+        const other = "https://other.example.test";
+        let confirmed = false;
+        const client = HttpClient.make((request) =>
+          Effect.gen(function* () {
+            calls.push(`${request.method} ${request.url}`);
+            if (request.url === `${ENDPOINT.httpBaseUrl}/.well-known/t3/environment`) {
+              yield* Deferred.succeed(started, undefined);
+              yield* Deferred.await(release).pipe(
+                Effect.ensuring(Deferred.succeed(finished, undefined)),
+              );
+              confirmed = true;
+              return HttpClientResponse.fromWeb(request, Response.json(DESCRIPTOR));
+            }
+            if (request.url.endsWith("/.well-known/t3/environment")) {
+              return HttpClientResponse.fromWeb(request, Response.json(DESCRIPTOR));
+            }
+            if (request.url.startsWith(other)) {
+              yield* Deferred.succeed(fallbackTried, undefined);
+              return HttpClientResponse.fromWeb(
+                request,
+                fallbackSucceeds ? websocketTicket("fallback") : authInvalid(),
+              );
+            }
+            expect(confirmed).toBe(true);
+            return HttpClientResponse.fromWeb(request, websocketTicket("slow-route"));
+          }),
+        );
+        const harness = yield* makeConnectionHarness({
+          responses: [],
+          httpClient: Layer.succeed(HttpClient.HttpClient, client),
+        });
+        yield* Effect.gen(function* () {
+          const driver = yield* ConnectionDriver.ConnectionDriver;
+          const pending = yield* driver
+            .connect(
+              connectionEntry([bearerRoute("slow"), bearerRoute("fallback", other)]),
+              () => Effect.void,
+            )
+            .pipe(Effect.scoped, Effect.forkChild);
+          yield* Deferred.await(started);
+          yield* TestClock.adjust("2500 millis");
+          yield* Deferred.await(fallbackTried);
+          if (!fallbackSucceeds) yield* Deferred.succeed(release, undefined);
+          yield* Fiber.join(pending);
+          yield* Deferred.await(finished);
+        }).pipe(Effect.provide(harness.layer));
+
+        expect(calls).toEqual([
+          `GET ${ENDPOINT.httpBaseUrl}/.well-known/t3/environment`,
+          `GET ${other}/.well-known/t3/environment`,
+          `POST ${other}/api/auth/websocket-ticket`,
+          ...(!fallbackSucceeds ? [`POST ${ENDPOINT.httpBaseUrl}/api/auth/websocket-ticket`] : []),
+        ]);
+        expect(harness.opened[0]?.httpBaseUrl).toBe(
+          fallbackSucceeds ? other : ENDPOINT.httpBaseUrl,
+        );
+      }),
+  );
+
+  it.effect.each([1, 2])(
+    "fetches each bearer route once during a %s-route reconnect",
+    (routeCount) =>
+      Effect.gen(function* () {
+        const routes = [
+          bearerRoute("first"),
+          bearerRoute("second", "https://other.example.test"),
+        ].slice(0, routeCount);
+        const checked = yield* Deferred.make<void>();
+        const calls: ReturnType<typeof recordedFetch>["calls"] = [];
+        const client = HttpClient.make((request) =>
+          Effect.gen(function* () {
+            calls.push([request.url, { method: request.method, headers: request.headers }]);
+            if (request.method === "GET") {
+              if (calls.length === routeCount) yield* Deferred.succeed(checked, undefined);
+              yield* Deferred.await(checked);
+            }
+            return HttpClientResponse.fromWeb(
+              request,
+              request.method === "GET" ? Response.json(DESCRIPTOR) : websocketTicket("ticket"),
+            );
+          }),
+        );
+        const harness = yield* makeConnectionHarness({
+          responses: [],
+          httpClient: Layer.succeed(HttpClient.HttpClient, client),
+        });
+        yield* Effect.gen(function* () {
+          const driver = yield* ConnectionDriver.ConnectionDriver;
+          yield* driver.connect(connectionEntry(routes), () => Effect.void).pipe(Effect.scoped);
+        }).pipe(Effect.provide(harness.layer));
+
+        expect(requestSequence({ fetch: { calls } })).toEqual([
+          ...routes.map((route) => {
+            const profile = Option.getOrThrow(route.profile);
+            if (profile._tag !== "BearerConnectionProfile")
+              throw new Error("Expected a bearer route.");
+            return `GET ${profile.httpBaseUrl}/.well-known/t3/environment`;
+          }),
+          `POST ${ENDPOINT.httpBaseUrl}/api/auth/websocket-ticket`,
+        ]);
+        expect(harness.opened).toHaveLength(1);
+        expect(harness.opened[0]?.socketUrl).toContain(
+          `orchestrationProtocol=${ORCHESTRATION_PROTOCOL_VERSION}`,
+        );
+        for (const [, init] of calls.filter(([, init]) => init.method === "GET")) {
+          expect(new Headers(init.headers).has("authorization")).toBe(false);
+        }
+        expect(
+          new Headers(calls.find(([, init]) => init.method === "POST")?.[1].headers).get(
+            "authorization",
+          ),
+        ).toBe("Bearer bearer-token");
+      }),
+  );
+
+  it.effect.each([1, 2])(
+    "rejects mismatched environments without credentials on %s saved routes",
+    (routeCount) =>
+      Effect.gen(function* () {
+        const routes = [
+          bearerRoute("first"),
+          bearerRoute("second", "https://other.example.test"),
+        ].slice(0, routeCount);
+        const harness = yield* makeConnectionHarness({
+          responses: routes.map(() =>
+            Response.json({ ...DESCRIPTOR, environmentId: "wrong-environment" }),
+          ),
+        });
+        const failure = yield* Effect.gen(function* () {
+          const driver = yield* ConnectionDriver.ConnectionDriver;
+          return yield* driver
+            .connect(connectionEntry(routes), () => Effect.void)
+            .pipe(Effect.scoped, Effect.flip);
+        }).pipe(Effect.provide(harness.layer));
+
+        expect(failure).toMatchObject({
+          reason: "configuration",
+          detail: "Connected environment wrong-environment does not match environment-1.",
+        });
+        expect(harness.fetch.calls).toHaveLength(routeCount);
+        expect(
+          harness.fetch.calls.every(
+            ([, init]) => init.method === "GET" && !new Headers(init.headers).has("authorization"),
+          ),
+        ).toBe(true);
+        expect(harness.opened).toHaveLength(0);
+      }),
+  );
+
+  it.effect("checks the exact alternate URL before sending it the bearer token", () =>
+    Effect.gen(function* () {
+      const other = "https://other.example.test";
+      const harness = yield* makeConnectionHarness({
+        responses: [
+          Response.json({ ...DESCRIPTOR, environmentId: "wrong-environment" }),
+          Response.json(DESCRIPTOR),
+          websocketTicket("alternate-ticket"),
+        ],
+      });
+      yield* Effect.gen(function* () {
+        const driver = yield* ConnectionDriver.ConnectionDriver;
+        yield* driver
+          .connect(
+            connectionEntry([bearerRoute("first"), bearerRoute("second", other)]),
+            () => Effect.void,
+          )
+          .pipe(Effect.scoped);
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(requestSequence(harness)).toEqual([
+        `GET ${ENDPOINT.httpBaseUrl}/.well-known/t3/environment`,
+        `GET ${other}/.well-known/t3/environment`,
+        `POST ${other}/api/auth/websocket-ticket`,
+      ]);
+      expect(harness.opened[0]?.httpBaseUrl).toBe(other);
+    }),
+  );
+
+  it.effect("rechecks identity on the next reconnect even while the bearer cache is fresh", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeConnectionHarness({
+        responses: [
+          Response.json(DESCRIPTOR),
+          websocketTicket("ticket"),
+          Response.json({ ...DESCRIPTOR, environmentId: "wrong-environment" }),
+        ],
+      });
+      const failure = yield* Effect.gen(function* () {
+        const driver = yield* ConnectionDriver.ConnectionDriver;
+        const entry = connectionEntry([bearerRoute("saved")]);
+        yield* driver.connect(entry, () => Effect.void).pipe(Effect.scoped);
+        return yield* driver.connect(entry, () => Effect.void).pipe(Effect.scoped, Effect.flip);
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(failure.reason).toBe("configuration");
+      expect(requestSequence(harness)).toEqual([
+        `GET ${ENDPOINT.httpBaseUrl}/.well-known/t3/environment`,
+        `POST ${ENDPOINT.httpBaseUrl}/api/auth/websocket-ticket`,
+        `GET ${ENDPOINT.httpBaseUrl}/.well-known/t3/environment`,
+      ]);
+      expect(harness.opened).toHaveLength(1);
+    }),
+  );
+
+  it.effect("shares preflight discovery with authorization and compatibility", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeConnectionHarness({
+        responses: [Response.json(DESCRIPTOR), websocketTicket("ticket")],
+      });
+      const route = bearerRoute("saved");
+      const accepted = yield* Effect.gen(function* () {
+        const driver = yield* ConnectionDriver.ConnectionDriver;
+        return yield* driver.preflight(connectionEntry([route]), route);
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(accepted).toBe(true);
+      expect(harness.fetch.calls).toHaveLength(2);
+      expect(harness.opened).toHaveLength(0);
+    }),
+  );
+
+  it.effect.each([undefined, ORCHESTRATION_PROTOCOL_VERSION + 1])(
+    "preserves compatibility rejection for protocol %s",
+    (version) =>
+      Effect.gen(function* () {
+        const harness = yield* makeConnectionHarness({
+          responses: [
+            Response.json({ ...DESCRIPTOR, orchestrationProtocolVersion: version }),
+            websocketTicket("ticket"),
+          ],
+        });
+        const failure = yield* Effect.gen(function* () {
+          const driver = yield* ConnectionDriver.ConnectionDriver;
+          return yield* driver
+            .connect(connectionEntry([bearerRoute("saved")]), () => Effect.void)
+            .pipe(Effect.scoped, Effect.flip);
+        }).pipe(Effect.provide(harness.layer));
+
+        expect(failure.reason).toBe("unsupported");
+        expect(failure.message).toContain(
+          version === undefined
+            ? "Update T3 Code on Remote environment"
+            : "This client is not supported",
+        );
+        expect(harness.fetch.calls).toHaveLength(2);
+        expect(harness.opened).toHaveLength(0);
+      }),
+  );
+
+  it.effect.each([
+    "primary",
+    "primary-bearer",
+    "ssh",
+    "direct-dpop",
+    "relay-cached",
+    "relay-bootstrap",
+  ] as const)("fetches one descriptor for a %s reconnect", (kind) =>
+    Effect.gen(function* () {
+      const bearer = bearerRoute("saved");
+      const route: ConnectionRoute =
+        kind === "ssh"
+          ? {
+              target: new SshConnectionTarget({
+                environmentId: ENVIRONMENT_ID,
+                connectionId: "ssh",
+                label: "SSH",
+              }),
+              profile: Option.some(
+                new SshConnectionProfile({
+                  environmentId: ENVIRONMENT_ID,
+                  connectionId: "ssh",
+                  label: "SSH",
+                  target: SSH_TARGET,
+                }),
+              ),
+            }
+          : kind.startsWith("relay")
+            ? {
+                target: new RelayConnectionTarget({
+                  environmentId: ENVIRONMENT_ID,
+                  label: "Relay",
+                }),
+                profile: Option.none(),
+              }
+            : kind.startsWith("primary")
+              ? {
+                  target: new PrimaryConnectionTarget({
+                    environmentId: ENVIRONMENT_ID,
+                    label: "Primary",
+                    ...ENDPOINT,
+                  }),
+                  profile: Option.none(),
+                }
+              : {
+                  ...bearer,
+                  profile: Option.some(
+                    new BearerConnectionProfile({
+                      connectionId: "saved",
+                      environmentId: ENVIRONMENT_ID,
+                      label: "Direct DPoP",
+                      ...ENDPOINT,
+                      authorization: "t3-connect",
+                    }),
+                  ),
+                };
+      const harness = yield* makeConnectionHarness({
+        ...(kind === "primary-bearer" ? { primaryBearerToken: "primary-token" } : {}),
+        ...(kind === "relay-cached" || kind === "direct-dpop"
+          ? { initialToken: persistedToken() }
+          : {}),
+        responses: [
+          Response.json(DESCRIPTOR),
+          ...(kind === "relay-bootstrap" ? [accessToken("new-token")] : []),
+          ...(kind === "primary" ? [] : [websocketTicket("ticket")]),
+        ],
+      });
+      yield* Effect.gen(function* () {
+        const driver = yield* ConnectionDriver.ConnectionDriver;
+        yield* driver.connect(connectionEntry([route]), () => Effect.void).pipe(Effect.scoped);
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(requestSequence(harness)).toEqual([
+        `GET ${ENDPOINT.httpBaseUrl}/.well-known/t3/environment`,
+        ...(kind === "relay-bootstrap" ? [`POST ${ENDPOINT.httpBaseUrl}/oauth/token`] : []),
+        ...(kind === "primary" ? [] : [`POST ${ENDPOINT.httpBaseUrl}/api/auth/websocket-ticket`]),
+      ]);
+      expect(harness.opened).toHaveLength(1);
+    }),
+  );
+});
+
+describe("Connection descriptor authorization boundaries", () => {
+  it.effect.each(["cached", "bootstrap"] as const)(
+    "rejects a mismatched relay endpoint before %s DPoP credentials are sent",
+    (kind) =>
+      Effect.gen(function* () {
+        const harness = yield* makeConnectionHarness({
+          ...(kind === "cached" ? { initialToken: persistedToken() } : {}),
+          responses: [Response.json({ ...DESCRIPTOR, environmentId: "wrong-environment" })],
+        });
+        const failure = yield* Effect.gen(function* () {
+          const resolver = yield* ConnectionResolver.ConnectionResolver;
+          return yield* resolver
+            .prepare(
+              connectionEntry([
+                {
+                  target: new RelayConnectionTarget({
+                    environmentId: ENVIRONMENT_ID,
+                    label: "Relay",
+                  }),
+                  profile: Option.none(),
+                },
+              ]),
+            )
+            .pipe(Effect.flip);
+        }).pipe(Effect.provide(harness.layer));
+
+        expect(failure.reason).toBe("configuration");
+        expect(requestSequence(harness)).toEqual([
+          `GET ${ENDPOINT.httpBaseUrl}/.well-known/t3/environment`,
+        ]);
+        expect(yield* Ref.get(harness.proofInputs)).toHaveLength(0);
+      }),
+  );
+
+  it.effect("checks both the learned direct URL and the bootstrap URL once", () =>
+    Effect.gen(function* () {
+      const direct = "http://192.168.1.10:3773";
+      const harness = yield* makeConnectionHarness({
+        responses: [
+          Response.json(DESCRIPTOR),
+          Response.json(DESCRIPTOR),
+          accessToken("token"),
+          websocketTicket("ticket"),
+        ],
+      });
+      const prepared = yield* Effect.gen(function* () {
+        const resolver = yield* ConnectionResolver.ConnectionResolver;
+        return yield* resolver.prepare(
+          connectionEntry([
+            {
+              ...bearerRoute("direct", direct),
+              profile: Option.some(
+                new BearerConnectionProfile({
+                  connectionId: "direct",
+                  environmentId: ENVIRONMENT_ID,
+                  label: "Direct",
+                  httpBaseUrl: direct,
+                  wsBaseUrl: direct.replace(/^http/, "ws"),
+                  authorization: "t3-connect",
+                }),
+              ),
+            },
+          ]),
+        );
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(prepared.httpBaseUrl).toBe(direct);
+      expect(requestSequence(harness)).toEqual([
+        `GET ${direct}/.well-known/t3/environment`,
+        `GET ${ENDPOINT.httpBaseUrl}/.well-known/t3/environment`,
+        `POST ${ENDPOINT.httpBaseUrl}/oauth/token`,
+        `POST ${direct}/api/auth/websocket-ticket`,
+      ]);
+    }),
+  );
+
+  it.effect("reuses the descriptor for an incompatible host's update connection", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeConnectionHarness({
+        responses: [
+          Response.json({ ...DESCRIPTOR, orchestrationProtocolVersion: undefined }),
+          websocketTicket("ticket"),
+        ],
+      });
+      const result = yield* Effect.gen(function* () {
+        const resolver = yield* ConnectionResolver.ConnectionResolver;
+        return yield* resolver.prepareForUpdate(connectionEntry([bearerRoute("saved")]));
+      }).pipe(Effect.provide(harness.layer));
+
+      expect(result.descriptor.environmentId).toBe(ENVIRONMENT_ID);
+      expect(result.prepared.socketUrl).not.toContain("orchestrationProtocol");
+      expect(harness.fetch.calls).toHaveLength(2);
+    }),
+  );
+
+  it.effect(
+    "keeps failed descriptor probes silent and reuses their failures without credentials",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* makeConnectionHarness({
+          responses: [new Response(null, { status: 503 }), new Response(null, { status: 503 })],
+        });
+        const failure = yield* Effect.gen(function* () {
+          const driver = yield* ConnectionDriver.ConnectionDriver;
+          return yield* driver
+            .connect(
+              connectionEntry([
+                bearerRoute("first"),
+                bearerRoute("second", "https://other.example.test"),
+              ]),
+              () => Effect.void,
+            )
+            .pipe(Effect.scoped, Effect.flip);
+        }).pipe(Effect.provide(harness.layer));
+
+        expect(failure).toMatchObject({
+          _tag: "ConnectionTransientError",
+          reason: "remote-unavailable",
+        });
+        expect(harness.fetch.calls).toHaveLength(2);
+        expect(harness.fetch.calls.every(([, init]) => init.method === "GET")).toBe(true);
+        expect(harness.opened).toHaveLength(0);
+      }),
+  );
 });
 
 describe("RemoteEnvironmentAuthorization", () => {
