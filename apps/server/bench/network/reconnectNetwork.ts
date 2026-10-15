@@ -56,7 +56,9 @@ export function applyProfile(profile: Profile, seed: number, queuePackets: numbe
   ]) {
     NodeChildProcess.spawnSync("tc", args, { stdio: "ignore" });
   }
-  NodeChildProcess.execFileSync("ip", ["tcp_metrics", "flush", "all"]);
+  // Some kernels restrict the metrics flush even in a user-owned netns.
+  // prepareLoopback sets tcp_no_metrics_save=1, so new connections do not reuse learned metrics.
+  NodeChildProcess.spawnSync("ip", ["tcp_metrics", "flush", "all"], { stdio: "ignore" });
   NodeChildProcess.execFileSync("tc", ["qdisc", "add", "dev", "lo", "clsact"]);
   NodeChildProcess.execFileSync("tc", ["-batch", "-"], {
     input: directionCommands(profile, seed, queuePackets).join("\n") + "\n",

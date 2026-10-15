@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": { "noEmit": true },
-  "include": ["reconnect*.ts", "../../src/httpServer.ts"],
+  "include": ["reconnect*.ts", "run.ts", "../../src/httpServer.ts"],
   "exclude": []
 }
