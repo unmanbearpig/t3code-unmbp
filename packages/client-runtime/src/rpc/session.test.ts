@@ -29,6 +29,7 @@ import * as Socket from "effect/socket/Socket";
 
 import {
   AVAILABLE_CONNECTION_STATE,
+  BearerConnectionTarget,
   ConnectionBlockedError,
   ConnectionTransientError,
   PrimaryConnectionTarget,
@@ -1427,34 +1428,69 @@ describe("RpcSessionFactory", () => {
       ),
   );
 
-  it.effect("rejects a server config for a different environment", () =>
+  it.effect.each(["primary", "paired-bearer"] as const)(
+    "rejects a server config for a different environment after connecting over $0",
+    (kind) =>
+      Effect.gen(function* () {
+        const { factory, sockets } = yield* makeFactory();
+        const session = yield* factory.connect({
+          ...PREPARED,
+          target:
+            kind === "primary"
+              ? TARGET
+              : new BearerConnectionTarget({
+                  environmentId: TARGET.environmentId,
+                  label: TARGET.label,
+                  connectionId: "paired-https",
+                }),
+        });
+        const readyFiber = yield* Effect.forkChild(Effect.flip(session.ready));
+        const configFiber = yield* session
+          .subscribeServerConfig({})
+          .pipe(Stream.runHead, Effect.flip, Effect.forkChild);
+        const customConfigFiber = yield* session
+          .subscribeServerConfig({ environmentThemes: true })
+          .pipe(Stream.runHead, Effect.flip, Effect.forkChild);
+        const socket = yield* awaitSocket(sockets);
+        socket.open();
+        yield* completeInitialConfig(socket, {
+          ...ENCODED_SERVER_CONFIG,
+          environment: {
+            ...ENCODED_SERVER_CONFIG.environment,
+            environmentId: "environment-2",
+          },
+        });
+
+        const error = yield* Fiber.join(readyFiber);
+        expect(error).toBeInstanceOf(ConnectionBlockedError);
+        expect(error).toMatchObject({
+          reason: "configuration",
+          message: "Connected environment environment-2 does not match environment-1.",
+        });
+        expect((yield* Fiber.join(configFiber))._tag).toBe("RpcClientError");
+        expect((yield* Fiber.join(customConfigFiber))._tag).toBe("RpcClientError");
+      }),
+  );
+
+  it.effect("reports an upgrade rejection without HTTP details as a transport failure", () =>
     Effect.gen(function* () {
       const { factory, sockets } = yield* makeFactory();
-      const session = yield* factory.connect(PREPARED);
-      const readyFiber = yield* Effect.forkChild(Effect.flip(session.ready));
-      const configFiber = yield* session
-        .subscribeServerConfig({})
-        .pipe(Stream.runHead, Effect.flip, Effect.forkChild);
-      const customConfigFiber = yield* session
-        .subscribeServerConfig({ environmentThemes: true })
-        .pipe(Stream.runHead, Effect.flip, Effect.forkChild);
-      const socket = yield* awaitSocket(sockets);
-      socket.open();
-      yield* completeInitialConfig(socket, {
-        ...ENCODED_SERVER_CONFIG,
-        environment: {
-          ...ENCODED_SERVER_CONFIG.environment,
-          environmentId: "environment-2",
-        },
-      });
-
-      const error = yield* Fiber.join(readyFiber);
+      const error = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const session = yield* factory.connect(PREPARED);
+          const ready = yield* session.ready.pipe(Effect.flip, Effect.forkChild);
+          const socket = yield* awaitSocket(sockets);
+          // A browser hides the HTTP status/body of a rejected upgrade, including 426.
+          socket.close(1006);
+          return yield* Fiber.join(ready);
+        }),
+      );
       expect(error).toMatchObject({
-        reason: "configuration",
-        message: "Connected environment environment-2 does not match environment-1.",
+        _tag: "ConnectionTransientError",
+        reason: "transport",
+        detail: "Test environment could not establish a WebSocket connection.",
       });
-      expect((yield* Fiber.join(configFiber))._tag).toBe("RpcClientError");
-      expect((yield* Fiber.join(customConfigFiber))._tag).toBe("RpcClientError");
+      expect(sockets).toHaveLength(1);
     }),
   );
 

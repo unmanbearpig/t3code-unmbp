@@ -71,6 +71,17 @@ const isBearerProfile = Schema.is(BearerConnectionProfile);
 const isSshProfile = Schema.is(SshConnectionProfile);
 const isBearerCredential = Schema.is(BearerConnectionCredential);
 
+function hasTlsEndpoints(profile: BearerConnectionProfile): boolean {
+  try {
+    return (
+      new URL(profile.httpBaseUrl).protocol === "https:" &&
+      new URL(profile.wsBaseUrl).protocol === "wss:"
+    );
+  } catch {
+    return false;
+  }
+}
+
 function primarySocketUrl(
   target: PrimaryConnectionTarget,
   clientMetadata: AuthClientPresentationMetadata | undefined,
@@ -123,6 +134,7 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
 
   return Effect.fn("clientRuntime.connection.broker.bearer")(function* (
     entry: ConnectionCatalogEntry & { readonly target: BearerConnectionTarget },
+    experimentalSkipDescriptor = false,
   ) {
     const target = entry.target;
     const profile = yield* Effect.fromOption(entry.profile, () =>
@@ -165,6 +177,9 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
       wsBaseUrl: profile.wsBaseUrl,
       bearerToken: credential.token,
       connectionMethod: "direct",
+      ...(experimentalSkipDescriptor
+        ? { experimentalVerifiedHttpsReconnectLabel: target.label }
+        : {}),
     });
     return {
       environmentId: authorized.environmentId,
@@ -267,6 +282,9 @@ export const make = Effect.gen(function* () {
   const relay = yield* makeRelayBroker();
   const ssh = yield* makeSshBroker();
   const httpClient = yield* HttpClient.HttpClient;
+  const experimentalOptions = yield* Effect.serviceOption(
+    ClientCapabilities.ExperimentalReconnectOptions,
+  );
 
   const authorize = Effect.fn("clientRuntime.connection.broker.authorize")(function* (
     entry: ConnectionCatalogEntry,
@@ -304,6 +322,30 @@ export const make = Effect.gen(function* () {
   const prepare = Effect.fn("clientRuntime.connection.broker.prepare")(function* (
     entry: ConnectionCatalogEntry,
   ) {
+    const profile = Option.getOrUndefined(entry.profile);
+    const descriptors = yield* Effect.serviceOption(ConnectionDescriptors.ConnectionDescriptors);
+    if (
+      Option.isSome(experimentalOptions) &&
+      experimentalOptions.value.skipDescriptorOnHttpsReconnect &&
+      entry.target._tag === "BearerConnectionTarget" &&
+      profile?._tag === "BearerConnectionProfile" &&
+      profile.learned !== true &&
+      profile.authorization !== "t3-connect" &&
+      hasTlsEndpoints(profile) &&
+      (Option.isNone(descriptors) || !(yield* descriptors.value.has(profile.httpBaseUrl)))
+    ) {
+      // Experimental measurement only, pending a security decision. Saved, paired HTTPS
+      // routes trust TLS before sending the bearer token. RpcSession.ready still checks
+      // the first config's environment ID. Learned routes and pairing keep discovery.
+      // Another environment at the same TLS hostname receives the token before that check.
+      // Reuse any lookup already started by reachability/preflight instead of skipping
+      // its identity and compatibility checks, including pending or failed lookups.
+      const prepared = yield* bearer({ ...entry, target: entry.target }, true);
+      // Keep protocol negotiation on upgrade. Browser WebSockets hide a rejected
+      // upgrade's HTTP 426, so this experiment reports a transport failure there
+      // instead of the descriptor-based unsupported/outdated outcome.
+      return { ...prepared, socketUrl: appendOrchestrationProtocol(prepared.socketUrl) };
+    }
     const { prepared, descriptor } = yield* authorize(entry);
     const compatibilityError = orchestrationProtocolCompatibilityError(descriptor);
     if (compatibilityError !== null) {
