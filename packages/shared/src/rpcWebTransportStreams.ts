@@ -173,23 +173,9 @@ export function wrapStandardWebTransportSession(
       defaultReader = stream.readable.getReader();
     }
     const reader = byob ?? defaultReader!;
-    let readerClosed = false;
-    let readerFailed = false;
-    let readerFailure: unknown;
-    let notifyReaderClosed: (() => void) | undefined;
-    if (reader.closed)
-      void reader.closed.then(
-        () => {
-          readerClosed = true;
-          notifyReaderClosed?.();
-        },
-        (cause: unknown) => {
-          readerClosed = true;
-          readerFailed = true;
-          readerFailure = cause;
-          notifyReaderClosed?.();
-        },
-      );
+    // closed can settle while the final queued bytes are still completing a read.
+    // Observe errors here, but only read() decides when all bytes have reached us.
+    void reader.closed?.catch(() => undefined);
     const writer = stream.writable.getWriter();
     const readLifetime = new AbortController();
     const writeLifetime = new AbortController();
@@ -220,24 +206,7 @@ export function wrapStandardWebTransportSession(
         try {
           if (!remainder) {
             const item = await cancellable(
-              () => {
-                if (readerClosed)
-                  return readerFailed
-                    ? Promise.reject(readerFailure)
-                    : Promise.resolve({ done: true as const });
-                const read = byob ? byob.read(new Uint8Array(maxBytes)) : defaultReader!.read();
-                // Some native Web Streams implementations close a byte stream without
-                // completing its pending BYOB read. closed resolves only after buffered
-                // bytes drain; register read first so its final bytes win that race.
-                if (!reader.closed) return read;
-                const end = new Promise<{ readonly done: true }>((resolve, reject) => {
-                  notifyReaderClosed = () =>
-                    readerFailed ? reject(readerFailure) : resolve({ done: true });
-                });
-                return Promise.race([read, end]).finally(() => {
-                  notifyReaderClosed = undefined;
-                });
-              },
+              () => (byob ? byob.read(new Uint8Array(maxBytes)) : defaultReader!.read()),
               signal,
               readLifetime.signal,
               () => result.stop(1),
