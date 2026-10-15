@@ -153,6 +153,24 @@ export const getInitialServerConfig = Effect.fn("EnvironmentRpc.getInitialServer
   },
 );
 
+/** Startup identity for shell reuse; older/unresponsive servers require a refresh. */
+export const getSessionServerStartedAt = Effect.fn("EnvironmentRpc.getSessionServerStartedAt")(
+  function* (session: RpcSession) {
+    const lifecycle = session.client[WS_METHODS.subscribeServerLifecycle];
+    if (lifecycle === undefined) return undefined;
+    return Option.getOrUndefined(
+      yield* lifecycle({}).pipe(
+        Stream.filter((event) => event.type === "ready"),
+        Stream.map((event) => event.payload.at),
+        Stream.runHead,
+        Effect.timeoutOption("3 seconds"),
+        Effect.map(Option.flatten),
+        Effect.orElseSucceed(() => Option.none<string>()),
+      ),
+    );
+  },
+);
+
 /** Installed by the shared command boundary. A missing boundary denies protected writes. */
 export class RpcPermissionGuard extends Context.Reference<{
   readonly authorize: (
@@ -252,7 +270,8 @@ interface SubscriptionOptions<TTag extends EnvironmentSubscriptionRpcTag> {
   readonly resubscribe?: Stream.Stream<unknown, never, never>;
 }
 
-function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
+/** Maps each subscription separately, before switchMap can buffer its values. */
+export function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
   tag: TTag,
   makeInput: (session: RpcSession) => Effect.Effect<EnvironmentRpcInput<TTag>>,
   mapStream: (
