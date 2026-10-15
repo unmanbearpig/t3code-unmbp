@@ -150,6 +150,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
   initialCredentials: ReadonlyArray<readonly [string, ConnectionCredential]> = [],
   options?: {
     readonly prepareError?: ConnectionBlockedError;
+    readonly probe?: Effect.Effect<void, ConnectionTransientError>;
     readonly beforeSessionConnect?: (environmentId: EnvironmentId) => Effect.Effect<void>;
     readonly beforeRegistrationRegister?: (
       registration: ConnectionRegistration,
@@ -382,7 +383,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
   const connectedRoutes = yield* Ref.make<ReadonlyArray<string>>([]);
   const checkRoute = (route: ConnectionRoute) =>
     Effect.succeed(options?.checkRoute?.(route) ?? "unchecked");
-  const connectRoute = (entry: ConnectionCatalogEntry, route: ConnectionRoute) =>
+  const prepareRoute = (_entry: ConnectionCatalogEntry, route: ConnectionRoute) =>
     Effect.gen(function* () {
       const target = route.target;
       const credential =
@@ -405,6 +406,11 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
       if (heldError !== undefined) return yield* heldError;
       const routeError = options?.prepareRoute?.(target);
       if (routeError !== undefined) return yield* routeError;
+      return prepared;
+    });
+  const open = (prepared: PreparedConnection) =>
+    Effect.gen(function* () {
+      const target = prepared.target;
       yield* Ref.update(connectedRoutes, (current) => [...current, connectionRouteId(target)]);
       yield* options?.beforeSessionConnect?.(target.environmentId) ?? Effect.void;
       const closed = yield* Deferred.make<never, ConnectionTransientError>();
@@ -419,7 +425,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
           subscribeServerConfig: () =>
             Stream.die(new Error("Config is not used by registry tests.")),
           ready: Effect.void,
-          probe: Effect.void,
+          probe: options?.probe ?? Effect.void,
           closed: Deferred.await(closed),
         } satisfies RpcSession.RpcSession),
         () => Ref.update(releasedSessions, (count) => count + 1),
@@ -428,11 +434,18 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
       return { prepared, session };
     });
   const driver = ConnectionDriver.ConnectionDriver.of({
+    prepare: (entry) =>
+      ConnectionDriver.prepareOverRoutes(
+        entry,
+        checkRoute,
+        (route) => prepareRoute(entry, route),
+        open,
+      ),
     connect: (entry, reportProgress) =>
       reportProgress({ stage: "preparing" }).pipe(
         Effect.andThen(
           ConnectionDriver.connectOverRoutes(entry, checkRoute, (route) =>
-            connectRoute(entry, route),
+            prepareRoute(entry, route).pipe(Effect.flatMap(open)),
           ),
         ),
       ),
@@ -1406,6 +1419,71 @@ describe("EnvironmentRegistry", () => {
           BEARER_TARGET.environmentId,
           (state) => state.phase === "connected",
         );
+      }).pipe(Effect.provide(harness.layer), Effect.scoped);
+    }),
+  );
+
+  it.effect("a platform bearer replaced during a probe discards the old preparation", () =>
+    Effect.gen(function* () {
+      const preparing = yield* Deferred.make<void>();
+      const cancelled = yield* Deferred.make<void>();
+      const credentialsUpdated = yield* Deferred.make<void>();
+      const answer = yield* Deferred.make<void, ConnectionTransientError>();
+      const preparations = yield* Ref.make(0);
+      const harness = yield* makeHarness([], [], [], {
+        beforePrepareRoute: () =>
+          Ref.updateAndGet(preparations, (count) => count + 1).pipe(
+            Effect.flatMap((count) =>
+              count === 2
+                ? Deferred.succeed(preparing, undefined).pipe(
+                    Effect.andThen(Effect.never),
+                    Effect.ensuring(Deferred.succeed(cancelled, undefined)),
+                  )
+                : (count === 3
+                    ? Deferred.succeed(credentialsUpdated, undefined)
+                    : Effect.void
+                  ).pipe(Effect.as(undefined)),
+            ),
+          ),
+        probe: Deferred.await(answer),
+      });
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        const registration = (token: string) =>
+          new BearerConnectionRegistration({
+            target: BEARER_TARGET,
+            profile: BEARER_PROFILE,
+            credential: new BearerConnectionCredential({ token }),
+          });
+        yield* registry.reconcilePlatform([registration("old-bearer")]);
+        yield* awaitConnectionState(
+          registry,
+          BEARER_TARGET.environmentId,
+          (state) => state.phase === "connected",
+        );
+        const supervisor = yield* registry.run(
+          BEARER_TARGET.environmentId,
+          EnvironmentSupervisor.EnvironmentSupervisor,
+        );
+        yield* supervisor.retryNow;
+        yield* Deferred.await(preparing);
+        yield* registry.reconcilePlatform([registration("new-bearer")]);
+        yield* Deferred.await(cancelled);
+        yield* Deferred.await(credentialsUpdated);
+        expect(yield* Ref.get(harness.releasedSessions)).toBe(0);
+        yield* Deferred.fail(
+          answer,
+          new ConnectionTransientError({ reason: "transport", detail: "Stale socket." }),
+        );
+        yield* awaitConnectionState(
+          registry,
+          BEARER_TARGET.environmentId,
+          (state) => state.phase === "connected" && state.generation === 2,
+        );
+        expect(
+          Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).httpAuthorization,
+        ).toEqual({ _tag: "Bearer", token: "new-bearer" });
+        expect(yield* Ref.get(preparations)).toBe(3);
       }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
   );
