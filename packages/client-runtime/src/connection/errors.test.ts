@@ -13,7 +13,11 @@ import {
 import { DPOP_RETRY_HINT, DPOP_UNKNOWN_HINT } from "../relay/errorPresentation.ts";
 import { ManagedRelayRequestFailedError } from "../relay/managedRelay.ts";
 import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
-import { RemoteEnvironmentAuthFetchError, RemoteEnvironmentAuthTimeoutError } from "../rpc/http.ts";
+import {
+  RemoteEnvironmentAuthBlockedError,
+  RemoteEnvironmentAuthFetchError,
+  RemoteEnvironmentAuthTimeoutError,
+} from "../rpc/http.ts";
 
 describe("mapManagedRelayError", () => {
   it("keeps a timeout reported by the relay distinct from a local network failure", () => {
@@ -76,6 +80,18 @@ describe("mapManagedRelayError", () => {
 });
 
 describe("mapRemoteDpopEnvironmentError", () => {
+  it("keeps an authenticated HTTP request's permanent rejection blocked", () => {
+    const error = new RemoteEnvironmentAuthBlockedError({
+      reason: "permission",
+      message: "Access revoked",
+      cause: null,
+    });
+    expect(mapRemoteEnvironmentError(error)).toMatchObject({
+      _tag: "ConnectionBlockedError",
+      reason: "permission",
+      detail: "Access revoked",
+    });
+  });
   it("keeps relay descriptor auth failures distinct from DPoP proof failures", () => {
     const error = new EnvironmentAuthInvalidError({
       code: "auth_invalid",
