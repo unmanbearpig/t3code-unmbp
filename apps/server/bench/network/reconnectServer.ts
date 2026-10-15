@@ -512,7 +512,7 @@ async function serveCase(entry: ReconnectCase, epoch: string) {
 }
 process.send?.({ type: "booted" });
 for (;;) {
-  const begin = decodeBegin(await inbox.next());
+  const begin = decodeBegin(await inbox.next(3600000));
   try {
     const reset = await serveCase(begin.entry, begin.epoch);
     process.send?.({ type: "ended", ...reset });
