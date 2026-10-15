@@ -350,6 +350,7 @@ describe("RpcSessionFactory", () => {
       requests.length = 0;
       const { factory, sockets } = yield* makeHeaderFactory(fetchFn);
       const driver = ConnectionDriver.ConnectionDriver.of({
+        prepare: () => Effect.die("Unexpected reconnect preparation in blocked-upgrade test"),
         connect: (_entry, reportProgress) =>
           Effect.gen(function* () {
             yield* reportProgress({ stage: "opening", prepared: BEARER_PREPARED });

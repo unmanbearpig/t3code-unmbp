@@ -442,60 +442,71 @@ describe("Connection descriptor reuse", () => {
       }),
   );
 
-  it.effect.each([1, 2])(
-    "fetches each bearer route once during a %s-route reconnect",
-    (routeCount) =>
-      Effect.gen(function* () {
-        const routes = [
-          bearerRoute("first"),
-          bearerRoute("second", "https://other.example.test"),
-        ].slice(0, routeCount);
-        const checked = yield* Deferred.make<void>();
-        const calls: ReturnType<typeof recordedFetch>["calls"] = [];
-        const client = HttpClient.make((request) =>
+  it.effect.each([
+    { routeCount: 1, prewarm: false },
+    { routeCount: 2, prewarm: false },
+    { routeCount: 1, prewarm: true },
+    { routeCount: 2, prewarm: true },
+  ])("fetches each bearer route once during a reconnect: %j", ({ routeCount, prewarm }) =>
+    Effect.gen(function* () {
+      const routes = [
+        bearerRoute("first"),
+        bearerRoute("second", "https://other.example.test"),
+      ].slice(0, routeCount);
+      const checked = yield* Deferred.make<void>();
+      const calls: ReturnType<typeof recordedFetch>["calls"] = [];
+      const client = HttpClient.make((request) =>
+        Effect.gen(function* () {
+          calls.push([request.url, { method: request.method, headers: request.headers }]);
+          if (request.method === "GET") {
+            if (calls.length === routeCount) yield* Deferred.succeed(checked, undefined);
+            yield* Deferred.await(checked);
+          }
+          return HttpClientResponse.fromWeb(
+            request,
+            request.method === "GET" ? Response.json(DESCRIPTOR) : websocketTicket("ticket"),
+          );
+        }),
+      );
+      const harness = yield* makeConnectionHarness({
+        responses: [],
+        httpClient: Layer.succeed(HttpClient.HttpClient, client),
+      });
+      yield* Effect.gen(function* () {
+        const driver = yield* ConnectionDriver.ConnectionDriver;
+        yield* Effect.scoped(
           Effect.gen(function* () {
-            calls.push([request.url, { method: request.method, headers: request.headers }]);
-            if (request.method === "GET") {
-              if (calls.length === routeCount) yield* Deferred.succeed(checked, undefined);
-              yield* Deferred.await(checked);
-            }
-            return HttpClientResponse.fromWeb(
-              request,
-              request.method === "GET" ? Response.json(DESCRIPTOR) : websocketTicket("ticket"),
-            );
+            if (prewarm) {
+              const preparation = yield* driver.prepare(connectionEntry(routes));
+              expect(harness.opened).toHaveLength(0);
+              yield* preparation.connect(() => Effect.void);
+            } else yield* driver.connect(connectionEntry(routes), () => Effect.void);
           }),
         );
-        const harness = yield* makeConnectionHarness({
-          responses: [],
-          httpClient: Layer.succeed(HttpClient.HttpClient, client),
-        });
-        yield* Effect.gen(function* () {
-          const driver = yield* ConnectionDriver.ConnectionDriver;
-          yield* driver.connect(connectionEntry(routes), () => Effect.void).pipe(Effect.scoped);
-        }).pipe(Effect.provide(harness.layer));
+      }).pipe(Effect.provide(harness.layer));
 
-        expect(requestSequence({ fetch: { calls } })).toEqual([
-          ...routes.map((route) => {
-            const profile = Option.getOrThrow(route.profile);
-            if (profile._tag !== "BearerConnectionProfile")
-              throw new Error("Expected a bearer route.");
-            return `GET ${profile.httpBaseUrl}/.well-known/t3/environment`;
-          }),
-          `POST ${ENDPOINT.httpBaseUrl}/api/auth/websocket-ticket`,
-        ]);
-        expect(harness.opened).toHaveLength(1);
-        expect(harness.opened[0]?.socketUrl).toContain(
-          `orchestrationProtocol=${ORCHESTRATION_PROTOCOL_VERSION}`,
-        );
-        for (const [, init] of calls.filter(([, init]) => init.method === "GET")) {
-          expect(new Headers(init.headers).has("authorization")).toBe(false);
-        }
-        expect(
-          new Headers(calls.find(([, init]) => init.method === "POST")?.[1].headers).get(
-            "authorization",
-          ),
-        ).toBe("Bearer bearer-token");
-      }),
+      expect(requestSequence({ fetch: { calls } })).toEqual([
+        ...routes.map((route) => {
+          const profile = Option.getOrThrow(route.profile);
+          if (profile._tag !== "BearerConnectionProfile")
+            throw new Error("Expected a bearer route.");
+          return `GET ${profile.httpBaseUrl}/.well-known/t3/environment`;
+        }),
+        `POST ${ENDPOINT.httpBaseUrl}/api/auth/websocket-ticket`,
+      ]);
+      expect(harness.opened).toHaveLength(1);
+      expect(harness.opened[0]?.socketUrl).toContain(
+        `orchestrationProtocol=${ORCHESTRATION_PROTOCOL_VERSION}`,
+      );
+      for (const [, init] of calls.filter(([, init]) => init.method === "GET")) {
+        expect(new Headers(init.headers).has("authorization")).toBe(false);
+      }
+      expect(
+        new Headers(calls.find(([, init]) => init.method === "POST")?.[1].headers).get(
+          "authorization",
+        ),
+      ).toBe("Bearer bearer-token");
+    }),
   );
 
   it.effect.each([1, 2])(
