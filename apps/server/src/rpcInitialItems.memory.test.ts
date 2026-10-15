@@ -16,6 +16,7 @@ it.each(["prefix", "snapshot", "replay"])(
     const { stdout } = await execFile(process.execPath, ["--expose-gc", fixture, root, mode]);
     const result = JSON.parse(stdout) as {
       checkpoints: ReadonlyArray<{ subscriptions: number; retained: number }>;
+      deliveredBatches: ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>>;
     };
     expect(
       result.checkpoints.map(({ subscriptions, retained }) => ({ subscriptions, retained })),
@@ -23,5 +24,12 @@ it.each(["prefix", "snapshot", "replay"])(
       { subscriptions: 2, retained: 0 },
       { subscriptions: 4, retained: 0 },
     ]);
+    expect(result.deliveredBatches).toEqual(
+      Array.from({ length: 4 }, () => [
+        mode === "prefix"
+          ? ["prefix"]
+          : [mode === "snapshot" ? "snapshot" : "event", "synchronized"],
+      ]),
+    );
   },
 );
