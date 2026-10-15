@@ -53,6 +53,16 @@ describe("orchestration protocol compatibility", () => {
     expect(error).not.toHaveProperty("serverUpdateRequired");
   });
 
+  it("classifies ticket protocol metadata without assuming update capabilities", () => {
+    const error = orchestrationProtocolCompatibilityError({
+      label: "Build Mac",
+      orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION - 1,
+    });
+    expect(error).toMatchObject({ _tag: "ConnectionBlockedError", reason: "unsupported" });
+    expect(error?.message).toContain("Update T3 Code on Build Mac");
+    expect(error).not.toHaveProperty("serverUpdateRequired");
+  });
+
   it("offers a remote update only for an older host that can update itself", () => {
     const older = descriptor(ORCHESTRATION_PROTOCOL_VERSION - 1);
     const withCapabilities = (capabilities: ExecutionEnvironmentDescriptor["capabilities"]) =>

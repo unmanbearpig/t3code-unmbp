@@ -8,6 +8,7 @@ import {
   ServerConfigStreamEvent,
   type ServerConfigStreamEvent as ServerConfigStreamEventType,
   EnvironmentAuthInvalidError,
+  ORCHESTRATION_PROTOCOL_VERSION,
   WS_METHODS,
   UsageLimitSourceId,
 } from "@t3tools/contracts";
@@ -426,7 +427,7 @@ describe("RpcSessionFactory", () => {
     }),
   );
 
-  it.effect.each(["network", "authorized"] as const)(
+  it.effect.each(["network", "authorized", "compatible"] as const)(
     "keeps a failed bearer upgrade transient when its diagnostic is %s",
     (diagnostic) =>
       Effect.gen(function* () {
@@ -436,7 +437,13 @@ describe("RpcSessionFactory", () => {
           return diagnostic === "network"
             ? Promise.reject(new Error("Network unavailable"))
             : Promise.resolve(
-                Response.json({ ticket: "unused-ticket", expiresAt: "2026-10-15T12:00:00Z" }),
+                Response.json({
+                  ticket: "unused-ticket",
+                  expiresAt: "2026-10-15T12:00:00Z",
+                  ...(diagnostic === "compatible"
+                    ? { orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION }
+                    : {}),
+                }),
               );
         });
         for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -452,6 +459,35 @@ describe("RpcSessionFactory", () => {
           expect(requests).toBe(attempt + 1);
           expect(sockets).toHaveLength(attempt + 1);
         }
+      }),
+  );
+
+  it.effect.each([ORCHESTRATION_PROTOCOL_VERSION - 1, ORCHESTRATION_PROTOCOL_VERSION + 1])(
+    "blocks an upgrade when its diagnostic reports protocol %s",
+    (orchestrationProtocolVersion) =>
+      Effect.gen(function* () {
+        let requests = 0;
+        const { factory, sockets } = yield* makeHeaderFactory(() => {
+          requests += 1;
+          return Promise.resolve(
+            Response.json({
+              ticket: "unused-ticket",
+              expiresAt: "2026-10-15T12:00:00Z",
+              orchestrationProtocolVersion,
+            }),
+          );
+        });
+        const session = yield* factory.connect(BEARER_PREPARED);
+        const ready = yield* session.ready.pipe(Effect.flip, Effect.forkChild);
+        const socket = yield* awaitSocket(sockets);
+        socket.fail();
+        expect(yield* Fiber.join(ready)).toMatchObject({
+          _tag: "ConnectionBlockedError",
+          reason: "unsupported",
+        });
+        yield* session.closed.pipe(Effect.flip);
+        expect(requests).toBe(1);
+        expect(sockets).toHaveLength(1);
       }),
   );
 
@@ -478,6 +514,45 @@ describe("RpcSessionFactory", () => {
       respond(Response.json({ ticket: "unused-ticket", expiresAt: "2026-10-15T12:00:00Z" }));
       expect(yield* Fiber.join(closed)).toBeInstanceOf(ConnectionTransientError);
       expect(requests).toBe(1);
+    }),
+  );
+
+  it.effect("preserves permission errors after a bearer upgrade without diagnostics", () =>
+    Effect.gen(function* () {
+      let requests = 0;
+      const { factory, sockets } = yield* makeHeaderFactory(() => {
+        requests += 1;
+        return Promise.reject(new Error("No diagnostic expected."));
+      });
+      const session = yield* factory.connect(BEARER_PREPARED);
+      const ready = yield* session.ready.pipe(Effect.flip, Effect.forkChild);
+      const socket = yield* awaitSocket(sockets);
+      socket.open();
+      const request = yield* awaitRequest(socket);
+      socket.serverMessage(
+        encodeJson({
+          _tag: "Exit",
+          requestId: request.id,
+          exit: {
+            _tag: "Failure",
+            cause: [
+              {
+                _tag: "Fail",
+                error: {
+                  _tag: "EnvironmentAuthorizationError",
+                  message: "config subscription rejected",
+                  requiredScope: "orchestration:read",
+                },
+              },
+            ],
+          },
+        }),
+      );
+      expect(yield* Fiber.join(ready)).toMatchObject({
+        _tag: "ConnectionBlockedError",
+        reason: "permission",
+      });
+      expect(requests).toBe(0);
     }),
   );
 
