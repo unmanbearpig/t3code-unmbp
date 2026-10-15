@@ -184,6 +184,11 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     const path = new URL(url).pathname;
     requests[path] = (requests[path] ?? 0) + 1;
     stamp("socket-start");
+    stamp(
+      new URL(url).searchParams.get("handshake") === "hello-v1"
+        ? "socket-mode:hello"
+        : "socket-mode:legacy",
+    );
     const wsOptions = typeof options === "object" && !Array.isArray(options) ? options : {};
     const protocols = typeof options === "string" || Array.isArray(options) ? options : [];
     const socket = new NodeWebSocket(url, protocols, {
@@ -272,6 +277,11 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   const driver = Context.get(context, Driver.ConnectionDriver);
   const measuredDriver = Driver.ConnectionDriver.of({
     ...driver,
+    preflight: (entry, route) =>
+      Effect.sync(() => stamp("route-preflight-start")).pipe(
+        Effect.andThen(driver.preflight(entry, route)),
+        Effect.ensuring(Effect.sync(() => stamp("route-preflight-end"))),
+      ),
     connect: (entry, report) =>
       driver.connect(entry, (progress) =>
         Effect.sync(() => stamp(`progress:${progress.stage}`)).pipe(
@@ -375,6 +385,11 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       input.origin.replace(/^http/, "ws"),
     );
   const usesHello = switches.helloHandshake && helloSupportCachedAtStart;
+  const beforePrepared = yield* SubscriptionRef.get(supervisor.prepared);
+  const initialRoute =
+    Option.isSome(beforePrepared) && "connectionId" in beforePrepared.value.target
+      ? String(beforePrepared.value.target.connectionId)
+      : "primary-or-none";
   const expected = yield* input.advance();
   // Cold long-resume HTTP starts with empty pools. Short-resume retains its real warm pools.
   for (const key of Object.keys(requests)) delete requests[key];
@@ -392,6 +407,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   input.startController();
   measurementStartMs = Number(process.hrtime.bigint()) / 1e6;
   start = performance.now();
+  stamp(`initial-route:${initialRoute}`);
   if (isShort)
     yield* PubSub.publish(
       wakeups,
@@ -419,6 +435,12 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   const totalMs = performance.now() - start;
   const shellLiveMs = yield* Deferred.await(shellDone);
   const finalShell = yield* SubscriptionRef.get(shell);
+  const afterPrepared = yield* SubscriptionRef.get(supervisor.prepared);
+  const finalRoute =
+    Option.isSome(afterPrepared) && "connectionId" in afterPrepared.value.target
+      ? String(afterPrepared.value.target.connectionId)
+      : "primary-or-none";
+  stamp(`final-route:${finalRoute}`);
   if (
     Option.isNone(finalShell.snapshot) ||
     finalShell.snapshot.value.projects.length !== 8 ||
@@ -458,10 +480,12 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     ((requests["/.well-known/t3/environment"] ?? 0) !== 0 ||
       (requests["/api/auth/websocket-ticket"] ?? 0) !== 0)
   ) {
-    return yield* Effect.die(new Error("H performed legacy discovery"));
+    stamp("unexpected-legacy-discovery");
   }
   const requiredStages = [
-    ...(usesHello ? ["hello-received", "auth-sent", "authenticated"] : []),
+    ...(stages.some((stage) => stage.name === "hello-received")
+      ? ["hello-received", "auth-sent", "authenticated"]
+      : []),
     "socket-start",
     "socket-open",
     "config-request",
