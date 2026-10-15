@@ -133,7 +133,7 @@ export function describeScenario(scenario: Scenario) {
 // iptables-legacy locks /run/xtables.lock, which an unprivileged namespace cannot open.
 let lockfile: string | undefined;
 
-function assertIsolated() {
+export function assertIsolated() {
   if (
     !process.env.NETBENCH_HOST_NETNS ||
     NodeFS.readlinkSync("/proc/self/ns/net") === process.env.NETBENCH_HOST_NETNS

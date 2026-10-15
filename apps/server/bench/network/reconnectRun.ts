@@ -1,0 +1,283 @@
+// @effect-diagnostics nodeBuiltinImport:off globalConsole:off globalTimers:off globalDate:off - Owns isolated fixture processes and benchmark output.
+import * as NodeChildProcess from "node:child_process";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+import * as NodeUtil from "node:util";
+import * as Schema from "effect/Schema";
+import { makeManifest, manifestHash, validateManifest, variantOrder } from "./reconnectManifest.ts";
+import { applyProfile } from "./reconnectNetwork.ts";
+import { receive, stopChild } from "./reconnectProcess.ts";
+import { prepareLoopback } from "./impairments.ts";
+import { verifyPacketImpairments } from "./packetizationCheck.ts";
+import { ReconnectResult, summarize, type ReconnectRow } from "./reconnectComparison.ts";
+
+const decodeWorker = Schema.decodeUnknownSync(
+  Schema.Union([
+    Schema.Struct({ type: Schema.Literal("failure"), error: Schema.String }),
+    Schema.Struct({
+      type: Schema.Literal("result"),
+      result: ReconnectResult,
+      controller: Schema.Unknown,
+    }),
+  ]),
+);
+const { values } = NodeUtil.parseArgs({
+  options: {
+    smoke: { type: "boolean" },
+    measure: { type: "boolean" },
+    manifest: { type: "string" },
+    "write-manifest": { type: "string" },
+    variants: { type: "string" },
+    out: { type: "string" },
+    "dry-run": { type: "boolean" },
+    help: { type: "boolean", short: "h" },
+  },
+});
+if (values.help) {
+  console.log(`node apps/server/bench/network/reconnectRun.ts [--smoke] --out DIRECTORY
+  --smoke               Four WSS integration cases, 50ms RTT, one seed (default)
+  --measure             Sixty inputs: clean/50msRTT/2% loss, four workloads, five seeds
+  --manifest FILE       Exact frozen inputs, including custom subsets
+  --write-manifest FILE Write inputs and exit without starting listeners
+  --variants A=/worktree,B=/worktree  Pair clean committed worktrees, rotating order
+  --dry-run             Print manifest hash and planned case counts
+Uses production client resolver/auth/session/supervisor and thread/shell reducers.
+The current fixture supports WSS only and reports its actual selected transport.
+Every fixture runs in a private user/network/PID namespace with MTU 1280.`);
+  process.exit(0);
+}
+if (values.smoke && values.measure) throw new Error("Choose --smoke or --measure");
+const manifest = values.manifest
+  ? validateManifest(JSON.parse(NodeFS.readFileSync(values.manifest, "utf8")))
+  : makeManifest(values.measure);
+const hash = manifestHash(manifest);
+if (values["write-manifest"]) {
+  NodeFS.writeFileSync(values["write-manifest"], JSON.stringify(manifest, null, 2) + "\n", {
+    flag: "wx",
+  });
+  process.exit(0);
+}
+const root = NodePath.resolve(import.meta.dirname, "../../../..");
+const variants = (values.variants ?? `baseline=${root}`).split(",").map((spec) => {
+  const index = spec.indexOf("=");
+  const name = spec.slice(0, index),
+    path = spec.slice(index + 1);
+  if (
+    index < 1 ||
+    !NodePath.isAbsolute(path) ||
+    !NodeFS.existsSync(NodePath.join(path, "apps/server/bench/network/reconnectWorker.ts"))
+  )
+    throw new Error("Variants require named absolute worktrees containing the benchmark");
+  return { name, path };
+});
+if (
+  new Set(variants.map((v) => v.name)).size !== variants.length ||
+  new Set(variants.map((v) => NodeFS.realpathSync(v.path))).size !== variants.length
+)
+  throw new Error("Variant names and worktrees must be distinct");
+if (values["dry-run"]) {
+  console.log(
+    JSON.stringify(
+      {
+        hash,
+        casesPerVariant: manifest.cases.length,
+        totalCases: manifest.cases.length * variants.length,
+        manifest,
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(0);
+}
+const git = (path: string, args: string[]) =>
+  NodeChildProcess.execFileSync("git", ["-C", path, ...args], { encoding: "utf8" }).trim();
+const state = (path: string) => ({
+  revision: git(path, ["rev-parse", "HEAD"]),
+  dirty: git(path, ["status", "--porcelain"]).length > 0,
+});
+const frozen = new Map(variants.map((v) => [v.path, state(v.path).revision]));
+for (const variant of variants)
+  if (state(variant.path).dirty) throw new Error(`Refusing dirty worktree ${variant.name}`);
+const out = NodePath.resolve(
+  values.out ?? NodePath.join(NodeOS.homedir(), "codex-tmp", `rpc-reconnect-${Date.now()}`),
+);
+if (process.env.RPC_RECONNECT_NETNS !== "1") {
+  if (NodeFS.existsSync(out)) throw new Error("Output exists; choose a fresh --out directory");
+  const child = NodeChildProcess.spawn(
+    "flock",
+    [
+      "-n",
+      NodePath.join(NodeOS.homedir(), "codex-tmp", "reconnect-benchmark.lock"),
+      "unshare",
+      "--user",
+      "--map-root-user",
+      "--net",
+      "--pid",
+      "--fork",
+      "--kill-child=SIGTERM",
+      process.execPath,
+      ...process.execArgv,
+      import.meta.filename,
+      ...process.argv.slice(2),
+      ...(values.out ? [] : ["--out", out]),
+    ],
+    {
+      stdio: ["inherit", "inherit", "inherit", "ipc"],
+      env: {
+        ...process.env,
+        RPC_RECONNECT_NETNS: "1",
+        NETBENCH_HOST_NETNS: NodeFS.readlinkSync("/proc/self/ns/net"),
+      },
+    },
+  );
+  const interrupt = () =>
+    child.send("interrupt", (error) => {
+      if (error) child.kill("SIGKILL");
+    });
+  process.once("SIGINT", interrupt);
+  process.once("SIGTERM", interrupt);
+  process.exit(
+    await new Promise<number>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code) => resolve(code ?? 1));
+    }),
+  );
+}
+NodeFS.mkdirSync(out, { recursive: true });
+const scratch = NodeFS.mkdtempSync(
+  NodePath.join(NodeOS.homedir(), "codex-tmp", "rpc-reconnect-work-"),
+);
+const cert = NodePath.join(scratch, "cert.pem"),
+  key = NodePath.join(scratch, "key.pem");
+let active: NodeChildProcess.ChildProcess | undefined;
+const cleanup = async () => {
+  await stopChild(active);
+  NodeFS.rmSync(scratch, { recursive: true, force: true });
+};
+const interrupted = () => {
+  void cleanup().finally(() => process.exit(143));
+};
+process.once("SIGTERM", interrupted);
+process.once("SIGINT", interrupted);
+process.once("disconnect", interrupted);
+process.on("message", (message) => {
+  if (message === "interrupt") interrupted();
+});
+const rows: ReconnectRow[] = [];
+const write = (name: string, value: unknown) => {
+  const target = NodePath.join(out, name);
+  NodeFS.writeFileSync(target + ".next", JSON.stringify(value, null, 2) + "\n");
+  NodeFS.renameSync(target + ".next", target);
+};
+let complete = false;
+const save = () => {
+  write("rows.json", rows);
+  write("summary.json", {
+    complete,
+    expected: manifest.cases.length * variants.length,
+    attempted: rows.length,
+    groups: summarize(rows, variants[0]!.name),
+  });
+};
+try {
+  prepareLoopback(scratch, true, undefined, manifest.mtu);
+  verifyPacketImpairments();
+  write("manifest.json", manifest);
+  write("environment.json", {
+    node: process.version,
+    versions: process.versions,
+    kernel: NodeOS.release(),
+    cpu: NodeOS.cpus()[0]?.model,
+    cpuCount: NodeOS.cpus().length,
+    loadAtStart: NodeOS.loadavg(),
+    variants: variants.map((v) => ({ ...v, ...state(v.path) })),
+    links: JSON.parse(
+      NodeChildProcess.execFileSync("ip", ["-json", "link", "show"], { encoding: "utf8" }),
+    ),
+    resourceWindow: "whole-client-case-including-short-resume-warmup",
+    limits:
+      "Node fixture; no browser/mobile/DERP/battery claim; 100Mbit/s configured per direction; packet impairment self-test, no rate calibration",
+  });
+  NodeChildProcess.execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "ec",
+      "-pkeyopt",
+      "ec_paramgen_curve:prime256v1",
+      "-nodes",
+      "-keyout",
+      key,
+      "-out",
+      cert,
+      "-days",
+      "10",
+      "-subj",
+      "/CN=localhost",
+      "-addext",
+      "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:127.0.0.2",
+    ],
+    { stdio: "ignore" },
+  );
+  for (const entry of manifest.cases)
+    for (const variant of variantOrder(variants, entry)) {
+      const provenance = state(variant.path);
+      if (provenance.dirty || provenance.revision !== frozen.get(variant.path))
+        throw new Error(`Variant changed: ${variant.name}`);
+      const entryFile = NodePath.join(scratch, "case.json");
+      NodeFS.writeFileSync(entryFile, JSON.stringify(entry));
+      applyProfile(entry.profile, entry.seed, manifest.queuePackets);
+      active = NodeChildProcess.fork(
+        NodePath.join(variant.path, "apps/server/bench/network/reconnectWorker.ts"),
+        [entryFile, cert, key, scratch, String(manifest.queuePackets)],
+        {
+          cwd: variant.path,
+          stdio: ["ignore", "inherit", "inherit", "ipc"],
+          env: { ...process.env, NODE_EXTRA_CA_CERTS: cert },
+        },
+      );
+      let row: ReconnectRow;
+      try {
+        const result = decodeWorker(await receive(active, entry.timeoutMs + 35000));
+        row = {
+          variant: variant.name,
+          ...provenance,
+          manifestHash: hash,
+          case: entry,
+          ...(result.type === "result"
+            ? { result: result.result, controller: result.controller }
+            : { error: result.error }),
+        };
+      } catch (error) {
+        row = {
+          variant: variant.name,
+          ...provenance,
+          manifestHash: hash,
+          case: entry,
+          error: String(error),
+        };
+      } finally {
+        await stopChild(active);
+        active = undefined;
+      }
+      const after = state(variant.path);
+      if (after.dirty || after.revision !== provenance.revision)
+        throw new Error(`Variant changed during case: ${variant.name}`);
+      rows.push(row);
+      save();
+      console.log(
+        `${rows.length}/${manifest.cases.length * variants.length} ${variant.name} ${entry.id}: ${row.result ? `${row.result.totalMs.toFixed(1)} ms, ${row.result.selectedTransport}` : row.error}`,
+      );
+    }
+  complete = true;
+  save();
+  if (rows.some((row) => row.error || !row.result?.correct)) process.exitCode = 1;
+} finally {
+  await cleanup();
+  process.off("disconnect", interrupted);
+  process.disconnect?.();
+}

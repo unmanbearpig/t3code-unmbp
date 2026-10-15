@@ -239,7 +239,43 @@ shared with other worktrees and are recorded to expose contention. These process
 measurements exclude the separate snapshot proxy and curl process. Compare them
 within the same fixture and distinguish them from total system or mobile costs.
 
-These are Node measurements through the shared client state code. They do not measure
+The separate reconnect runner uses the production resolver, bearer authorization,
+session factory, supervisor, shell loader and thread reducers. Its default smoke
+has four cases at 50 ms RTT: idle resume, replay of 50 missed events, a wakeup
+that probes a silently dropped TCP connection, and a network-change wakeup. Each
+case verifies a 100-message offline cache, complete replay, and shell catch-up
+across eight projects and 160 threads. Authentication, descriptor and ticket HTTP
+handlers, SQL projections, replay and HTTP compression are production code. The
+small WSS route supplies fixture handlers through the production auth service;
+it does not run the complete application service tree. Node terminates verified
+TLS 1.3 on the same listener as HTTP. No proxy or native QUIC addon is required.
+
+```sh
+node apps/server/bench/network/reconnectRun.ts --dry-run
+node apps/server/bench/network/reconnectRun.ts --smoke --out ~/codex-tmp/reconnect-smoke
+node apps/server/bench/network/reconnectRun.ts --measure \
+  --write-manifest ~/codex-tmp/reconnect-inputs.json
+node apps/server/bench/network/reconnectRun.ts --manifest ~/codex-tmp/reconnect-inputs.json \
+  --variants before=/absolute/before,after=/absolute/after \
+  --out ~/codex-tmp/reconnect-paired
+```
+
+The optional measurement plan has 60 inputs, using clean loopback, 50 ms RTT,
+and 50 ms RTT with 2% seeded packet loss, with five seeds per operation. Both
+directions have a configured 100 Mbit/s rate. A packet impairment self-test runs
+before measurements; this small runner does not calibrate throughput. Inputs and
+MTU 1280 are frozen in the manifest. Cases rotate variant order and require
+committed, clean worktrees before and after each run. Raw output preserves HTTP
+stages, attempts, connection IDs, IP traffic, correctness, and process costs.
+Summary deltas pair successful identical inputs only, retaining failures and
+actual sample counts. Observed p90 requires 20 successful repetitions. Process
+costs cover the whole client case, including the short-resume warmup.
+
+This runner currently supports WSS and records that selection explicitly. Its
+transport results must not be labeled QUIC until the production connector,
+protocol and selection service are used and verified by the fixture.
+
+The original operation suite contains Node measurements through shared client state code. They do not measure
 browser/Android rendering, disk cache writes, battery use, authentication, environment
 or shell synchronization, automatic reconnect scheduling, relay/tunnel operation, or
 network handoffs. Provider execution and authorization use isolated fixtures. Production
