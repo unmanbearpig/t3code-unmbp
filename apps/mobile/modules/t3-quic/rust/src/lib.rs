@@ -722,12 +722,13 @@ pub extern "C" fn t3_quic_reset(owner: u64, stream: u64, code: u32) {
         if let Some(owner) = lock(registry()).get(&owner).cloned()
             && let Ok(value) = owner.stream(stream)
         {
+            // Publish the peer code before a cancellation can wake task cleanup.
+            value.reset(code);
             for operation in lock(&owner.operations).values() {
                 if operation.handle == stream && matches!(operation.kind, 4 | 5) {
                     operation.cancel.cancel();
                 }
             }
-            value.reset(code);
             owner.remove_ended(stream, &value);
         }
     });
@@ -738,12 +739,12 @@ pub extern "C" fn t3_quic_stop(owner: u64, stream: u64, code: u32) {
         if let Some(owner) = lock(registry()).get(&owner).cloned()
             && let Ok(value) = owner.stream(stream)
         {
+            value.stop(code);
             for operation in lock(&owner.operations).values() {
                 if operation.handle == stream && operation.kind == 3 {
                     operation.cancel.cancel();
                 }
             }
-            value.stop(code);
             owner.remove_ended(stream, &value);
         }
     });
@@ -793,6 +794,14 @@ mod tests {
         Endpoint<wtransport::endpoint::endpoint_side::Server>,
         rustls::ClientConfig,
     ) {
+        fixture_with_window(256 * 1024)
+    }
+    fn fixture_with_window(
+        window: u32,
+    ) -> (
+        Endpoint<wtransport::endpoint::endpoint_side::Server>,
+        rustls::ClientConfig,
+    ) {
         let key = rcgen::generate_simple_self_signed(vec!["localhost".into(), "127.0.0.1".into()])
             .unwrap();
         let identity = Identity::new(
@@ -810,10 +819,12 @@ mod tests {
         .unwrap()
         .with_root_certificates(roots)
         .with_no_client_auth();
+        let mut transport = wtransport::quinn::TransportConfig::default();
+        transport.stream_receive_window(window.into());
         let endpoint = Endpoint::server(
             ServerConfig::builder()
                 .with_bind_address("127.0.0.1:0".parse().unwrap())
-                .with_identity(identity)
+                .with_custom_transport(identity, transport)
                 .build(),
         )
         .unwrap();
@@ -825,7 +836,17 @@ mod tests {
         Endpoint<wtransport::endpoint::endpoint_side::Server>,
         Connection,
     ) {
-        let (server, tls) = fixture();
+        connected_owner_with_window(256 * 1024).await
+    }
+    async fn connected_owner_with_window(
+        window: u32,
+    ) -> (
+        u64,
+        Arc<Owner>,
+        Endpoint<wtransport::endpoint::endpoint_side::Server>,
+        Connection,
+    ) {
+        let (server, tls) = fixture_with_window(window);
         let address = server.local_addr().unwrap();
         let client = connect(format!("https://localhost:{}/rpc", address.port()), tls);
         let accept = async { server.accept().await.await.unwrap().accept().await.unwrap() };
@@ -947,6 +968,117 @@ mod tests {
         );
         t3_quic_close(id, 0);
         server.close(VarInt::from_u32(0), b"");
+    }
+    type TestOperation =
+        Pin<Box<dyn std::future::Future<Output = Result<ResultValue, i32>> + Send>>;
+    struct EagerOperation {
+        future: Mutex<Option<TestOperation>>,
+        completed: Mutex<Option<i32>>,
+        settlements: AtomicUsize,
+    }
+    impl EagerOperation {
+        fn poll(self: &Arc<Self>) {
+            // Cancellation can wake inline while another network wake is polling.
+            let Ok(mut future) = self.future.try_lock() else {
+                return;
+            };
+            let Some(operation) = future.as_mut() else {
+                return;
+            };
+            let waker = std::task::Waker::from(Arc::clone(self));
+            let mut context = std::task::Context::from_waker(&waker);
+            if let std::task::Poll::Ready(result) = operation.as_mut().poll(&mut context) {
+                *lock(&self.completed) = Some(match result {
+                    Ok(value) => value.status,
+                    Err(status) => status,
+                });
+                self.settlements.fetch_add(1, Ordering::Relaxed);
+                *future = None;
+            }
+        }
+    }
+    impl std::task::Wake for EagerOperation {
+        fn wake(self: Arc<Self>) {
+            self.poll();
+        }
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.poll();
+        }
+    }
+    #[tokio::test]
+    async fn explicit_half_codes_survive_inline_pending_operation_cancellation() {
+        for kind in [3, 4] {
+            let (id, owner, server, peer) = connected_owner_with_window(4096).await;
+            let opened = result(result_channel(id, 1, 2, 0, vec![], 0)).await;
+            let (mut peer_send, mut peer_recv) = peer.accept_bi().await.unwrap();
+            let cancel = CancellationToken::new();
+            lock(&owner.operations).insert(
+                2,
+                PendingOperation {
+                    cancel: cancel.clone(),
+                    kind,
+                    handle: opened.handle,
+                },
+            );
+            let operation = Arc::new(EagerOperation {
+                future: Mutex::new(Some(Box::pin(perform_result(
+                    Arc::clone(&owner),
+                    kind,
+                    opened.handle,
+                    if kind == 4 {
+                        vec![7; MAX_BYTES]
+                    } else {
+                        vec![]
+                    },
+                    MAX_BYTES as u32,
+                    cancel,
+                )))),
+                completed: Mutex::new(None),
+                settlements: AtomicUsize::new(0),
+            });
+            operation.poll();
+            assert!(
+                lock(&operation.completed).is_none(),
+                "half must be blocked before reset/stop"
+            );
+            if kind == 3 {
+                t3_quic_stop(id, opened.handle, 43);
+            } else {
+                t3_quic_reset(id, opened.handle, 42);
+            }
+            assert_eq!(*lock(&operation.completed), Some(ABORTED));
+            assert_eq!(operation.settlements.load(Ordering::Relaxed), 1);
+            if kind == 3 {
+                let stopped = tokio::time::timeout(Duration::from_secs(5), peer_send.stopped())
+                    .await
+                    .unwrap();
+                assert!(
+                    matches!(stopped, wtransport::error::StreamWriteError::Stopped(code) if code == stream_error_code(43))
+                );
+                t3_quic_reset(id, opened.handle, 42);
+            } else {
+                let reset = tokio::time::timeout(Duration::from_secs(5), async {
+                    let mut bytes = [0; 4096];
+                    loop {
+                        if let Err(error) = peer_recv.read(&mut bytes).await {
+                            break error;
+                        }
+                    }
+                })
+                .await
+                .unwrap();
+                assert!(
+                    matches!(reset, wtransport::error::StreamReadError::Reset(code) if code == stream_error_code(42))
+                );
+                t3_quic_stop(id, opened.handle, 43);
+            }
+            lock(&owner.operations).remove(&2);
+            assert!(lock(&owner.streams).is_empty());
+            assert!(lock(&owner.operations).is_empty());
+            assert_eq!(owner.opening.load(Ordering::Acquire), 0);
+            t3_quic_close(id, 0);
+            server.close(VarInt::from_u32(0), b"");
+        }
     }
     unsafe extern "C" fn ffi_completion(
         context: u64,

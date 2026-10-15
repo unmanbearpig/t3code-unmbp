@@ -335,6 +335,140 @@ describe("native WebTransport connector", () => {
     session.close(0);
   });
 
+  it.each(["Android", "iOS"])(
+    "cancels %s opens queued before native registration without waiting for dispatch",
+    async () => {
+      const fake = fakeNative();
+      const dispatch: Array<() => void> = [];
+      const tasks = new Map<number, Submitted>();
+      const native: NativeQuicModule = {
+        ...fake.native,
+        submit: (...args) =>
+          new Promise((resolve) => {
+            dispatch.push(() => {
+              void fake.native.submit(...args).then(resolve);
+              if (args[2] === 2) tasks.set(args[1], fake.take(2));
+            });
+          }),
+        cancel: (_owner, operation) =>
+          new Promise<void>((resolve) => {
+            dispatch.push(() => {
+              const task = tasks.get(operation);
+              tasks.delete(operation);
+              task?.resolve(result(-1));
+              resolve();
+            });
+          }),
+      };
+      const flush = () => {
+        while (dispatch.length > 0) dispatch.shift()?.();
+      };
+      const connecting = makeNativeWebTransportConnector(native).connect({
+        url: "https://host.example/rpc",
+        signal: signal(),
+      });
+      flush();
+      fake.take(1).resolve(result());
+      const session = await connecting;
+      const controller = new AbortController();
+      const opening = session.openBidirectionalStream(controller.signal);
+      controller.abort();
+      await expect(opening).rejects.toMatchObject({ category: "aborted" });
+      expect(tasks.size).toBe(0);
+      expect(dispatch).toHaveLength(2);
+      flush();
+      expect(tasks.size).toBe(0);
+      await Promise.resolve();
+      expect(fake.native.close).not.toHaveBeenCalled();
+      session.close(0);
+      flush();
+    },
+  );
+
+  it("cleans both halves of late successful opens beyond the native stream-slot limit", async () => {
+    const fake = fakeNative();
+    const slots = new Map<number, { send: boolean; receive: boolean }>();
+    const release = (handle: number, half: "send" | "receive") => {
+      const slot = slots.get(handle);
+      if (slot === undefined) return;
+      slot[half] = false;
+      if (!slot.send && !slot.receive) slots.delete(handle);
+    };
+    vi.mocked(fake.native.reset).mockImplementation((_owner, handle) => release(handle, "send"));
+    vi.mocked(fake.native.stop).mockImplementation((_owner, handle) => release(handle, "receive"));
+    const session = await fake.connect();
+    for (let handle = 1; handle <= 70; handle++) {
+      const controller = new AbortController();
+      const opening = session.openBidirectionalStream(controller.signal);
+      const nativeOpen = fake.take(2);
+      slots.set(handle, { send: true, receive: true });
+      controller.abort();
+      await expect(opening).rejects.toMatchObject({ category: "aborted" });
+      nativeOpen.resolve(result(0, handle));
+      await Promise.resolve();
+      expect(slots.size).toBe(0);
+    }
+    session.close(0);
+  });
+
+  it("publishes explicit peer codes before an immediately running generic cancellation", async () => {
+    const fake = fakeNative();
+    const session = await fake.connect();
+    const stream = await fake.open(session);
+    const observed: number[] = [];
+    let resetCode = 0;
+    let stopCode = 0;
+    vi.mocked(fake.native.reset).mockImplementation((_owner, _handle, code) => {
+      resetCode = code;
+    });
+    vi.mocked(fake.native.stop).mockImplementation((_owner, _handle, code) => {
+      stopCode = code;
+    });
+    const writing = stream.write(new Uint8Array([2]), signal());
+    const write = fake.take(4);
+    const reading = stream.read(10, signal());
+    const read = fake.take(3);
+    vi.mocked(fake.native.cancel).mockImplementation((_owner, operation) => {
+      if (operation === write.operation) {
+        observed.push(resetCode);
+        write.resolve(result(-1));
+      }
+      if (operation === read.operation) {
+        observed.push(stopCode);
+        read.resolve(result(-1));
+      }
+    });
+    stream.reset(42);
+    stream.stop(43);
+    await expect(writing).rejects.toMatchObject({ category: "aborted" });
+    await expect(reading).rejects.toMatchObject({ category: "aborted" });
+    expect(observed).toEqual([42, 43]);
+    session.close(0);
+  });
+
+  it("observes asynchronous cancellation rejection while aborting the caller immediately", async () => {
+    const fake = fakeNative();
+    const session = await fake.connect();
+    let rejectCancellation: (cause: Error) => void = () => undefined;
+    vi.mocked(fake.native.cancel).mockImplementation(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectCancellation = reject;
+        }),
+    );
+    const controller = new AbortController();
+    const opening = session.openBidirectionalStream(controller.signal);
+    const open = fake.take(2);
+    controller.abort();
+    await expect(opening).rejects.toMatchObject({ category: "aborted" });
+    rejectCancellation(new Error("native cancellation dispatch failed"));
+    open.resolve(result(0, 7));
+    await Promise.resolve();
+    expect(fake.native.reset).toHaveBeenCalledWith(open.owner, 7, 0);
+    expect(fake.native.stop).toHaveBeenCalledWith(open.owner, 7, 0);
+    session.close(0);
+  });
+
   it("aborts a blocked finish without waiting for native and retains the write failure", async () => {
     const fake = fakeNative();
     const session = await fake.connect();

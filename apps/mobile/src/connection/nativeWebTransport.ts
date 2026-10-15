@@ -33,15 +33,15 @@ export interface NativeQuicModule {
     data: Uint8Array,
     argument: number,
   ): Promise<NativeQuicResult>;
-  cancel(owner: number, operation: number): void;
+  cancel(owner: number, operation: number): void | Promise<void>;
   close(owner: number, applicationCode: number): void;
   reset(owner: number, stream: number, code: number): void;
   stop(owner: number, stream: number, code: number): void;
 }
 
-function bestEffort(action: () => void): void {
+function bestEffort(action: () => unknown): void {
   try {
-    action();
+    void Promise.resolve(action()).catch(() => undefined);
   } catch {
     // Logical teardown must not wait for or depend on a working native bridge.
   }
@@ -180,8 +180,8 @@ class NativeSession implements ReliableSession {
         if (!active) return;
         remove();
         reject(error);
-        bestEffort(() => this.native.cancel(this.owner, operation));
         input.onCancel?.(error);
+        bestEffort(() => this.native.cancel(this.owner, operation));
       };
       const onAbort = () => cancel(aborted());
       this.pending.set(operation, cancel);
@@ -289,20 +289,20 @@ class NativeByteStream implements ReliableByteStream {
   private failRead(error: RpcWebTransportError, code = 0): void {
     if (this.readFailure !== undefined || this.readEnded) return;
     this.readFailure = error;
-    this.pendingRead?.cancel(error);
     bestEffort(() =>
       this.session.native.stop(this.session.owner, this.handle, applicationCode(code)),
     );
+    this.pendingRead?.cancel(error);
     if (error.category === "network" || error.category === "protocol") this.session.fail(error);
   }
 
   private failWrite(error: RpcWebTransportError, code = 0): void {
     if (this.writeFailure !== undefined || this.writeEnded) return;
     this.writeFailure = error;
-    this.pendingWrite?.cancel(error);
     bestEffort(() =>
       this.session.native.reset(this.session.owner, this.handle, applicationCode(code)),
     );
+    this.pendingWrite?.cancel(error);
     if (error.category === "network" || error.category === "protocol") this.session.fail(error);
   }
 
