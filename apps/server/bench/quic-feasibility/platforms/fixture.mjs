@@ -8,14 +8,16 @@ import * as NodeFSP from "node:fs/promises";
 const { mkdir, mkdtemp, readFile, rm, writeFile } = NodeFSP;
 import * as NodeOS from "node:os";
 const { homedir } = NodeOS;
+import * as NodeNet from "node:net";
 import * as NodePath from "node:path";
 const { join, resolve } = NodePath;
 import * as NodeURL from "node:url";
 const { pathToFileURL } = NodeURL;
 import { Http3Server, quicheLoaded } from "@fails-components/webtransport";
 
-/** Owns only a short-lived loopback UDP listener and a disposable ECDSA certificate. */
-export async function startProtocolFixture() {
+/** Defaults to loopback; an explicit IP permits bounded two-host protocol checks. */
+export async function startProtocolFixture({ host = "127.0.0.1" } = {}) {
+  if (!NodeNet.isIP(host)) throw new Error("Fixture host must be an explicit IP address");
   const temporaryRoot = join(homedir(), "codex-tmp");
   await mkdir(temporaryRoot, { recursive: true });
   const directory = await mkdtemp(join(temporaryRoot, "quic-platform-"));
@@ -54,14 +56,14 @@ export async function startProtocolFixture() {
         "-subj",
         "/CN=localhost",
         "-addext",
-        "subjectAltName=DNS:localhost,IP:127.0.0.1",
+        `subjectAltName=DNS:localhost,IP:127.0.0.1,IP:${host}`,
       ],
       { stdio: "ignore" },
     );
     const cert = await readFile(certPath, "utf8");
     await quicheLoaded;
     server = new Http3Server({
-      host: "127.0.0.1",
+      host,
       port: 0,
       secret: randomUUID(),
       cert,
@@ -139,7 +141,7 @@ export async function startProtocolFixture() {
     );
     return {
       config: {
-        url: `https://127.0.0.1:${server.address().port}/probe`,
+        url: `https://${NodeNet.isIP(host) === 6 ? `[${host}]` : host}:${server.address().port}/probe`,
         certificateHash: [...createHash("sha256").update(new X509Certificate(cert).raw).digest()],
       },
       close,
