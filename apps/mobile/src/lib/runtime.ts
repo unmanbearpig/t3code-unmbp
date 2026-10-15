@@ -1,3 +1,6 @@
+import { ConnectionDiagnostics } from "@t3tools/client-runtime/connection";
+import * as Effect from "effect/Effect";
+import * as HttpClient from "effect/http/HttpClient";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Socket from "effect/socket/Socket";
@@ -17,7 +20,10 @@ function configuredRelayUrl(): string {
   return resolveCloudPublicConfig().relay.url ?? "http://relay.invalid";
 }
 
-const layerHttpClient = layerRemoteHttpClient(fetch);
+const layerHttpClient = Layer.effect(
+  HttpClient.HttpClient,
+  Effect.map(HttpClient.HttpClient, ConnectionDiagnostics.observePreparationHttp),
+).pipe(Layer.provide(layerRemoteHttpClient(fetch)));
 
 type RuntimeLayerSource =
   | ReturnType<typeof ManagedRelayLayer.layer>
