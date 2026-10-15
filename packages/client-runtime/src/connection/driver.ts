@@ -198,15 +198,22 @@ export const make = Effect.gen(function* () {
     let helloFallbackUsed = false;
     return yield* connectOverRoutes(
       entry,
-      (route) => {
-        const endpoint = routeHelloEndpoint(route);
-        return endpoint !== null &&
-          helloSupport?.has(entry.target.environmentId, endpoint.httpBaseUrl, endpoint.wsBaseUrl)
-          ? Effect.succeed<RouteCheck>("unchecked")
-          : checkRoute(entry, route, descriptorScope);
-      },
+      (route) =>
+        Effect.gen(function* () {
+          const endpoint = routeHelloEndpoint(route);
+          return endpoint !== null &&
+            helloSupport !== undefined &&
+            (yield* helloSupport.has(
+              entry.target.environmentId,
+              endpoint.httpBaseUrl,
+              endpoint.wsBaseUrl,
+            ))
+            ? ("unchecked" as RouteCheck)
+            : yield* checkRoute(entry, route, descriptorScope);
+        }),
       Effect.fnUntraced(function* (route) {
         const parent = yield* Scope.Scope;
+        const endpoint = routeHelloEndpoint(route);
         const open = Effect.gen(function* () {
           const socketScope = yield* Scope.fork(parent);
           return yield* Effect.gen(function* () {
@@ -222,30 +229,44 @@ export const make = Effect.gen(function* () {
               Exit.isSuccess(exit) ? Effect.void : Scope.close(socketScope, exit),
             ),
           );
-        });
+        }).pipe(
+          // Includes rejections from the legacy retry, which may have relearned support.
+          Effect.tapError((error) =>
+            error._tag === "ConnectionBlockedError" &&
+            endpoint !== null &&
+            helloSupport !== undefined
+              ? helloSupport.forget(
+                  entry.target.environmentId,
+                  endpoint.httpBaseUrl,
+                  endpoint.wsBaseUrl,
+                )
+              : Effect.void,
+          ),
+        );
         return yield* open.pipe(
-          Effect.catch((error) => {
-            const endpoint = routeHelloEndpoint(route);
-            if (
-              error._tag !== "ConnectionTransientError" ||
-              error.helloFallback !== true ||
-              endpoint === null ||
-              helloSupport === undefined
-            ) {
-              return Effect.fail(error);
-            }
-            helloSupport.forget(
-              entry.target.environmentId,
-              endpoint.httpBaseUrl,
-              endpoint.wsBaseUrl,
-            );
-            if (helloFallbackUsed) return Effect.fail(error);
-            helloFallbackUsed = true;
-            // One fallback only. Its discovery refreshes support and retains all legacy checks.
-            return open.pipe(
-              Effect.provideService(ClientCapabilities.LegacyReconnectHandshake, true),
-            );
-          }),
+          Effect.catch(
+            Effect.fnUntraced(function* (error) {
+              if (
+                error._tag !== "ConnectionTransientError" ||
+                error.helloFallback !== true ||
+                endpoint === null ||
+                helloSupport === undefined
+              ) {
+                return yield* error;
+              }
+              yield* helloSupport.forget(
+                entry.target.environmentId,
+                endpoint.httpBaseUrl,
+                endpoint.wsBaseUrl,
+              );
+              if (helloFallbackUsed) return yield* error;
+              helloFallbackUsed = true;
+              // One fallback only. Its discovery refreshes support and retains all legacy checks.
+              return yield* open.pipe(
+                Effect.provideService(ClientCapabilities.LegacyReconnectHandshake, true),
+              );
+            }),
+          ),
         );
       }),
     ).pipe(Effect.ensuring(Scope.close(descriptorScope, Exit.void)));
