@@ -11,6 +11,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -400,7 +401,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
             prefetchedSnapshot,
             Option.some({
               prepared: prepared.value,
-              cancel: Fiber.interrupt(load).pipe(Effect.asVoid),
+              cancel: Ref.set(pending, Option.none()).pipe(
+                Effect.andThen(Fiber.interrupt(load)),
+                Effect.asVoid,
+              ),
               // Consume once and release the stored result. Session replacements
               // and same-session HTTP failure retries must refresh again.
               take: Ref.getAndSet(pending, Option.none()).pipe(
@@ -413,7 +417,11 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
               ),
             }),
           );
-          yield* Fiber.join(load);
+          const exit = yield* Fiber.await(load);
+          // Warm reuse may cancel this download without ending the prepared
+          // observer. Later cold/fallback sessions still need that observer.
+          if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause))
+            return yield* Effect.failCause(exit.cause);
         }),
       ),
     ),

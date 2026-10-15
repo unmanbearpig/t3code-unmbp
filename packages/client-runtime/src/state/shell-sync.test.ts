@@ -95,6 +95,7 @@ const makeWarmReconnectHarness = Effect.fnUntraced(function* (
   input: {
     readonly cached?: DeferredShellSnapshot;
     readonly load?: (call: number) => Effect.Effect<Option.Option<DeferredShellSnapshot>>;
+    readonly shouldPrefetch?: () => Effect.Effect<boolean>;
     readonly config?: ServerConfig;
     readonly lifecycle?: Stream.Stream<ServerLifecycleStreamEvent>;
   } = {},
@@ -192,6 +193,7 @@ const makeWarmReconnectHarness = Effect.fnUntraced(function* (
     Effect.provideService(Persistence.EnvironmentCacheStore, cache),
     Effect.provideService(ShellSnapshotLoader.ShellSnapshotLoader, {
       ...loader,
+      ...(input.shouldPrefetch === undefined ? {} : { shouldPrefetch: input.shouldPrefetch }),
       cancelPrefetch: () => Ref.update(cancelledPrefetches, (count) => count + 1),
       load: () =>
         Ref.updateAndGet(loaderCalls, (count) => count + 1).pipe(
@@ -217,6 +219,7 @@ const makeWarmReconnectHarness = Effect.fnUntraced(function* (
     cancelledPrefetches,
     scope,
     shouldPrefetch: loader.shouldPrefetch!,
+    prepare: () => SubscriptionRef.set(activePrepared, Option.some({ ...PREPARED })),
     waitForState,
     complete: (request: { readonly events: Queue.Queue<OrchestrationV2ShellStreamItem> }) =>
       Queue.offer(request.events, { kind: "synchronized" }).pipe(
@@ -854,6 +857,47 @@ describe("environment shell synchronization", () => {
         yield* Scope.close(harness.scope, Exit.void);
         expect(yield* harness.shouldPrefetch(TARGET.environmentId)).toBe(true);
       }),
+  );
+
+  it.effect("cancels a racing warm prefetch and keeps later fallback loads available", () =>
+    Effect.gen(function* () {
+      const prefetchStarted = yield* Deferred.make<void>();
+      const prefetchCancelled = yield* Deferred.make<void>();
+      const harness = yield* makeWarmReconnectHarness({
+        // Simulate eligibility changing after the prefetch check but before
+        // the validated session consumes its warm base.
+        shouldPrefetch: () => Effect.succeed(true),
+        load: (call) =>
+          call === 2
+            ? Deferred.succeed(prefetchStarted, undefined).pipe(
+                Effect.andThen(Effect.never),
+                Effect.onInterrupt(() => Deferred.succeed(prefetchCancelled, undefined)),
+              )
+            : Effect.succeedSome({ ...LIVE_SHELL_SNAPSHOT, snapshotSequence: call === 1 ? 1 : 10 }),
+      });
+      yield* harness.complete(yield* Queue.take(harness.requests));
+      yield* harness.prepare();
+      yield* Deferred.await(prefetchStarted);
+      yield* harness.resubscribe();
+      const warm = yield* Queue.take(harness.requests);
+      yield* Deferred.await(prefetchCancelled);
+      expect(warm.input.afterSequence).toBe(1);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
+
+      // Interrupt the warm replay before its completion marker. This same
+      // prepared connection now needs a real HTTP load, not the cancelled one.
+      yield* harness.resubscribe();
+      const fallback = yield* Queue.take(harness.requests);
+      expect(fallback.input.afterSequence).toBe(10);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(3);
+      yield* harness.complete(fallback);
+      yield* harness.disconnect(fallback);
+      yield* harness.reconnect(INITIAL_CONFIG, "2026-10-15T18:00:00.000Z");
+      const restarted = yield* Queue.take(harness.requests);
+      expect(restarted.input.afterSequence).toBe(10);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(4);
+      yield* harness.complete(restarted);
+    }),
   );
 
   it.effect(
