@@ -8,6 +8,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 import { WebSocket as NodeWebSocket } from "ws";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -55,7 +56,11 @@ if (process.env.QUIC_CONTROL_NETNS !== "1") {
     },
   );
   for (const signal of ["SIGINT", "SIGTERM"] as const)
-    process.once(signal, () => child.send("interrupt"));
+    process.once(signal, () =>
+      child.send("interrupt", (error) => {
+        if (error) child.kill("SIGKILL");
+      }),
+    );
   process.exit(
     await new Promise<number>((resolve, reject) => {
       child.once("error", reject);
@@ -108,6 +113,21 @@ const rows: Array<{
   linkTxPackets?: number;
 }> = [];
 const loadStart = NodeOS.loadavg();
+const metadata = {
+  revision: NodeChildProcess.execFileSync("git", ["rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim(),
+  dirty:
+    NodeChildProcess.execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim()
+      .length > 0,
+  lockfileHash: NodeCrypto.createHash("sha256")
+    .update(
+      NodeFS.readFileSync(NodePath.resolve(import.meta.dirname, "../../../../../pnpm-lock.yaml")),
+    )
+    .digest("hex"),
+  kernel: NodeOS.release(),
+  arch: Effect.runSync(HostProcess.Architecture),
+};
 const selectedScenarios = values.smoke ? ["clean"] : scenarios;
 const selectedSeeds = values.smoke ? [seeds[0]] : seeds;
 const save = (complete: boolean) =>
@@ -116,6 +136,7 @@ const save = (complete: boolean) =>
     JSON.stringify(
       {
         complete,
+        metadata,
         methodology: {
           kind: "same-codec-compressed-RPC-control",
           codec: "layerDeflatedJson on every transport; WebSocket permessage-deflate disabled",
