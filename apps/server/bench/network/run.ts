@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off globalConsole:off globalTimers:off - Outer runner owns isolated benchmark processes, not app runtime state.
+// @effect-diagnostics nodeBuiltinImport:off globalConsole:off globalTimers:off globalDate:off - Outer runner owns isolated benchmark processes, not app runtime state.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -16,6 +16,32 @@ import { applyProfile } from "./reconnectNetwork.ts";
 import { calibrate } from "./reconnectCalibration.ts";
 import { receive, stopChild } from "./reconnectProcess.ts";
 import { summarize, type ReconnectRow } from "./reconnectComparison.ts";
+
+const decodeWorker = Schema.decodeUnknownSync(
+  Schema.Union([
+    Schema.Struct({ type: Schema.Literal("failure"), error: Schema.String }),
+    Schema.Struct({
+      type: Schema.Literal("result"),
+      controller: Schema.Unknown,
+      result: Schema.Struct({
+        totalMs: Schema.Number,
+        stages: Schema.Array(
+          Schema.Struct({
+            name: Schema.String,
+            atMs: Schema.Number,
+            endMs: Schema.optionalKey(Schema.Number),
+          }),
+        ),
+        requests: Schema.Record(Schema.String, Schema.Number),
+        bytes: Schema.Number,
+        packets: Schema.Number,
+        events: Schema.Number,
+        sockets: Schema.Number,
+        correct: Schema.Boolean,
+      }),
+    }),
+  ]),
+);
 
 const { values } = NodeUtil.parseArgs({
   options: {
@@ -200,8 +226,8 @@ try {
   if (!calibration.correct)
     throw new Error("Calibration failed; measured matrix refused. See calibration.json");
   if (!values["calibrate-only"]) {
-    for (const [index, entry] of manifest.cases.entries())
-      for (const variant of balancedOrder(variants, index)) {
+    for (const entry of manifest.cases)
+      for (const variant of balancedOrder(variants, entry.repetition - 1)) {
         const provenance = state(variant.path);
         if (provenance.dirty) throw new Error(`Worktree became dirty: ${variant.name}`);
         const entryFile = NodePath.join(scratch, "case.json");
@@ -256,32 +282,5 @@ try {
   }
 } finally {
   await cleanup();
-}
-
-function decodeWorker(input: unknown) {
-  return Schema.decodeUnknownSync(
-    Schema.Union([
-      Schema.Struct({ type: Schema.Literal("failure"), error: Schema.String }),
-      Schema.Struct({
-        type: Schema.Literal("result"),
-        controller: Schema.Unknown,
-        result: Schema.Struct({
-          totalMs: Schema.Number,
-          stages: Schema.Array(
-            Schema.Struct({
-              name: Schema.String,
-              atMs: Schema.Number,
-              endMs: Schema.optionalKey(Schema.Number),
-            }),
-          ),
-          requests: Schema.Record(Schema.String, Schema.Number),
-          bytes: Schema.Number,
-          packets: Schema.Number,
-          events: Schema.Number,
-          sockets: Schema.Number,
-          correct: Schema.Boolean,
-        }),
-      }),
-    ]),
-  )(input);
+  process.disconnect?.();
 }
