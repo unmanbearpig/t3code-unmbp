@@ -622,6 +622,9 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   if (input.entry.workload === "blocked-udp") {
     const attemptsFirst =
       (input.nativeEvidence?.constructed ?? 0) - (nativeBefore?.constructed ?? 0);
+    // Thread replay can finish before the shell's initial HTTP snapshot. Finish
+    // that first synchronization before requiring a second shell milestone.
+    yield* Deferred.await(shellDone);
     yield* supervisor.disconnect;
     yield* waitForOperationState(state, expected, false, "cached");
     const beforeSecond = input.nativeEvidence?.constructed ?? 0;
