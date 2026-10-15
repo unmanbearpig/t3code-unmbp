@@ -21,6 +21,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -739,6 +740,49 @@ describe("RpcSessionFactory", () => {
 
       expect(sockets[0]?.readyState).toBe(TestWebSocket.CLOSED);
     }),
+  );
+
+  it.effect("finishes an interrupt already waiting to write when the socket closes", () =>
+    Effect.gen(function* () {
+      const { factory, sockets } = yield* makeFactory();
+      const session = yield* factory.connect(PREPARED);
+      const socket = yield* awaitSocket(sockets);
+      const stream = yield* session.client[WS_METHODS.subscribeServerLifecycle]({}).pipe(
+        Stream.runDrain,
+        Effect.forkChild,
+      );
+      yield* TestClock.adjust(0);
+      const canceling = yield* Effect.forkChild(Fiber.interrupt(stream));
+      yield* TestClock.adjust(0);
+      expect(canceling.pollUnsafe()).toBeUndefined();
+
+      socket.close(1006, "network lost");
+      yield* TestClock.adjust(0);
+      const completedWithoutTimeout = canceling.pollUnsafe() !== undefined;
+      // Let the unfixed client's 1 s interrupt timeout finish before asserting.
+      yield* TestClock.adjust("1 second");
+      yield* Fiber.join(canceling);
+      expect(completedWithoutTimeout).toBe(true);
+      expect(socket.sent).toEqual([]);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("releases an unopened session before the interrupt timeout", () =>
+    Effect.gen(function* () {
+      const { factory, sockets } = yield* makeFactory();
+      const scope = yield* Scope.make();
+      yield* factory.connect(PREPARED).pipe(Scope.provide(scope));
+      const socket = yield* awaitSocket(sockets);
+      yield* TestClock.adjust(0);
+      const releasing = yield* Scope.close(scope, Exit.void).pipe(Effect.forkChild);
+      yield* TestClock.adjust(0);
+      const completedWithoutTimeout = releasing.pollUnsafe() !== undefined;
+      yield* TestClock.adjust("1 second");
+      yield* Fiber.join(releasing);
+      expect(completedWithoutTimeout).toBe(true);
+      expect(socket.readyState).toBe(TestWebSocket.CLOSED);
+      expect(socket.sent).toEqual([]);
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("replays current config and broadcasts updates to every subscriber", () =>
