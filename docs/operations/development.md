@@ -37,12 +37,13 @@ different preference when needed.
 
 ### Benchmarking mobile reconnects
 
-`vp run bench:network` measures a long mobile resume through the production shared
+`vp run bench:network` measures long and short mobile resumes through the production shared
 client supervisor, route driver, resolver, bearer authorization, RPC session, and
-thread state. It starts from a verified 100-message offline cache with no socket.
+thread and shell state. Long resumes start from a verified 100-message offline cache with no socket.
 `idle` has no missed events; `replay-50` applies exactly 50 missed domain events,
 representing 20 more fixture messages. Timing ends when the completion marker has
-arrived and the correct thread state is live and applied.
+arrived and the correct thread state is live and applied. Shell completion is measured separately through the production shell loader and state machine, using eight projects and 160 threads.
+`short-probe` and `network-changed` first establish a live session, silently blackhole only its TCP flow, add 50 missed events, then deliver the corresponding wakeup. New HTTP and WebSocket flows remain reachable.
 
 Install with `vp i`. Linux needs rootless user/network/PID namespaces, `flock`,
 `ip`, `tc`, IFB support, `ethtool`, `sysctl`, `openssl`, `stdbuf`, and `python3`.
@@ -56,7 +57,9 @@ vp run bench:network --dry-run
 # Run calibration only, then a small baseline matrix. Each invocation calibrates.
 vp run bench:network --calibrate-only --out ~/codex-tmp/reconnect-calibration
 vp run bench:network --smoke --out ~/codex-tmp/reconnect-smoke
-# Freeze one manifest and compare clean worktrees in interleaved order.
+# Freeze the reduced first pass, or omit --reduced for the full matrix.
+node apps/server/bench/network/run.ts --reduced --write-manifest ~/codex-tmp/reconnect-reduced.json
+# Freeze one full manifest and compare clean worktrees in interleaved order.
 node apps/server/bench/network/run.ts --write-manifest ~/codex-tmp/reconnect-manifest.json
 node apps/server/bench/network/run.ts --manifest ~/codex-tmp/reconnect-manifest.json \
   --variants baseline=/absolute/baseline,descriptor-once=/absolute/variant \
@@ -67,7 +70,8 @@ Each worktree must contain this benchmark and be committed and clean. The runner
 checks revision and dirty state before and after every case. It runs one case per
 variant before moving to the next case, rotating forward and reverse variant order.
 Every row records variant, revision, dirty flag, manifest hash, network inputs,
-request attempt counts, event counts, socket count, IP bytes/packets, and timestamps.
+request attempt counts, event counts, socket count, IP bytes/packets, HTTP connection IDs, active switches, and timestamps.
+`--variant-options FILE` accepts a JSON map keyed by variant name, with `websocketHeaders` and `skipDescriptorOnHttpsReconnect` booleans. Header support is enabled when exported by the variant; descriptor skipping defaults off.
 HTTP stages retain success/failure outcomes, including descriptor checks canceled
 by the route deadline during an outage.
 `rows.json` retains failures; `summary.json` separates profile, workload, HTTP/TLS,
@@ -75,7 +79,7 @@ and saved-route count. It reports counts, median total time, per-stage completio
 and duration medians, and nearest-rank observed p90 only with 20 successful samples.
 These are observations, not confidence intervals. Compare failure counts before timings.
 
-The full matrix has 960 cases per variant. Both HTTP and verified TLS 1.3 use one
+The full matrix has 1920 cases per variant. The reduced pass has 120: HTTPS with two routes, all four workloads and eleven profiles, two deterministic or four stochastic seeds, and spike phases 0 and 750 ms. Both HTTP and verified TLS 1.3 use one
 Node listener and one TCP port, with the production response-write guard and
 permessage-deflate settings. TLS is a stand-in for tailscaled's TLS terminator.
 The measured path includes the real descriptor and ticket HTTP handlers,
@@ -85,7 +89,9 @@ Unrelated providers, configuration discovery, analytics, and platform persistenc
 are fixed fixtures. The old proxy-backed operation runner is retired. No measured
 request passes through a proxy, Unix socket, or forwarding hop.
 
-The matrix crosses two workloads, one/two saved direct routes, and HTTP/TLS with:
+The benchmark yields one Node event-loop turn after fully consuming an HTTP body. Without that turn, Undici dispatches an immediately following microtask onto a second connection while the consumed connection is being released. This normalizes that Node-specific pooling artifact without removing real parallel connections. Mobile uses its platform fetch implementation, so phone pooling still requires device measurements.
+
+The matrix crosses four workloads, one/two saved direct routes, and HTTP/TLS with:
 
 | Profile                      | One-way settings                                    | Repetitions           |
 | ---------------------------- | --------------------------------------------------- | --------------------- |
