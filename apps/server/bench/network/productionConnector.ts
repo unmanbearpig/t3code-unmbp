@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - Test-only Node backend and certificate pin, never shipped as a platform connector.
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import {
@@ -11,12 +12,16 @@ import {
 
 let backend: Promise<typeof import("@fails-components/webtransport")> | undefined;
 /** Node's package export condition differs between static imports and the verified disk loader. */
-export function loadBenchmarkWebTransportBackend() {
+export function loadBenchmarkWebTransportBackend(platform: NodeJS.Platform, arch: string) {
   return (backend ??= (async () => {
     const origin = new URL("../../package.json", import.meta.url);
     const diskRequire = NodeModule.createRequire(origin);
     // Explicit native preflight happens before loading the high-level wrapper.
-    diskRequire("@fails-components/webtransport-transport-http3-quiche");
+    const entry = diskRequire.resolve("@fails-components/webtransport-transport-http3-quiche");
+    const root = NodePath.dirname(NodePath.dirname(entry));
+    const platformBuild = NodePath.join(root, `build_${platform}_${arch}`);
+    const build = NodeFS.existsSync(platformBuild) ? platformBuild : NodePath.join(root, "build");
+    diskRequire(NodePath.join(build, "Release", "webtransport.node"));
     const manifest = NodeModule.findPackageJSON("@fails-components/webtransport", origin);
     if (manifest === undefined) throw new Error("Optional WebTransport backend is unavailable");
     const loaded = diskRequire(
@@ -40,8 +45,12 @@ export interface NativeConnectionEvidence {
 }
 
 /** Inject the actual Node QUIC implementation through the production optional connector service. */
-export async function makeBenchmarkConnector(certPem: string) {
-  const { WebTransport } = await loadBenchmarkWebTransportBackend();
+export async function makeBenchmarkConnector(
+  certPem: string,
+  platform: NodeJS.Platform,
+  arch: string,
+) {
+  const { WebTransport } = await loadBenchmarkWebTransportBackend(platform, arch);
   const hash = new Uint8Array(
     NodeCrypto.createHash("sha256").update(new NodeCrypto.X509Certificate(certPem).raw).digest(),
   );

@@ -553,12 +553,17 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     yield* SubscriptionRef.set(network, "online");
     yield* waitForOperationState(state, input.initial, false);
     yield* waitShell;
-    const old = activeSocket;
-    if (!old || old.readyState !== NodeWebSocket.OPEN || !activeSocketPort)
-      return yield* Effect.die(new Error("Missing live socket before short resume"));
-    blackholeSocket(activeSocketPort!);
-    if (old.readyState !== NodeWebSocket.OPEN)
-      return yield* Effect.die(new Error("Socket closed before wakeup"));
+    if (selectedTransport !== input.requestedTransport)
+      return yield* Effect.die(new Error("Warm connection did not select requested transport"));
+    if (selectedTransport === "webtransport") blockFixtureQuic();
+    else {
+      const old = activeSocket;
+      if (!old || old.readyState !== NodeWebSocket.OPEN || !activeSocketPort)
+        return yield* Effect.die(new Error("Missing live socket before short resume"));
+      blackholeSocket(activeSocketPort!);
+      if (old.readyState !== NodeWebSocket.OPEN)
+        return yield* Effect.die(new Error("Socket closed before wakeup"));
+    }
   }
   const expected = yield* input.advance(
     input.entry.workload === "idle" || input.entry.workload === "blocked-udp" ? 0 : 20,
@@ -674,7 +679,9 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     sequence !== expected.sequence ||
     selections.length !== (input.entry.workload === "blocked-udp" ? 2 : 1) ||
     selectedTransport !==
-      (input.entry.workload === "blocked-udp" ? "websocket" : input.requestedTransport) ||
+      (input.entry.workload === "blocked-udp" || isShort
+        ? "websocket"
+        : input.requestedTransport) ||
     sockets !==
       (selectedTransport === "websocket" ? (input.entry.workload === "blocked-udp" ? 2 : 1) : 0)
   )

@@ -8,7 +8,15 @@ const Stage = Schema.Struct({
   bytes: Schema.optionalKey(Schema.Number),
   outcome: Schema.optionalKey(Schema.Literals(["succeeded", "failed"])),
 });
+export const TerminalProtocol = Schema.Struct({
+  requests: Schema.Number,
+  chunks: Schema.Number,
+  wireAcks: Schema.Number,
+  interrupts: Schema.Number,
+  maxPendingChunks: Schema.Number,
+});
 export const ReconnectResult = Schema.Struct({
+  terminalProtocol: Schema.optionalKey(TerminalProtocol),
   totalMs: Schema.Number,
   probeSamples: Schema.optionalKey(
     Schema.Array(
