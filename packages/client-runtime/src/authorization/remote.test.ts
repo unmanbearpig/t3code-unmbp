@@ -484,6 +484,13 @@ describe("remote environment authorization", () => {
       expect(url).toBe(
         "wss://remote.example.com/ws?wsTicket=ws-ticket&clientSurface=mobile&clientAppVersion=1.2.3&clientDeviceType=phone&clientOs=Android&clientOsMajorVersion=15&clientDeviceModel=Pixel+9&connectionMethod=relay",
       );
+      expect(url).not.toContain("bearer-token");
+      expect(fetch.calls).toHaveLength(1);
+      expectFetchCall(fetch.calls, 1, {
+        url: "https://remote.example.com/api/auth/websocket-ticket",
+        method: "POST",
+        headers: { authorization: "Bearer bearer-token" },
+      });
     }),
   );
 });

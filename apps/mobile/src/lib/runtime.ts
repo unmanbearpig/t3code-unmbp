@@ -3,6 +3,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Socket from "effect/socket/Socket";
 
 import { layerRemoteHttpClient } from "@t3tools/client-runtime/rpc";
+import { ClientCapabilities } from "@t3tools/client-runtime/platform";
 
 import * as Dpop from "../features/cloud/dpop";
 import * as ManagedRelayLayer from "../features/cloud/managedRelayLayer";
@@ -18,18 +19,30 @@ function configuredRelayUrl(): string {
 }
 
 const layerHttpClient = layerRemoteHttpClient(fetch);
+// Expo's DOM declaration omits React Native's third constructor argument.
+const NativeWebSocket = WebSocket as new (
+  url: string,
+  protocols: undefined,
+  options: { readonly headers: Readonly<Record<string, string>> },
+) => WebSocket;
+const layerWebSocketWithHeaders = Layer.succeed(
+  ClientCapabilities.WebSocketConstructorWithHeaders,
+  (url, headers) => new NativeWebSocket(url, undefined, { headers }),
+);
 
 type RuntimeLayerSource =
   | ReturnType<typeof ManagedRelayLayer.layer>
   | typeof Socket.layerWebSocketConstructorGlobal
+  | typeof layerWebSocketWithHeaders
   | typeof Dpop.layer
   | typeof layerHttpClient
   | typeof Persistence.layer
   | typeof Tracing.layer;
 
-const layerRuntime = Layer.merge(
+const layerRuntime = Layer.mergeAll(
   ManagedRelayLayer.layer(configuredRelayUrl()),
   Socket.layerWebSocketConstructorGlobal,
+  layerWebSocketWithHeaders,
 ).pipe(
   Layer.provideMerge(Dpop.layer),
   Layer.provideMerge(layerHttpClient),

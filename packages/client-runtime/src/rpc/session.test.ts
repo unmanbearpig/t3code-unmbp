@@ -35,6 +35,7 @@ import {
 } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as Persistence from "../platform/persistence.ts";
+import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as RpcSession from "./session.ts";
 import { makeEnvironmentServerConfigState } from "../state/server.ts";
 import { applyServerConfigProjection } from "../state/serverConfigProjection.ts";
@@ -288,6 +289,59 @@ const publishConfigEvents = Effect.fn("TestRpcSessionFactory.publishConfigEvents
 });
 
 describe("RpcSessionFactory", () => {
+  it.effect("sends bearer credentials through the platform's upgrade header constructor", () =>
+    Effect.gen(function* () {
+      const sockets: TestWebSocket[] = [];
+      const upgradeHeaders: Readonly<Record<string, string>>[] = [];
+      const { factory, sockets: defaultSockets } = yield* makeFactory().pipe(
+        Effect.provideService(
+          ClientCapabilities.WebSocketConstructorWithHeaders,
+          (url, headers) => {
+            const socket = new TestWebSocket(url);
+            sockets.push(socket);
+            upgradeHeaders.push(headers);
+            return socket as unknown as globalThis.WebSocket;
+          },
+        ),
+      );
+      const socketUrl = "wss://environment.example.test/ws?orchestrationProtocol=2";
+      const session = yield* factory.connect({
+        ...PREPARED,
+        socketUrl,
+        httpAuthorization: { _tag: "Bearer", token: "secret-bearer-token" },
+      });
+      const readyFiber = yield* Effect.forkChild(session.ready);
+      const socket = yield* awaitSocket(sockets);
+      expect(socket.url).toBe(socketUrl);
+      expect(upgradeHeaders).toEqual([{ Authorization: "Bearer secret-bearer-token" }]);
+      expect(defaultSockets).toHaveLength(0);
+
+      socket.open();
+      yield* completeInitialConfig(socket);
+      yield* Fiber.join(readyFiber);
+    }),
+  );
+
+  it.effect("keeps DPoP sockets on the ticket constructor when upgrade headers are available", () =>
+    Effect.gen(function* () {
+      const { factory, sockets } = yield* makeFactory().pipe(
+        Effect.provideService(ClientCapabilities.WebSocketConstructorWithHeaders, () => {
+          throw new Error("DPoP must use its ticket.");
+        }),
+      );
+      const session = yield* factory.connect({
+        ...PREPARED,
+        httpAuthorization: { _tag: "Dpop", accessToken: "dpop-token", expiresAtEpochMs: 100_000 },
+      });
+      const readyFiber = yield* Effect.forkChild(session.ready);
+      const socket = yield* awaitSocket(sockets);
+      expect(socket.url).toBe(PREPARED.socketUrl);
+      socket.open();
+      yield* completeInitialConfig(socket);
+      yield* Fiber.join(readyFiber);
+    }),
+  );
+
   it.effect("owns one scoped websocket attempt and exposes readiness and closure", () =>
     Effect.gen(function* () {
       const { factory, sockets } = yield* makeFactory();
