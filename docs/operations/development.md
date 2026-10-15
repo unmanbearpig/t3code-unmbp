@@ -240,19 +240,36 @@ measurements exclude the separate snapshot proxy and curl process. Compare them
 within the same fixture and distinguish them from total system or mobile costs.
 
 The separate reconnect runner uses the production resolver, bearer authorization,
-session factory, supervisor, shell loader and thread reducers. Its default smoke
-has four cases at 50 ms RTT: idle resume, replay of 50 missed events, a wakeup
-that probes a silently dropped TCP connection, and a network-change wakeup. Each
-case verifies a 100-message offline cache, complete replay, and shell catch-up
-across eight projects and 160 threads. Authentication, descriptor and ticket HTTP
-handlers, SQL projections, replay and HTTP compression are production code. The
-small WSS route supplies fixture handlers through the production auth service;
-it does not run the complete application service tree. Node terminates verified
-TLS 1.3 on the same listener as HTTP. No proxy or native QUIC addon is required.
+session factory, supervisor, shell loader and thread reducers. It compares WSS
+with the optional production QUIC connector on the same committed revision. Both
+modes start the real QUIC listener and WSS route. Discovery, ticket admission,
+session ownership, revocation, protocol shutdown and terminal flow control use
+production code. Controlled handlers replace provider execution and the full
+application handler tree. TCP HTTPS and UDP QUIC bind the same port, so both
+transports cross the same directional packet filters. The QUIC backend must be
+installed for this fixture.
+
+The default smoke has four resume cases at 50 ms RTT. Each verifies a 100-message
+offline cache, complete replay, and shell catch-up across eight projects and 160
+threads. Short-resume cases silently drop the established TCP flow or the fixture's
+UDP traffic. QUIC failure is expected to recover over WSS and retain its cooldown.
+`--operations` compares five-message synchronization, replay after 50 missed
+messages, and opening a 2,000-message thread through the same cold HTTP/1 gzip
+snapshot path. `--fallback` blocks UDP before connection and verifies that a second
+connection within the production cooldown starts no QUIC candidate. `--overlap`
+sends small ordinary RPCs during a deliberate full-history bulk response or a
+256-chunk terminal stream. Terminal results include actual wire Acks and the
+maximum outstanding chunk count.
 
 ```sh
 node apps/server/bench/network/reconnectRun.ts --dry-run
 node apps/server/bench/network/reconnectRun.ts --smoke --out ~/codex-tmp/reconnect-smoke
+node apps/server/bench/network/reconnectRun.ts --operations --measure \
+  --transports websocket,webtransport --out ~/codex-tmp/production-quic-operations
+node apps/server/bench/network/reconnectRun.ts --fallback \
+  --transports websocket,webtransport --out ~/codex-tmp/production-quic-fallback
+node apps/server/bench/network/reconnectRun.ts --overlap \
+  --transports websocket,webtransport --out ~/codex-tmp/production-quic-overlap
 node apps/server/bench/network/reconnectRun.ts --measure \
   --write-manifest ~/codex-tmp/reconnect-inputs.json
 node apps/server/bench/network/reconnectRun.ts --manifest ~/codex-tmp/reconnect-inputs.json \
@@ -260,29 +277,33 @@ node apps/server/bench/network/reconnectRun.ts --manifest ~/codex-tmp/reconnect-
   --out ~/codex-tmp/reconnect-paired
 ```
 
-The optional measurement plan has 60 inputs, using clean loopback, 50 ms RTT,
-and 50 ms RTT with 2% seeded packet loss, with five seeds per operation. Both
-directions have a configured 100 Mbit/s rate. A packet impairment self-test runs
-before measurements; this small runner does not calibrate throughput. Inputs and
-MTU 1280 are frozen in the manifest. Cases rotate variant order and require
+The optional measurement plans use clean loopback, 50 ms RTT, and 50 ms RTT with
+2% seeded loss in each direction, with five seeds per workload. There are 60
+resume inputs, 45 operation inputs, 30 overlap inputs, or 15 fallback inputs per
+transport. Both directions have a configured 100 Mbit/s rate. Before application
+cases, calibration verifies packetization, numbered UDP echoes for each profile,
+and TCP throughput in each direction for each distinct configured rate. Failed
+calibration prevents application measurements. `--calibrate-only` saves that
+evidence without running application cases. Inputs and MTU 1280 are frozen in
+the manifest. Cases rotate variant order and require
 committed, clean worktrees before and after each run. Raw output preserves HTTP
 stages, attempts, connection IDs, IP traffic, correctness, and process costs.
 Summary deltas pair successful identical inputs only, retaining failures and
 actual sample counts. Observed p90 requires 20 successful repetitions. Process
-costs cover the whole client case, including the short-resume warmup.
-
-This runner currently supports WSS and records that selection explicitly. Its
-transport results must not be labeled QUIC until the production connector,
-protocol and selection service are used and verified by the fixture.
+costs cover the whole client case, including warmup. Native connection counters
+also cover the whole case. The selected transport comes from the real session,
+and QUIC results require native CONNECT, control-stream and application-stream
+evidence. The host-wide reconnect benchmark lock is shared with other worktrees;
+exit 75 means another benchmark holds it and no fixture started.
 
 The original operation suite contains Node measurements through shared client state code. They do not measure
 browser/Android rendering, disk cache writes, battery use, authentication, environment
 or shell synchronization, automatic reconnect scheduling, relay/tunnel operation, or
-network handoffs. Provider execution and authorization use isolated fixtures. Production
-clients still use WebSocket. The QUIC adapters remain experimental and require native
-mobile support, authentication, heartbeat/reconnect integration, relay support, and TCP
-fallback before a production migration. Temporary certificates and namespace lock files
-live below `~/codex-tmp` and are removed on exit.
+network handoffs. Provider execution and authorization use isolated fixtures. The QUIC
+adapters in that original suite remain experimental and use a different codec.
+Do not label those measurements as production QUIC. Temporary certificates and
+per-run namespace files live below `~/codex-tmp` and are removed on exit. The shared
+host lock file remains in place.
 
 ### Sharing and remote debugging
 

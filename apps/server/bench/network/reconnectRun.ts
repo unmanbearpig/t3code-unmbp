@@ -9,7 +9,7 @@ import { makeManifest, manifestHash, validateManifest, variantOrder } from "./re
 import { applyProfile } from "./reconnectNetwork.ts";
 import { receive, stopChild } from "./reconnectProcess.ts";
 import { prepareLoopback } from "./impairments.ts";
-import { verifyPacketImpairments } from "./packetizationCheck.ts";
+import { calibrate } from "./reconnectCalibration.ts";
 import { ReconnectResult, summarize, type ReconnectRow } from "./reconnectComparison.ts";
 
 const decodeWorker = Schema.decodeUnknownSync(
@@ -35,6 +35,7 @@ const { values } = NodeUtil.parseArgs({
     transports: { type: "string" },
     out: { type: "string" },
     "dry-run": { type: "boolean" },
+    "calibrate-only": { type: "boolean" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -50,6 +51,7 @@ if (values.help) {
   --variants A=/worktree,B=/worktree  Pair clean committed worktrees, rotating order
   --transports websocket,webtransport Pair the same revision with/without its real connector
   --dry-run             Print manifest hash and planned case counts
+  --calibrate-only      Verify packetization, profile RTT and directional rate; no application cases
 Uses production client resolver/auth/session/supervisor and thread/shell reducers.
 Supply websocket or webtransport, with actual selection checked for every cold connection.
 Every fixture runs in a private user/network/PID namespace with MTU 1280.`);
@@ -213,14 +215,13 @@ const save = () => {
   write("rows.json", rows);
   write("summary.json", {
     complete,
-    expected: manifest.cases.length * variants.length,
+    expected: values["calibrate-only"] ? 0 : manifest.cases.length * variants.length,
     attempted: rows.length,
     groups: summarize(rows, variants[0]!.name),
   });
 };
 try {
   prepareLoopback(scratch, true, undefined, manifest.mtu);
-  verifyPacketImpairments();
   write("manifest.json", manifest);
   write("environment.json", {
     node: process.version,
@@ -235,8 +236,11 @@ try {
     ),
     resourceWindow: "whole-client-case-including-short-resume-warmup",
     limits:
-      "Node fixture; no browser/mobile/DERP/battery claim; 100Mbit/s configured per direction; packet impairment self-test, no rate calibration",
+      "Node fixture; no browser/mobile/DERP/battery claim; rate/RTT calibration and packet impairment self-test precede measurements",
   });
+  const calibration = await calibrate(manifest, (message) => console.log(message));
+  write("calibration.json", calibration);
+  if (!calibration.correct) throw new Error("Calibration failed; no application cases started");
   NodeChildProcess.execFileSync(
     "openssl",
     [
@@ -260,7 +264,7 @@ try {
     ],
     { stdio: "ignore" },
   );
-  for (const entry of manifest.cases)
+  for (const entry of values["calibrate-only"] ? [] : manifest.cases)
     for (const variant of variantOrder(variants, entry)) {
       const provenance = state(variant.path);
       if (provenance.dirty || provenance.revision !== frozen.get(variant.path))
