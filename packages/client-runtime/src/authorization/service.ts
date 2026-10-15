@@ -22,7 +22,7 @@ import {
   ConnectionTransientError,
   type ConnectionAttemptError,
 } from "../connection/model.ts";
-import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
+import * as ConnectionDescriptors from "../connection/descriptors.ts";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
@@ -100,7 +100,7 @@ const fetchDescriptor = Effect.fn("clientRuntime.connection.remote.fetchDescript
   httpBaseUrl: string,
   connectionMethod: ClientConnectionMethod,
 ) {
-  return yield* fetchRemoteEnvironmentDescriptor({ httpBaseUrl }).pipe(
+  return yield* ConnectionDescriptors.fetch(httpBaseUrl).pipe(
     Effect.mapError((error) => mapRemoteEnvironmentError(error, connectionMethod)),
   );
 });
@@ -151,8 +151,12 @@ export const make = Effect.gen(function* () {
       readonly connectionMethod: ClientConnectionMethod;
     }) {
       const now = yield* Clock.currentTimeMillis;
+      const attemptDescriptors = yield* Effect.serviceOption(
+        ConnectionDescriptors.ConnectionDescriptors,
+      );
       const cachedDescriptor = (yield* Ref.get(bearerDescriptors)).get(input.expectedEnvironmentId);
       const canReuseDescriptor =
+        Option.isNone(attemptDescriptors) &&
         cachedDescriptor?.httpBaseUrl === input.httpBaseUrl &&
         cachedDescriptor.validatedAtEpochMs + BEARER_DESCRIPTOR_CACHE_TTL_MS > now;
       const descriptor = canReuseDescriptor
@@ -221,6 +225,13 @@ export const make = Effect.gen(function* () {
       timeoutMs?: number,
       endpoint: { readonly httpBaseUrl: string; readonly wsBaseUrl: string } = token.endpoint,
     ) {
+      if (Option.isSome(yield* Effect.serviceOption(ConnectionDescriptors.ConnectionDescriptors))) {
+        yield* verifyDirectEndpoint({
+          expectedEnvironmentId: token.environmentId,
+          httpBaseUrl: endpoint.httpBaseUrl,
+          connectionMethod: "relay",
+        });
+      }
       const ticketProof = yield* signer
         .createProof({
           method: "POST",
