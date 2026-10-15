@@ -1879,3 +1879,80 @@ describe("Opt-in server-first hello preparation", () => {
     }),
   );
 });
+
+it.effect(
+  "cached H support remains endpoint-specific, and update sessions force legacy discovery",
+  () =>
+    Effect.gen(function* () {
+      const advertised = {
+        ...DESCRIPTOR,
+        capabilities: { ...DESCRIPTOR.capabilities, websocketHello: 1 as const },
+      };
+      const h = yield* makeConnectionHarness({
+        helloEnabled: true,
+        responses: [Response.json(DESCRIPTOR), websocketTicket("update")],
+      });
+      yield* Effect.gen(function* () {
+        const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+        remote.helloSupport!.remember(ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl, advertised);
+        expect(
+          remote.helloSupport!.has(ENVIRONMENT_ID, ENDPOINT.httpBaseUrl, "wss://other.test"),
+        ).toBe(false);
+        expect(
+          remote.helloSupport!.has(
+            EnvironmentId.make("other"),
+            ENDPOINT.httpBaseUrl,
+            ENDPOINT.wsBaseUrl,
+          ),
+        ).toBe(false);
+        const resolver = yield* ConnectionResolver.ConnectionResolver;
+        const update = yield* resolver.prepareForUpdate(connectionEntry([bearerRoute("first")]));
+        expect(update.prepared.handshake?._tag).toBe("Legacy");
+        expect(update.descriptor.environmentId).toBe(ENVIRONMENT_ID);
+        expect(requestSequence(h)).toHaveLength(2);
+      }).pipe(Effect.provide(h.layer));
+    }),
+);
+
+it.effect("limits stale-support legacy fallback to one per attempt across multiple routes", () =>
+  Effect.gen(function* () {
+    const advertised = {
+      ...DESCRIPTOR,
+      capabilities: { ...DESCRIPTOR.capabilities, websocketHello: 1 as const },
+    };
+    const other = "https://other.example.test";
+    const h = yield* makeConnectionHarness({
+      helloEnabled: true,
+      responses: [Response.json(DESCRIPTOR), websocketTicket("fallback")],
+      sessionReady: () =>
+        Effect.fail(
+          new ConnectionTransientError({
+            reason: "transport",
+            detail: "No Hello",
+            helloFallback: true,
+          }),
+        ),
+    });
+    yield* Effect.gen(function* () {
+      const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+      remote.helloSupport!.remember(ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl, advertised);
+      remote.helloSupport!.remember(other, other.replace(/^http/, "ws"), advertised);
+      const driver = yield* ConnectionDriver.ConnectionDriver;
+      yield* driver
+        .connect(
+          connectionEntry([bearerRoute("first"), bearerRoute("other", other)]),
+          () => Effect.void,
+        )
+        .pipe(Effect.flip);
+      expect(h.opened.map((prepared) => prepared.handshake?._tag)).toEqual([
+        "Hello",
+        "Legacy",
+        "Hello",
+      ]);
+      expect(requestSequence(h)).toHaveLength(2);
+      expect(remote.helloSupport!.has(ENVIRONMENT_ID, other, other.replace(/^http/, "ws"))).toBe(
+        false,
+      );
+    }).pipe(Effect.provide(h.layer));
+  }),
+);

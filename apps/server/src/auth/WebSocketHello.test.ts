@@ -230,3 +230,39 @@ it.effect.each(["frames", "bytes"] as const)(
       );
     }),
 );
+
+it.effect("does not adopt a socket rejected by raw admission during verification", () =>
+  Effect.gen(function* () {
+    const transport = yield* makeSocket;
+    yield* Queue.offer(transport.input, [authFrame, rpcFrame]);
+    const result = yield* Hello.authenticate(transport.socket, hello, () => false).pipe(
+      Effect.provide(authLayer()),
+    );
+    expect(result).toBeUndefined();
+    yield* Queue.take(transport.writes);
+    expect(yield* Queue.take(transport.writes)).toBe(
+      json({ _tag: "HandshakeError", handshakeVersion: 1, code: "limit_exceeded" }),
+    );
+  }),
+);
+
+it.effect("charges reader acquisition against the same five-second deadline", () =>
+  Effect.gen(function* () {
+    const transport = yield* makeSocket;
+    const socket = Socket.make({
+      ...transport.socket,
+      reader: transport.socket.reader.pipe(Effect.delay(4000)),
+    });
+    const pending = yield* Hello.authenticate(socket, hello).pipe(
+      Effect.provide(authLayer()),
+      Effect.forkChild,
+    );
+    yield* TestClock.adjust(4000);
+    yield* Queue.take(transport.writes);
+    yield* TestClock.adjust(1000);
+    expect(yield* Fiber.join(pending)).toBeUndefined();
+    expect(yield* Queue.take(transport.writes)).toBe(
+      json({ _tag: "HandshakeError", handshakeVersion: 1, code: "auth_timeout" }),
+    );
+  }),
+);

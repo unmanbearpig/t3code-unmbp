@@ -195,6 +195,7 @@ export const make = Effect.gen(function* () {
     });
     yield* reportProgress({ stage: "preparing" });
     const descriptorScope = yield* Scope.make();
+    let helloFallbackUsed = false;
     return yield* connectOverRoutes(
       entry,
       (route) => {
@@ -238,6 +239,8 @@ export const make = Effect.gen(function* () {
               endpoint.httpBaseUrl,
               endpoint.wsBaseUrl,
             );
+            if (helloFallbackUsed) return Effect.fail(error);
+            helloFallbackUsed = true;
             // One fallback only. Its discovery refreshes support and retains all legacy checks.
             return open.pipe(
               Effect.provideService(ClientCapabilities.LegacyReconnectHandshake, true),
