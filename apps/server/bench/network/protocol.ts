@@ -109,7 +109,14 @@ export function makeFrameSplitter(onFrame: (frame: Uint8Array) => void) {
   };
 }
 
-export const ports = { ws: 4401, wss: 4402, wt: 4403, rpcWs: 4404, rpcWsRaw: 4405 } as const;
+export const ports = {
+  ws: 4401,
+  wss: 4402,
+  wt: 4403,
+  rpcWs: 4404,
+  rpcWsRaw: 4405,
+  rpcWss: 4408,
+} as const;
 
 /**
  * QUIC receive windows for both ends. The library defaults to a 64KB stream window, which caps a

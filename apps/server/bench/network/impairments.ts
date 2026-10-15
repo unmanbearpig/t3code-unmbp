@@ -4,6 +4,7 @@
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
+import * as Schema from "effect/Schema";
 
 import { linkSettings } from "./settings.ts";
 
@@ -147,10 +148,42 @@ export const operationPacketSettings = {
   offloads: ["tso", "gso", "gro", "tx-udp-segmentation", "tx-gso-list"],
 } as const;
 
-export function prepareLoopback(scratchDir: string, ingress = false) {
+export function prepareLoopback(scratchDir: string, ingress = false, tcpInitialWindow?: number) {
   assertIsolated();
   lockfile = NodePath.join(scratchDir, "xtables.lock");
   sh("ip", ["link", "set", "lo", "up", "mtu", String(linkSettings.mtu)]);
+  if (tcpInitialWindow !== undefined) {
+    // The host route wins over 127/8. Changing only the subnet leaves real sockets unchanged.
+    sh("ip", [
+      "route",
+      "change",
+      "local",
+      "127.0.0.1/32",
+      "dev",
+      "lo",
+      "table",
+      "local",
+      "initcwnd",
+      String(tcpInitialWindow),
+    ]);
+    const routes = Schema.decodeUnknownSync(
+      Schema.fromJsonString(
+        Schema.Array(
+          Schema.Struct({
+            metrics: Schema.Array(Schema.Struct({ initcwnd: Schema.optionalKey(Schema.Number) })),
+          }),
+        ),
+      ),
+    )(
+      NodeChildProcess.execFileSync("ip", ["-json", "route", "get", "127.0.0.1"], {
+        encoding: "utf8",
+      }),
+    );
+    if (
+      !routes.some((route) => route.metrics.some((metric) => metric.initcwnd === tcpInitialWindow))
+    )
+      throw new Error("TCP initial-window control was not applied to the destination route");
+  }
   sh("ethtool", ["-K", "lo", "tso", "off", "gso", "off", "gro", "off"]);
   if (ingress) {
     sh("ethtool", ["-K", "lo", "tx-udp-segmentation", "off", "tx-gso-list", "off"]);

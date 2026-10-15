@@ -30,7 +30,12 @@ import {
   type OperationControlResponse,
 } from "./operationsFixture.ts";
 import { compareSuites, type SuiteResults, validateSuiteResults } from "./comparison.ts";
-import { caseId, makeOperationSuitePlan, makeSuitePlan } from "./suite.ts";
+import {
+  caseId,
+  makeCurrentOperationSuitePlan,
+  makeOperationSuitePlan,
+  makeSuitePlan,
+} from "./suite.ts";
 
 const persistence = EventSink.layer.pipe(
   Layer.provideMerge(EventStore.layerFromOrchestrationEventStore),
@@ -229,6 +234,53 @@ function operationResults(value = 100): SuiteResults {
     })),
   };
 }
+
+it("uses independent loss draws, every critical drop phase, TLS controls, and warm pools", () => {
+  const plan = makeCurrentOperationSuitePlan();
+  assert.deepEqual(plan, makeCurrentOperationSuitePlan());
+  assert.equal(plan.cases.length, 990);
+  assert.equal(new Set(plan.cases.map(caseId)).size, 990);
+  for (const scenario of ["loss2", "loss5", "nth20-drop"]) {
+    const ws = plan.cases.filter(
+      (c) =>
+        c.scenario.name === scenario && c.workload === "sync-five" && c.transport === "rpc-wss",
+    );
+    const wt = plan.cases.filter(
+      (c) => c.scenario.name === scenario && c.workload === "sync-five" && c.transport === "rpc-wt",
+    );
+    assert.equal(ws.length, 20);
+    assert.deepEqual(
+      ws.map((c) => c.seed),
+      wt.map((c) => c.seed),
+    );
+    assert.equal(new Set(ws.map((c) => c.seed)).size, 20);
+    if (scenario === "nth20-drop")
+      assert.deepEqual(
+        ws.map((c) => c.packetPhase),
+        Array.from({ length: 20 }, (_, i) => i),
+      );
+  }
+  assert.equal(plan.cases.filter((c) => c.httpPool === "warm").length, 36);
+  const result: SuiteResults = {
+    ...operationResults(),
+    suite: { hash: plan.hash },
+    rows: plan.cases.map((c) => ({
+      ...c,
+      scenario: c.scenario.name,
+      seed: c.seed!,
+      metrics: {
+        operationMs: 100,
+        linkTxBytes: 10000,
+        linkTxPackets: 100,
+        loadedMessages: 20,
+        totalMessages: 100,
+      },
+    })),
+  };
+  validateSuiteResults(result);
+  const warm = compareSuites(result, result).filter((g) => g.case.endsWith("/warm"));
+  assert.equal(warm.length, 12);
+});
 
 it("fixes every operation, network profile, transport, and repetition independently of the old suite", () => {
   const plan = makeOperationSuitePlan();

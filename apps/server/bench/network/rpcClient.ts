@@ -23,6 +23,8 @@ import { rpcHeartbeatTimeout } from "./settings.ts";
 
 export const rpcTransportNames = ["rpc-ws", "rpc-ws-raw", "rpc-wt", "rpc-wt-multi"] as const;
 export type RpcTransportName = (typeof rpcTransportNames)[number];
+export const operationRpcTransportNames = [...rpcTransportNames, "rpc-wss"] as const;
+export type OperationRpcTransportName = (typeof operationRpcTransportNames)[number];
 
 const openWebTransport = Effect.fnUntraced(function* (
   tls: TlsMaterial,
@@ -152,11 +154,12 @@ const makeProtocolStreamPerRequest = (transport: WebTransport) =>
 
 /** Builds the transport context shared by synthetic and production-contract clients. */
 export const makeRpcProtocol = (
-  transport: RpcTransportName,
+  transport: OperationRpcTransportName,
   tls: TlsMaterial,
   options: {
     readonly serialization?: typeof layerFramedJson;
     readonly requireUnreliable?: boolean;
+    readonly webSocketConstructor?: Socket.WebSocketConstructor["Service"];
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -165,13 +168,20 @@ export const makeRpcProtocol = (
     switch (transport) {
       case "rpc-ws":
       case "rpc-ws-raw":
+      case "rpc-wss":
         protocol = Layer.effect(RpcClient.Protocol, protocolSocket).pipe(
           Layer.provide(
             Socket.layerWebSocket(
-              `ws://127.0.0.1:${transport === "rpc-ws" ? ports.rpcWs : ports.rpcWsRaw}/`,
+              transport === "rpc-wss"
+                ? `wss://127.0.0.1:${ports.rpcWss}/`
+                : `ws://127.0.0.1:${transport === "rpc-ws" ? ports.rpcWs : ports.rpcWsRaw}/`,
             ),
           ),
-          Layer.provide(Socket.layerWebSocketConstructorGlobal),
+          Layer.provide(
+            options.webSocketConstructor
+              ? Layer.succeed(Socket.WebSocketConstructor, options.webSocketConstructor)
+              : Socket.layerWebSocketConstructorGlobal,
+          ),
           Layer.provide(RpcSerialization.layerJson),
         );
         break;

@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Isolated benchmark server with an IPC fixture control channel.
 import * as NodeFS from "node:fs";
 import * as NodeHttp from "node:http";
+import * as NodeHttps from "node:https";
 
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
@@ -198,11 +199,45 @@ await Effect.runPromise(
           SocketServer.SocketServer,
           NodeSocketServer.makeWebSocket({ host: "127.0.0.1", port, perMessageDeflate }),
         );
+      const wss = Layer.effect(
+        SocketServer.SocketServer,
+        Effect.gen(function* () {
+          const server = yield* Effect.acquireRelease(
+            Effect.sync(() =>
+              NodeHttps.createServer({
+                cert: NodeFS.readFileSync(certPath),
+                key: NodeFS.readFileSync(keyPath),
+                minVersion: "TLSv1.3",
+                maxVersion: "TLSv1.3",
+              }),
+            ),
+            (server) =>
+              Effect.sync(() => {
+                server.closeAllConnections();
+                server.close();
+              }),
+          );
+          const [socket] = yield* Effect.all(
+            [
+              NodeSocketServer.makeWebSocket({ server, perMessageDeflate: true }),
+              Effect.callback<void>((resume) => {
+                const fail = (error: Error) => resume(Effect.die(error));
+                server.once("error", fail);
+                server.listen(ports.rpcWss, "127.0.0.1", () => resume(Effect.void));
+                return Effect.sync(() => server.off("error", fail));
+              }),
+            ],
+            { concurrency: "unbounded" },
+          );
+          return socket;
+        }),
+      );
       yield* Layer.buildWithScope(
         Layer.mergeAll(
           http,
           rpcServer(RpcSerialization.layerJson).pipe(Layer.provide(ws(ports.rpcWs, true))),
           rpcServer(RpcSerialization.layerJson).pipe(Layer.provide(ws(ports.rpcWsRaw, false))),
+          rpcServer(RpcSerialization.layerJson).pipe(Layer.provide(wss)),
           rpcServer(operationRpcSerialization).pipe(
             Layer.provide(
               layerSocketServer(makeWebTransportSocketServer(quic.sessionStream("/rpc"), ports.wt)),

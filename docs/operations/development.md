@@ -59,14 +59,21 @@ vp run bench:network
 vp run bench:network --dry-run
 ```
 
-The fixed `operations-v4` suite runs 648 cases: six operations, nine network profiles,
-four RPC transport variants, and three repetitions. Messages contain 2,000 characters
+The fixed `operations-v5` suite runs 990 cases across six operations, nine network
+profiles, and four RPC transport variants. Messages contain 2,000 characters
 of deterministic, distinct text. Each user/assistant pair has a completed run and
-visible conversation items. The suite uses netem seed `104729`, rotates transport order,
+visible conversation items. The manifest fixes independent netem seeds and rotates transport order.
+Most cells use three seeds. For `sync-five`, `open-new`, and `reconnect-replay`, the
+TLS WebSocket and single-stream QUIC cells use 20 seeds under 2%/5% loss and all 20
+phases of the every-twentieth-packet drop. The every-third-packet delay covers all
+three phases. Additional thread opens use warm HTTP pools under clean, WAN, and
+high-latency profiles. The runner
 sets a 60-second deadline per case including setup, and starts a fresh server with an
 in-memory database. Setup and teardown contribute to suite duration but are excluded
 from the operation timing. Workload settings cannot be overridden in suite mode.
-The complete manifest and its SHA-256 hash are saved with results.
+The complete manifest and its SHA-256 hash are saved with results. The earlier
+`operations-v4` inputs remain available through the runner's `--suite-name` flag;
+results from different suite versions cannot be compared automatically.
 
 | Operation            | Starting state and action                                                                                | Timing ends when                                                                                      |
 | -------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -122,9 +129,9 @@ incomplete files, missing cases, and duplicate cases. It writes a `.comparison.j
 file. Fewer successful repetitions are a regression. Timing and transfer cost are compared
 only when both revisions finish all repetitions and deliver the same message counts.
 Changed delivered state requires review and cannot qualify as a speedup. A change of at least 10% and one unit
-whose three-run ranges do not overlap gets a review signal. Overlapping ranges are
+whose repetition ranges do not overlap gets a review signal. Overlapping ranges are
 inconclusive; these checks are not statistical confidence intervals. Three operation
-repetitions do not estimate p99. Compare each operation and profile separately. A smaller
+repetitions do not estimate p99. Cells with 20 observations also report p90. Compare each operation and profile separately. A smaller
 transfer or faster ping does not compensate for slower catch-up or failed sync.
 
 A completion regression or timing/transfer regression signal returns exit code 1. Without
@@ -138,16 +145,19 @@ segmentation, so batching by QUIC stacks cannot turn one loss decision into seve
 lost datagrams. This includes TCP retransmissions and handshakes. It runs in a private
 network namespace with MTU 1500 and disabled TCP/UDP offloads. A preflight sends ten
 datagrams in one UDP segmentation batch and checks that exactly datagrams 3, 6, and 9
-are dropped or delayed.
+are dropped or delayed, including shifted phases. Periodic cases prime the ingress
+counter with UDP datagrams and drain them before connection setup.
 Counters for periodic impairment cover both directions together, including acknowledgements.
 A 150ms one-way delay adds about 300ms RTT. The every-third-packet profile adds another
 300ms to selected packets. A fixed seed repeats netem's random sequence, but scheduling
 and packetization can change which packet consumes each draw. Different transports can
 therefore lose different application packets under the same seed. The fixed suite is a
-regression probe; deployment decisions also need independent loss sequences and real
-client measurements.
+regression probe. Its independent seeds reduce reliance on one loss pattern, but
+deployment decisions still need real client measurements.
 
-`rpc-ws` uses production deflate, `rpc-ws-raw` disables compression, `rpc-wt` uses one
+`rpc-ws` uses production deflate over plain TCP, `rpc-wss` adds verified TLS 1.3,
+and both operation controls use the same Node `ws` client. `rpc-ws-raw` remains
+available for manual controls. `rpc-wt` uses one
 ordered QUIC stream, and `rpc-wt-multi` opens a QUIC stream per request. Both operation
 WebTransport variants compress substantial RPC frames with a per-stream dictionary
 and retain raw JSON for tiny control messages. They require QUIC over UDP and reject
@@ -159,7 +169,10 @@ Both use libcurl, the same fixture certificate, Caddy, and the production gzip r
 over a Unix socket, so the proxy introduces no additional counted TCP hop. The client
 forces the protocol and verifies it at both ends; HTTP/3 never silently falls back.
 Each case owns its connection pool. HTTP handshake, first-byte, and total request
-times are saved alongside the complete operation time.
+times are saved alongside the complete operation time. Warm cases first load the
+same snapshot through that client's pool without applying it to thread state.
+That warms connection and server caches; its time is recorded separately, and the
+measured request must reuse the connection. The thread itself remains uncached.
 Operation framing and compression follow the transport implementation under test;
 `rpcCompression` records the mode. This lets the same workload measure implementation
 improvements while continuing to verify the complete delivered state.
@@ -169,6 +182,9 @@ measures that implementation, not a browser sharing one QUIC connection. It rema
 an experimental benchmark path; production clients still use their existing transports.
 For a protocol-only snapshot comparison, keep the RPC transport unchanged and rerun
 a manual experiment with `--http-protocol h1` and `--http-protocol h3`.
+Manual `--http-pool warm` opens, independent `--seed-list` runs, and
+`--tcp-initcwnd 32` attribution controls are recorded separately. The TCP window
+control changes only the private namespace's route and does not tune the fixed suite.
 
 For a targeted experiment, call the runner directly. Manual flags do not change the fixed
 suite:

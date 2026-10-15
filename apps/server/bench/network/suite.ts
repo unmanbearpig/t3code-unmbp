@@ -55,6 +55,8 @@ export interface BenchCase {
   readonly repetition: number;
   readonly seed?: number | undefined;
   readonly timeoutMs: number;
+  readonly httpPool?: "cold" | "warm";
+  readonly packetPhase?: number;
 }
 
 export const caseId = (
@@ -66,7 +68,9 @@ export const caseId = (
     entry.workload,
     entry.transport,
     entry.repetition,
-  ].join("/");
+  ].join("/") +
+  (entry.httpPool === "warm" ? "/warm" : "") +
+  (entry.packetPhase !== undefined ? `/phase-${entry.packetPhase}` : "");
 
 /** The complete ordered matrix is saved, so missing or duplicated cases cannot look complete. */
 export function makeSuitePlan() {
@@ -145,6 +149,86 @@ export function makeOperationSuitePlan() {
       webTransport: "http3-only",
       client: "node-libcurl-5.1.2",
     },
+    cases,
+  } as const;
+  return {
+    hash: NodeCrypto.createHash("sha256").update(JSON.stringify(definition)).digest("hex"),
+    ...definition,
+  };
+}
+
+/** Fixed independent draws; critical loss cells and periodic phases get broader coverage. */
+export function makeCurrentOperationSuitePlan() {
+  const { hash: _hash, cases: _cases, ...legacy } = makeOperationSuitePlan();
+  const seeds = [
+    104729, 130363, 155921, 181081, 206369, 231701, 257053, 282511, 308087, 333667, 359357, 385039,
+    410857, 436757, 462671, 488723, 514793, 540863, 567047, 593231,
+  ];
+  const transports = ["rpc-ws", "rpc-wss", "rpc-wt", "rpc-wt-multi"] as const;
+  const cases: BenchCase[] = [];
+  const critical = new Set(["sync-five", "open-new", "reconnect-replay"]);
+  for (const scenario of presets) {
+    for (const workload of operationNames) {
+      const extended =
+        critical.has(workload) && ["loss2", "loss5", "nth20-drop"].includes(scenario.name);
+      for (const [index, seed] of seeds.entries()) {
+        for (let offset = 0; offset < transports.length; offset++) {
+          const transport = transports[(index + offset) % transports.length]!;
+          if (index >= 3 && !(extended && ["rpc-wss", "rpc-wt"].includes(transport))) continue;
+          cases.push({
+            layer: "operations",
+            scenario,
+            workload,
+            transport,
+            repetition: index + 1,
+            seed,
+            timeoutMs: 60000,
+            ...(scenario.nthDrop || scenario.nthDelay ? { packetPhase: index } : {}),
+          });
+        }
+      }
+    }
+  }
+  for (const scenario of presets.filter((s) => ["clean", "wan", "high-latency"].includes(s.name))) {
+    for (const workload of ["open-new", "open-long"]) {
+      for (const [index, seed] of seeds.slice(0, 3).entries()) {
+        for (const transport of index % 2 === 0 ? ["rpc-wss", "rpc-wt"] : ["rpc-wt", "rpc-wss"]) {
+          cases.push({
+            layer: "operations",
+            scenario,
+            workload,
+            transport,
+            repetition: index + 1,
+            seed,
+            timeoutMs: 60000,
+            httpPool: "warm",
+          });
+        }
+      }
+    }
+  }
+  const definition = {
+    ...legacy,
+    version: "operations-v5",
+    layers: [{ name: "operations", transports }],
+    seeds,
+    sampling: {
+      general: "first-three-independent-seeds",
+      critical: {
+        profiles: ["loss2", "loss5", "nth20-drop"],
+        workloads: [...critical],
+        transports: ["rpc-wss", "rpc-wt"],
+        repetitions: 20,
+      },
+      periodic: "prime-counter-phase-before-connection-setup",
+      warm: {
+        profiles: ["clean", "wan", "high-latency"],
+        workloads: ["open-new", "open-long"],
+        transports: ["rpc-wss", "rpc-wt"],
+        repetitions: 3,
+      },
+    },
+    websocketClient: "node-ws-common-plain-and-tls1.3-verified",
     cases,
   } as const;
   return {

@@ -1,6 +1,11 @@
 import * as Schema from "effect/Schema";
 
-import { caseId, makeOperationSuitePlan, makeSuitePlan } from "./suite.ts";
+import {
+  caseId,
+  makeCurrentOperationSuitePlan,
+  makeOperationSuitePlan,
+  makeSuitePlan,
+} from "./suite.ts";
 
 export const BenchRow = Schema.Struct({
   scenario: Schema.String,
@@ -10,6 +15,8 @@ export const BenchRow = Schema.Struct({
   repetition: Schema.Number,
   seed: Schema.Number,
   timeoutMs: Schema.Number,
+  httpPool: Schema.optionalKey(Schema.Literals(["cold", "warm"])),
+  packetPhase: Schema.optionalKey(Schema.Number),
   metrics: Schema.Record(Schema.String, Schema.Union([Schema.Number, Schema.String])),
 });
 export type BenchRow = typeof BenchRow.Type;
@@ -24,7 +31,7 @@ export type SuiteResults = typeof SuiteResults.Type;
 
 /** Rejects results from different experiments or incomplete files, rather than scoring partial work. */
 export function validateSuiteResults(result: SuiteResults) {
-  const plan = [makeSuitePlan(), makeOperationSuitePlan()].find(
+  const plan = [makeSuitePlan(), makeOperationSuitePlan(), makeCurrentOperationSuitePlan()].find(
     (plan) => plan.hash === result.suite.hash,
   );
   if (!plan)
@@ -44,8 +51,10 @@ const summarize = (values: readonly number[]) => {
   const sorted = values.toSorted((a, b) => a - b);
   return {
     min: sorted[0]!,
-    median: sorted[Math.floor(sorted.length / 2)]!,
+    median:
+      (sorted[Math.floor((sorted.length - 1) / 2)]! + sorted[Math.floor(sorted.length / 2)]!) / 2,
     max: sorted[sorted.length - 1]!,
+    p90: sorted.length >= 20 ? sorted[Math.ceil(0.9 * sorted.length) - 1]! : null,
   };
 };
 
@@ -73,7 +82,9 @@ export function compareSuites(baseline: SuiteResults, candidate: SuiteResults) {
     ["candidate", candidate],
   ] as const) {
     for (const row of result.rows) {
-      const key = [row.layer, row.scenario, row.workload, row.transport].join("/");
+      const key =
+        [row.layer, row.scenario, row.workload, row.transport].join("/") +
+        (row.httpPool === "warm" ? "/warm" : "");
       let group = groups.get(key);
       if (!group) groups.set(key, (group = { baseline: [], candidate: [] }));
       group[name].push(row);

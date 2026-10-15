@@ -27,7 +27,7 @@ import {
   prepareLoopback,
   presets,
 } from "./impairments.ts";
-import { rpcTransportNames } from "./rpcClient.ts";
+import { rpcTransportNames, operationRpcTransportNames } from "./rpcClient.ts";
 import { rpcWorkloads } from "./rpcWorkloads.ts";
 import { runOperation } from "./operationsWorkloads.ts";
 import {
@@ -37,10 +37,16 @@ import {
 } from "./operationsFixture.ts";
 import { type Metrics, Recorder, workloads } from "./workloads.ts";
 import { compareSuites, SuiteResults, validateSuiteResults } from "./comparison.ts";
-import { type BenchCase, makeOperationSuitePlan, makeSuitePlan, workloadNames } from "./suite.ts";
+import {
+  type BenchCase,
+  makeCurrentOperationSuitePlan,
+  makeOperationSuitePlan,
+  makeSuitePlan,
+  workloadNames,
+} from "./suite.ts";
 import { http3Environment, type SnapshotHttpProtocol } from "./http3.ts";
 import { ensureHttp3Proxy, http3ProxyConfig, waitForHttp3Proxy } from "./http3Proxy.ts";
-import { verifyPacketImpairments } from "./packetizationCheck.ts";
+import { primePacketPhase, verifyPacketImpairments } from "./packetizationCheck.ts";
 
 const isRpcClientError = Schema.is(RpcClientError.RpcClientError);
 const decodeOperationControl = Schema.decodeUnknownEffect(
@@ -56,9 +62,13 @@ const { values } = NodeUtil.parseArgs({
     timeout: { type: "string" },
     repeat: { type: "string" },
     seed: { type: "string" },
+    "seed-list": { type: "string" },
     suite: { type: "boolean" },
     "suite-name": { type: "string" },
     "http-protocol": { type: "string" },
+    "http-pool": { type: "string" },
+    "packet-phase": { type: "string" },
+    "tcp-initcwnd": { type: "string" },
     "dry-run": { type: "boolean" },
     baseline: { type: "string" },
     out: { type: "string" },
@@ -79,8 +89,12 @@ if (values.help) {
   --out PATH            Save JSON after each case, including partial results
   --seed INTEGER        Seed netem's loss and jitter for a manual run
   --suite               Run the complete fixed network-v1 matrix
-  --suite-name NAME     network-v1 or operations-v4 (requires --suite)
+  --suite-name NAME     network-v1, operations-v4 or operations-v5 (requires --suite)
   --http-protocol h1|h3 Override snapshot protocol in a manual operation experiment
+  --http-pool cold|warm Snapshot connection state for manual opens
+  --seed-list INTEGERS  Independent seeds for a rotated manual operation experiment
+  --packet-phase N     Prime a periodic profile by N packets before setup
+  --tcp-initcwnd N     Attribution control for TCP's initial window inside the namespace
   --dry-run             Print the suite manifest without running packets
   --baseline PATH       Compare a suite run with a previous suite result
 Linux only; needs unshare, ip, tc, iptables, ethtool, sysctl, and openssl.
@@ -101,13 +115,18 @@ if (seed !== undefined && (!Number.isInteger(seed) || seed < 1 || seed >= 0xffff
   throw new Error("--seed must be an integer between 1 and 4294967294");
 if (
   values["suite-name"] &&
-  (!values.suite || !["network-v1", "operations-v4"].includes(values["suite-name"]))
+  (!values.suite ||
+    !["network-v1", "operations-v4", "operations-v5"].includes(values["suite-name"]))
 )
-  throw new Error("--suite-name must be network-v1 or operations-v4 and requires --suite");
+  throw new Error(
+    "--suite-name must be network-v1, operations-v4 or operations-v5 and requires --suite",
+  );
 const suite = values.suite
-  ? values["suite-name"] === "operations-v4"
-    ? makeOperationSuitePlan()
-    : makeSuitePlan()
+  ? values["suite-name"] === "operations-v5"
+    ? makeCurrentOperationSuitePlan()
+    : values["suite-name"] === "operations-v4"
+      ? makeOperationSuitePlan()
+      : makeSuitePlan()
   : undefined;
 if (
   suite &&
@@ -120,6 +139,10 @@ if (
     "repeat",
     "seed",
     "http-protocol",
+    "http-pool",
+    "seed-list",
+    "packet-phase",
+    "tcp-initcwnd",
   ].some((key) => values[key as keyof typeof values] !== undefined)
 )
   throw new Error(
@@ -130,11 +153,52 @@ if (!suite && (values.baseline || values["dry-run"]))
 const httpProtocol = values["http-protocol"];
 if (httpProtocol !== undefined && (layer !== "operations" || !["h1", "h3"].includes(httpProtocol)))
   throw new Error("--http-protocol must be h1 or h3 and requires --layer operations");
+const httpPool = values["http-pool"];
+if (httpPool !== undefined && (layer !== "operations" || !["cold", "warm"].includes(httpPool)))
+  throw new Error("--http-pool must be cold or warm and requires --layer operations");
+const packetPhase =
+  values["packet-phase"] === undefined ? undefined : Number(values["packet-phase"]);
+if (
+  packetPhase !== undefined &&
+  (layer !== "operations" ||
+    !Number.isInteger(packetPhase) ||
+    packetPhase < 0 ||
+    scenarios.some((s) => packetPhase >= (s.nthDrop ?? s.nthDelay?.every ?? 0)))
+)
+  throw new Error("--packet-phase must be an offset below every selected periodic interval");
+const tcpInitialWindow =
+  values["tcp-initcwnd"] === undefined ? undefined : Number(values["tcp-initcwnd"]);
+if (
+  tcpInitialWindow !== undefined &&
+  (layer !== "operations" ||
+    !Number.isInteger(tcpInitialWindow) ||
+    tcpInitialWindow < 1 ||
+    tcpInitialWindow > 200)
+)
+  throw new Error("--tcp-initcwnd must be between 1 and 200 and requires --layer operations");
+const seedList = values["seed-list"]?.split(",").map(Number);
+if (
+  seedList &&
+  (layer !== "operations" ||
+    values.seed !== undefined ||
+    values.repeat !== undefined ||
+    !seedList.length ||
+    new Set(seedList).size !== seedList.length ||
+    seedList.some((s) => !Number.isInteger(s) || s < 1 || s >= 0xffffffff))
+)
+  throw new Error(
+    "--seed-list requires distinct positive operation seeds and excludes --seed/--repeat",
+  );
 if (values["dry-run"]) {
   console.log(JSON.stringify(suite, null, 2));
   process.exit(0);
 }
-const knownTransports: ReadonlyArray<string> = layer === "raw" ? transportNames : rpcTransportNames;
+const knownTransports: ReadonlyArray<string> =
+  layer === "raw"
+    ? transportNames
+    : layer === "operations"
+      ? operationRpcTransportNames
+      : rpcTransportNames;
 const transports = list(values.transports) ?? [...knownTransports];
 for (const transport of transports) {
   if (!knownTransports.includes(transport))
@@ -142,6 +206,8 @@ for (const transport of transports) {
 }
 const availableWorkloads = layer === "operations" ? operationNames : workloadNames;
 const selectedWorkloads = list(values.workloads) ?? [...availableWorkloads];
+if (httpPool === "warm" && selectedWorkloads.some((w) => !["open-new", "open-long"].includes(w)))
+  throw new Error("Warm HTTP pools apply only to thread opens");
 for (const name of selectedWorkloads) {
   if (!(availableWorkloads as readonly string[]).includes(name))
     throw new Error(`Unknown workload "${name}"`);
@@ -150,17 +216,37 @@ const cases: readonly BenchCase[] =
   suite?.cases ??
   scenarios.flatMap((scenario) =>
     selectedWorkloads.flatMap((workload) =>
-      transports.flatMap((transport) =>
-        Array.from({ length: repeat }, (_, index) => ({
-          layer,
-          scenario,
-          workload,
-          transport,
-          repetition: index + 1,
-          seed,
-          timeoutMs,
-        })),
-      ),
+      seedList
+        ? seedList.flatMap((seed, index) =>
+            transports.map((_, offset) => ({
+              layer,
+              scenario,
+              workload,
+              transport: transports[(index + offset) % transports.length]!,
+              repetition: index + 1,
+              seed,
+              timeoutMs,
+              ...(httpPool !== undefined
+                ? { httpPool: httpPool === "warm" ? ("warm" as const) : ("cold" as const) }
+                : {}),
+              ...(packetPhase !== undefined ? { packetPhase } : {}),
+            })),
+          )
+        : transports.flatMap((transport) =>
+            Array.from({ length: repeat }, (_, index) => ({
+              layer,
+              scenario,
+              workload,
+              transport,
+              repetition: index + 1,
+              seed,
+              timeoutMs,
+              ...(httpPool !== undefined
+                ? { httpPool: httpPool === "warm" ? ("warm" as const) : ("cold" as const) }
+                : {}),
+              ...(packetPhase !== undefined ? { packetPhase } : {}),
+            })),
+          ),
     ),
   );
 
@@ -244,11 +330,12 @@ function runCase(
       ? Effect.scoped(
           runOperation(
             entry.workload as OperationName,
-            entry.transport as (typeof rpcTransportNames)[number],
+            entry.transport as (typeof operationRpcTransportNames)[number],
             tls,
             record,
             operationControl,
             httpProtocol as SnapshotHttpProtocol | undefined,
+            entry.httpPool,
           ),
         )
       : rpcWorkloads
@@ -306,7 +393,7 @@ process.once("disconnect", () => {
 });
 
 try {
-  prepareLoopback(tlsDir, usesOperations);
+  prepareLoopback(tlsDir, usesOperations, tcpInitialWindow);
   if (usesOperations) verifyPacketImpairments();
   // ECDSA and under 14 days: the constraints browsers put on serverCertificateHashes certificates.
   NodeChildProcess.execFileSync(
@@ -389,6 +476,8 @@ try {
     readonly timeoutMs: number;
     readonly elapsedMs: number;
     readonly metrics: Metrics;
+    readonly httpPool?: "cold" | "warm";
+    readonly packetPhase?: number;
   }
   const rows: Row[] = [];
   const startedAt = DateTime.formatIso(DateTime.nowUnsafe());
@@ -481,7 +570,9 @@ try {
     applyScenario({ name: "clean" }, undefined, usesOperations);
     await startServer(entry);
     applyScenario(entry.scenario, entry.seed, usesOperations);
+    if (entry.packetPhase !== undefined) primePacketPhase(entry.packetPhase);
     const record = new Recorder();
+    if (entry.layer === "operations") record.set("tcpInitialWindow", tcpInitialWindow ?? "default");
     activeRecorder = record;
     const outcome = await runCase(entry, tls, record).catch((error: unknown) => {
       const detail =
@@ -506,6 +597,8 @@ try {
       timeoutMs: entry.timeoutMs,
       elapsedMs: performance.now() - caseStartedAt,
       metrics,
+      ...(entry.httpPool !== undefined ? { httpPool: entry.httpPool } : {}),
+      ...(entry.packetPhase !== undefined ? { packetPhase: entry.packetPhase } : {}),
     });
     save();
     console.log(

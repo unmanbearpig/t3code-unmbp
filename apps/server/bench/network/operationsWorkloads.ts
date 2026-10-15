@@ -1,5 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - Reads counters from the benchmark's private network namespace.
 import * as NodeFS from "node:fs";
+import * as NodeTls from "node:tls";
+import { WebSocket as NodeWebSocket } from "ws";
 
 import { ORCHESTRATION_V2_WS_METHODS, WsRpcGroup, type ServerConfig } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
@@ -27,6 +29,7 @@ import * as Persistence from "../../../../packages/client-runtime/src/platform/p
 import type { RpcSession } from "../../../../packages/client-runtime/src/rpc/session.ts";
 import * as BoundedSnapshot from "../../../../packages/client-runtime/src/state/boundedThreadSnapshotHttp.ts";
 import * as ThreadHistoryController from "../../../../packages/client-runtime/src/state/threadHistoryController.ts";
+import * as ThreadSnapshotHttp from "../../../../packages/client-runtime/src/state/threadSnapshotHttp.ts";
 import {
   makeEnvironmentThreadState,
   type EnvironmentThreadState,
@@ -34,7 +37,7 @@ import {
 
 import type { TlsMaterial } from "./client.ts";
 import { wallClockMs } from "./protocol.ts";
-import { makeRpcProtocol, type RpcTransportName } from "./rpcClient.ts";
+import { makeRpcProtocol, type OperationRpcTransportName } from "./rpcClient.ts";
 import {
   operationMessageText,
   operationServerConfig,
@@ -157,19 +160,22 @@ export const waitForOperationState = (
 
 export const runOperation = Effect.fnUntraced(function* (
   name: OperationName,
-  transport: RpcTransportName,
+  transport: OperationRpcTransportName,
   tls: TlsMaterial,
   record: Recorder,
   control: OperationControl,
   httpProtocol?: SnapshotHttpProtocol,
+  httpPool: "cold" | "warm" = "cold",
 ) {
   const scope = yield* Effect.scope;
   record.set("phase", "setup");
+  record.set("httpPool", httpPool);
+  if (transport.startsWith("rpc-wt")) record.set("rpcTls", "TLSv1.3");
   record.set(
     "rpcCompression",
     transport.startsWith("rpc-wt")
       ? operationRpcCompression
-      : transport === "rpc-ws"
+      : transport !== "rpc-ws-raw"
         ? "permessage-deflate"
         : "none",
   );
@@ -259,6 +265,27 @@ export const runOperation = Effect.fnUntraced(function* (
     const context = yield* makeRpcProtocol(transport, tls, {
       serialization: operationRpcSerialization,
       requireUnreliable: true,
+      webSocketConstructor: (url) => {
+        const socket = new NodeWebSocket(url, {
+          ca: tls.certPem,
+          minVersion: "TLSv1.3",
+          maxVersion: "TLSv1.3",
+          perMessageDeflate: transport !== "rpc-ws-raw",
+        });
+        socket.once("upgrade", (response) => {
+          const connection = response.socket;
+          const secure = connection instanceof NodeTls.TLSSocket;
+          record.set("rpcTls", secure ? (connection.getProtocol() ?? "unknown") : "none");
+          record.check(secure === (transport === "rpc-wss"), "Wrong RPC TLS transport");
+        });
+        socket.once("open", () =>
+          record.check(
+            socket.extensions.includes("permessage-deflate") === (transport !== "rpc-ws-raw"),
+            "Wrong negotiated WebSocket compression",
+          ),
+        );
+        return socket;
+      },
     }).pipe(Scope.provide(connectionScope));
     const protocol = Context.get(context, RpcClient.Protocol);
     const threadRequests = new Set<string | number>();
@@ -338,6 +365,18 @@ export const runOperation = Effect.fnUntraced(function* (
     if (cold) {
       yield* Deferred.await(config);
       record.set("connectionReadyMs", wallClockMs() - connectionStartedAt);
+      if (httpPool === "warm") {
+        const warmupStartedAt = wallClockMs();
+        const warmup = yield* ThreadSnapshotHttp.ThreadSnapshotLoader.pipe(
+          Effect.flatMap((loader) => loader.load(prepared, operationThreadId)),
+          Effect.provide(clientContext),
+        );
+        if (warmup._tag !== "present")
+          return yield* Effect.die(new Error("Cannot warm the snapshot HTTP connection"));
+        record.set("httpWarmupMs", wallClockMs() - warmupStartedAt);
+        record.set("httpWarmupNewConnections", Number(record.metrics().httpNewConnections));
+        httpLoads = 0;
+      }
       coldCounters = readLinkCounters();
       coldStartedAt = wallClockMs();
       record.set("phase", "operation");
@@ -442,6 +481,11 @@ export const runOperation = Effect.fnUntraced(function* (
   record.set("socketSnapshots", snapshots);
   record.set("httpSnapshots", cold ? httpLoads : 0);
   record.check(httpLoads === (cold ? 1 : 0), "Unexpected HTTP refetch or fallback during sync");
+  if (cold)
+    record.check(
+      record.metrics().httpNewConnections === (httpPool === "warm" ? 0 : 1),
+      "Snapshot did not use the requested cold/warm connection",
+    );
   record.set("syncMode", cold ? "http+replay" : bounded ? "snapshot" : "replay");
   record.set("loadedMessages", Option.getOrThrow(final.data).messages.length);
   record.set("totalMessages", expected.messages);
