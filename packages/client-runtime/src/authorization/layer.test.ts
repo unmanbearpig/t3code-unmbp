@@ -95,6 +95,13 @@ const websocketTicket = (ticket: string) =>
     expiresAt: "2026-06-06T01:00:00.000Z",
   });
 
+const layerWebSocketWithHeaders = Layer.succeed(
+  ClientCapabilities.WebSocketConstructorWithHeaders,
+  () => {
+    throw new Error("Authorization must not open the WebSocket.");
+  },
+);
+
 const accessToken = (token: string, scope = AuthStandardClientScopes.join(" ")) =>
   Response.json({
     access_token: token,
@@ -810,6 +817,61 @@ describe("Connection descriptor authorization boundaries", () => {
 });
 
 describe("RemoteEnvironmentAuthorization", () => {
+  it.effect("skips bearer tickets when the platform provides an upgrade header constructor", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ responses: [Response.json(DESCRIPTOR)] });
+      const [first, second] = yield* Effect.gen(function* () {
+        const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+        const authorize = () =>
+          remote.authorizeBearer({
+            expectedEnvironmentId: ENVIRONMENT_ID,
+            httpBaseUrl: ENDPOINT.httpBaseUrl,
+            wsBaseUrl: `${ENDPOINT.wsBaseUrl}/ws?wsTicket=stale-ticket`,
+            bearerToken: "secret-bearer-token",
+            connectionMethod: "direct",
+          });
+        return [yield* authorize(), yield* authorize()] as const;
+      }).pipe(Effect.provide(harness.layer.pipe(Layer.provide(layerWebSocketWithHeaders))));
+
+      expect(first.socketUrl).toBe(
+        "wss://environment.example.test/ws?clientDeviceType=phone&clientOs=test&connectionMethod=direct",
+      );
+      expect(second.socketUrl).toBe(first.socketUrl);
+      expect(first.httpAuthorization).toEqual({ _tag: "Bearer", token: "secret-bearer-token" });
+      expect(harness.fetch.calls.map(([url]) => String(url))).toEqual([
+        "https://environment.example.test/.well-known/t3/environment",
+      ]);
+    }),
+  );
+
+  it.effect("checks the environment identity before preparing a bearer header connection", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        responses: [
+          Response.json({
+            ...DESCRIPTOR,
+            environmentId: EnvironmentId.make("another-environment"),
+          }),
+        ],
+      });
+      const rejected = yield* Effect.gen(function* () {
+        const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+        return yield* remote
+          .authorizeBearer({
+            expectedEnvironmentId: ENVIRONMENT_ID,
+            httpBaseUrl: ENDPOINT.httpBaseUrl,
+            wsBaseUrl: ENDPOINT.wsBaseUrl,
+            bearerToken: "secret-bearer-token",
+            connectionMethod: "direct",
+          })
+          .pipe(Effect.flip);
+      }).pipe(Effect.provide(harness.layer.pipe(Layer.provide(layerWebSocketWithHeaders))));
+
+      expect(rejected).toMatchObject({ _tag: "ConnectionBlockedError", reason: "configuration" });
+      expect(harness.fetch.calls).toHaveLength(1);
+    }),
+  );
+
   it.effect("reuses a validated bearer descriptor while issuing fresh websocket tickets", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
@@ -887,7 +949,7 @@ describe("RemoteEnvironmentAuthorization", () => {
     }),
   );
 
-  it.effect("reuses a same-account persisted environment token without contacting the relay", () =>
+  it.effect("keeps DPoP tickets even when the platform supports upgrade headers", () =>
     Effect.gen(function* () {
       const cached = new TokenStore.RemoteDpopAccessToken({
         environmentId: ENVIRONMENT_ID,
@@ -908,7 +970,7 @@ describe("RemoteEnvironmentAuthorization", () => {
         return yield* remote.authorizeDpop({
           expectedEnvironmentId: ENVIRONMENT_ID,
         });
-      }).pipe(Effect.provide(harness.layer));
+      }).pipe(Effect.provide(harness.layer.pipe(Layer.provide(layerWebSocketWithHeaders))));
 
       expect(authorized.socketUrl).toContain("wsTicket=cached-ticket");
       expect(authorized.socketUrl).toContain("connectionMethod=relay");
