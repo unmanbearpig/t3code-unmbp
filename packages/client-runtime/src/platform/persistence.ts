@@ -1,5 +1,5 @@
 import {
-  type EnvironmentId,
+  EnvironmentId,
   type OrchestrationV2ShellSnapshot,
   type OrchestrationV2ThreadDetailSnapshot,
   type ServerConfig,
@@ -37,6 +37,9 @@ export class ConnectionPersistenceError extends Schema.TaggedError<ConnectionPer
       "remove-vcs-refs",
       "clear-vcs-refs",
       "clear-environment",
+      "load-hello-support",
+      "save-hello-support",
+      "remove-hello-support",
     ]),
     message: Schema.String,
   },
@@ -78,9 +81,38 @@ export class ConnectionRegistrationStore extends Context.Service<
   }
 >()("@t3tools/client-runtime/platform/persistence/ConnectionRegistrationStore") {}
 
+/** A discovery hint only. Every H connection still checks the live Hello before sending credentials. */
+export const StoredHelloSupport = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  environmentId: EnvironmentId,
+  httpBaseUrl: Schema.String,
+  wsBaseUrl: Schema.String,
+});
+
+export const helloSupportEndpointKey = (httpBaseUrl: string, wsBaseUrl: string) =>
+  JSON.stringify([httpBaseUrl, wsBaseUrl]);
+
 export class EnvironmentCacheStore extends Context.Service<
   EnvironmentCacheStore,
   {
+    /** Opt-in prototype hints use the same durable storage and environment cleanup as other caches. */
+    readonly helloSupport?: {
+      readonly load: (
+        environmentId: EnvironmentId,
+        httpBaseUrl: string,
+        wsBaseUrl: string,
+      ) => Effect.Effect<boolean, ConnectionPersistenceError>;
+      readonly save: (
+        environmentId: EnvironmentId,
+        httpBaseUrl: string,
+        wsBaseUrl: string,
+      ) => Effect.Effect<void, ConnectionPersistenceError>;
+      readonly remove: (
+        environmentId: EnvironmentId,
+        httpBaseUrl: string,
+        wsBaseUrl: string,
+      ) => Effect.Effect<void, ConnectionPersistenceError>;
+    };
     readonly loadShell: (
       environmentId: EnvironmentId,
     ) => Effect.Effect<Option.Option<DeferredShellSnapshot>, ConnectionPersistenceError>;

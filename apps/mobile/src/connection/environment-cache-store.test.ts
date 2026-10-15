@@ -2,6 +2,7 @@ import {
   ORCHESTRATION_CACHE_SCHEMA_VERSION,
   ORCHESTRATION_THREAD_CACHE_SCHEMA_VERSION,
   StoredOrchestrationShellSnapshot,
+  Persistence,
 } from "@t3tools/client-runtime/platform";
 import {
   CommandId,
@@ -219,6 +220,62 @@ function makeDatabase() {
 }
 
 describe("mobile SQLite environment cache store", () => {
+  it.effect(
+    "restores endpoint-scoped hello support across store recreation and clears it with the environment",
+    () =>
+      Effect.gen(function* () {
+        const memory = makeDatabase();
+        const create = () =>
+          make().pipe(Effect.provideService(MobileDatabase.MobileDatabase, memory.database));
+        const first = yield* create();
+        const http = "https://hello.test/base";
+        const ws = "wss://hello.test/base";
+        const other = EnvironmentId.make("other");
+        yield* first.helloSupport!.save(ENVIRONMENT_ID, http, ws);
+        yield* first.helloSupport!.save(ENVIRONMENT_ID, http, ws + "/other");
+        yield* first.helloSupport!.save(other, http, ws);
+        const cold = yield* create();
+        expect(yield* cold.helloSupport!.load(ENVIRONMENT_ID, http, ws)).toBe(true);
+        expect(yield* cold.helloSupport!.load(ENVIRONMENT_ID, http + "/other", ws)).toBe(false);
+        expect(yield* cold.helloSupport!.load(ENVIRONMENT_ID, http, ws + "/different")).toBe(false);
+        expect(yield* cold.helloSupport!.load(EnvironmentId.make("missing"), http, ws)).toBe(false);
+        yield* cold.helloSupport!.remove(ENVIRONMENT_ID, http, ws);
+        expect(yield* cold.helloSupport!.load(ENVIRONMENT_ID, http, ws)).toBe(false);
+        expect(yield* cold.helloSupport!.load(ENVIRONMENT_ID, http, ws + "/other")).toBe(true);
+        yield* cold.clear(ENVIRONMENT_ID);
+        expect(yield* cold.helloSupport!.load(ENVIRONMENT_ID, http, ws + "/other")).toBe(false);
+        expect(yield* cold.helloSupport!.load(other, http, ws)).toBe(true);
+      }),
+  );
+  it.effect("discards corrupt hello support and checks the stored endpoint and environment", () =>
+    Effect.gen(function* () {
+      const memory = makeDatabase();
+      const store = yield* make().pipe(
+        Effect.provideService(MobileDatabase.MobileDatabase, memory.database),
+      );
+      const http = "https://hello.test";
+      const ws = "wss://hello.test";
+      const key = cacheId(
+        ENVIRONMENT_ID,
+        "hello-support",
+        Persistence.helloSupportEndpointKey(http, ws),
+      );
+      memory.values.set(key, "{not-json");
+      expect(yield* store.helloSupport!.load(ENVIRONMENT_ID, http, ws)).toBe(false);
+      expect(memory.removed).toContain(key);
+      yield* store.helloSupport!.save(ENVIRONMENT_ID, http, ws);
+      const payload = JSON.parse(memory.values.get(key)!);
+      for (const mismatch of [
+        { environmentId: "other" },
+        { httpBaseUrl: http + "/other" },
+        { wsBaseUrl: ws + "/other" },
+        { schemaVersion: 2 },
+      ]) {
+        memory.values.set(key, JSON.stringify({ ...payload, ...mismatch }));
+        expect(yield* store.helloSupport!.load(ENVIRONMENT_ID, http, ws)).toBe(false);
+      }
+    }),
+  );
   it.effect("round-trips V2 shell and thread DateTime fields with the shared cache schema", () =>
     Effect.gen(function* () {
       const memory = makeDatabase();

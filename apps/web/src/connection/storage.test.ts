@@ -390,3 +390,125 @@ describe("browser GitHub routing permissions", () => {
     }).pipe(Effect.scoped),
   );
 });
+
+describe("persisted hello support", () => {
+  it.effect("migrates the cache store and restores scoped hints across runtime recreation", () =>
+    Effect.gen(function* () {
+      vi.stubGlobal("window", {});
+      vi.stubGlobal("IDBKeyRange", { bound: (lower: string, upper: string) => ({ lower, upper }) });
+      const stores = new Map<string, Map<string, unknown>>(
+        ["catalog", "shell", "thread", "server-config", "vcs-refs"].map(
+          (name) => [name, new Map<string, unknown>()] as const,
+        ),
+      );
+      const database = Object.assign(new EventTarget(), {
+        close: vi.fn(),
+        objectStoreNames: { contains: (name: string) => stores.has(name) },
+        createObjectStore: (name: string) => {
+          stores.set(name, new Map());
+        },
+        transaction: (name: string) => {
+          const values = stores.get(name);
+          if (values === undefined) throw new Error("Missing store");
+          const tx = new EventTarget();
+          const complete = () => queueMicrotask(() => tx.dispatchEvent(new Event("complete")));
+          return Object.assign(tx, {
+            objectStore: () => ({
+              get: (key: string) => {
+                const req = Object.assign(new EventTarget(), { result: values.get(key) });
+                queueMicrotask(() => req.dispatchEvent(new Event("success")));
+                return req;
+              },
+              put: (value: unknown, key: string) => {
+                values.set(key, value);
+                complete();
+              },
+              delete: (key: string) => {
+                values.delete(key);
+                complete();
+              },
+              openCursor: (range: { lower: string; upper: string }) => {
+                const keys = [...values.keys()].filter((k) => k >= range.lower && k <= range.upper);
+                let index = 0;
+                const req = Object.assign(new EventTarget(), {
+                  result: null as null | { delete: () => void; continue: () => void },
+                });
+                const next = () =>
+                  queueMicrotask(() => {
+                    const key = keys[index++];
+                    req.result =
+                      key === undefined
+                        ? null
+                        : {
+                            delete: () => {
+                              values.delete(key);
+                            },
+                            continue: next,
+                          };
+                    req.dispatchEvent(new Event("success"));
+                    if (key === undefined) complete();
+                  });
+                next();
+                return req;
+              },
+            }),
+          });
+        },
+      });
+      let upgraded = false;
+      const open = vi.fn(() => {
+        const req = Object.assign(new EventTarget(), { result: database });
+        queueMicrotask(() => {
+          if (!upgraded) {
+            req.dispatchEvent(new Event("upgradeneeded"));
+            upgraded = true;
+          }
+          req.dispatchEvent(new Event("success"));
+        });
+        return req;
+      });
+      vi.stubGlobal("indexedDB", { open });
+      const id = EnvironmentId.make("hello");
+      const other = EnvironmentId.make("other");
+      const http = "https://hello.test/base";
+      const ws = "wss://hello.test/base";
+      yield* Effect.gen(function* () {
+        const cache = yield* Persistence.EnvironmentCacheStore;
+        yield* cache.helloSupport!.save(id, http, ws);
+        yield* cache.helloSupport!.save(id, http, ws + "/other");
+        yield* cache.helloSupport!.save(other, http, ws);
+      }).pipe(Effect.provide(ConnectionStorage.layer));
+      expect(open).toHaveBeenCalledWith("t3code:connection-runtime", 5);
+      expect(stores.has("hello-support")).toBe(true);
+      yield* Effect.gen(function* () {
+        const cache = yield* Persistence.EnvironmentCacheStore;
+        expect(yield* cache.helloSupport!.load(id, http, ws)).toBe(true);
+        expect(yield* cache.helloSupport!.load(id, http + "/other", ws)).toBe(false);
+        expect(yield* cache.helloSupport!.load(id, http, ws + "/different")).toBe(false);
+        expect(yield* cache.helloSupport!.load(EnvironmentId.make("missing"), http, ws)).toBe(
+          false,
+        );
+        const key = `${id}:${Persistence.helloSupportEndpointKey(http, ws)}`;
+        const payload = JSON.parse(stores.get("hello-support")!.get(key) as string);
+        for (const mismatch of [
+          { environmentId: "wrong" },
+          { httpBaseUrl: http + "/other" },
+          { wsBaseUrl: ws + "/other" },
+          { schemaVersion: 2 },
+        ]) {
+          stores.get("hello-support")!.set(key, JSON.stringify({ ...payload, ...mismatch }));
+          expect(yield* cache.helloSupport!.load(id, http, ws)).toBe(false);
+        }
+        stores.get("hello-support")!.set(key, "{not-json");
+        expect(yield* cache.helloSupport!.load(id, http, ws)).toBe(false);
+        expect(stores.get("hello-support")!.has(key)).toBe(false);
+        yield* cache.helloSupport!.save(id, http, ws);
+        yield* cache.helloSupport!.remove(id, http, ws);
+        expect(yield* cache.helloSupport!.load(id, http, ws)).toBe(false);
+        yield* cache.clear(id);
+        expect(yield* cache.helloSupport!.load(id, http, ws + "/other")).toBe(false);
+        expect(yield* cache.helloSupport!.load(other, http, ws)).toBe(true);
+      }).pipe(Effect.provide(ConnectionStorage.layer));
+    }),
+  );
+});

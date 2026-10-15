@@ -48,6 +48,7 @@ import { DPOP_UNKNOWN_HINT } from "../relay/errorPresentation.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
 import * as RpcHttp from "../rpc/http.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
+import * as Persistence from "../platform/persistence.ts";
 import * as RemoteEnvironmentAuthorization from "./service.ts";
 import * as TokenStore from "./tokenStore.ts";
 
@@ -145,6 +146,9 @@ const persistedToken = (
 
 const makeHarness = Effect.fn("TestRemoteAuthorization.makeHarness")(function* (input: {
   readonly helloEnabled?: boolean;
+  readonly helloPersistence?: NonNullable<
+    Persistence.EnvironmentCacheStore["Service"]["helloSupport"]
+  >;
   readonly initialToken?: TokenStore.RemoteDpopAccessToken;
   readonly responses: ReadonlyArray<RecordedResponse>;
   readonly bootstrap?: RelayEnvironmentConnectResponse;
@@ -231,6 +235,13 @@ const makeHarness = Effect.fn("TestRemoteAuthorization.makeHarness")(function* (
     resetTokenCache: Effect.void,
   });
   const dependencies = Layer.mergeAll(
+    Layer.mock(Persistence.EnvironmentCacheStore)({
+      helloSupport: input.helloPersistence ?? {
+        load: () => Effect.succeed(false),
+        save: () => Effect.void,
+        remove: () => Effect.void,
+      },
+    }),
     Layer.succeed(ClientCapabilities.ExperimentalReconnectHello, {
       enabled: input.helloEnabled === true,
     }),
@@ -1809,8 +1820,8 @@ describe("Opt-in server-first hello preparation", () => {
       const h = yield* makeConnectionHarness({ helloEnabled: true, responses: [] });
       yield* Effect.gen(function* () {
         const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
-        remote.helloSupport!.remember(ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl, advertised);
-        remote.helloSupport!.remember(other, other.replace(/^http/, "ws"), advertised);
+        yield* remote.helloSupport!.remember(ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl, advertised);
+        yield* remote.helloSupport!.remember(other, other.replace(/^http/, "ws"), advertised);
         const driver = yield* ConnectionDriver.ConnectionDriver;
         const connected = yield* driver.connect(
           connectionEntry([bearerRoute("first"), bearerRoute("other", other)]),
@@ -1842,7 +1853,11 @@ describe("Opt-in server-first hello preparation", () => {
         });
         yield* Effect.gen(function* () {
           const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
-          remote.helloSupport!.remember(ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl, advertised);
+          yield* remote.helloSupport!.remember(
+            ENDPOINT.httpBaseUrl,
+            ENDPOINT.wsBaseUrl,
+            advertised,
+          );
           const driver = yield* ConnectionDriver.ConnectionDriver;
           const result = yield* driver
             .connect(connectionEntry([bearerRoute("first")]), () => Effect.void)
@@ -1851,7 +1866,11 @@ describe("Opt-in server-first hello preparation", () => {
           expect(h.opened.map((prepared) => prepared.handshake?._tag)).toEqual(["Hello", "Legacy"]);
           expect(requestSequence(h)).toHaveLength(2);
           expect(
-            remote.helloSupport!.has(ENVIRONMENT_ID, ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl),
+            yield* remote.helloSupport!.has(
+              ENVIRONMENT_ID,
+              ENDPOINT.httpBaseUrl,
+              ENDPOINT.wsBaseUrl,
+            ),
           ).toBe(false);
         }).pipe(Effect.provide(h.layer));
       }),
@@ -1867,7 +1886,11 @@ describe("Opt-in server-first hello preparation", () => {
         });
         yield* Effect.gen(function* () {
           const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
-          remote.helloSupport!.remember(ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl, advertised);
+          yield* remote.helloSupport!.remember(
+            ENDPOINT.httpBaseUrl,
+            ENDPOINT.wsBaseUrl,
+            advertised,
+          );
           const driver = yield* ConnectionDriver.ConnectionDriver;
           yield* driver
             .connect(connectionEntry([bearerRoute("first")]), () => Effect.void)
@@ -1894,12 +1917,12 @@ it.effect(
       });
       yield* Effect.gen(function* () {
         const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
-        remote.helloSupport!.remember(ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl, advertised);
+        yield* remote.helloSupport!.remember(ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl, advertised);
         expect(
-          remote.helloSupport!.has(ENVIRONMENT_ID, ENDPOINT.httpBaseUrl, "wss://other.test"),
+          yield* remote.helloSupport!.has(ENVIRONMENT_ID, ENDPOINT.httpBaseUrl, "wss://other.test"),
         ).toBe(false);
         expect(
-          remote.helloSupport!.has(
+          yield* remote.helloSupport!.has(
             EnvironmentId.make("other"),
             ENDPOINT.httpBaseUrl,
             ENDPOINT.wsBaseUrl,
@@ -1935,8 +1958,8 @@ it.effect("limits stale-support legacy fallback to one per attempt across multip
     });
     yield* Effect.gen(function* () {
       const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
-      remote.helloSupport!.remember(ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl, advertised);
-      remote.helloSupport!.remember(other, other.replace(/^http/, "ws"), advertised);
+      yield* remote.helloSupport!.remember(ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl, advertised);
+      yield* remote.helloSupport!.remember(other, other.replace(/^http/, "ws"), advertised);
       const driver = yield* ConnectionDriver.ConnectionDriver;
       yield* driver
         .connect(
@@ -1950,9 +1973,211 @@ it.effect("limits stale-support legacy fallback to one per attempt across multip
         "Hello",
       ]);
       expect(requestSequence(h)).toHaveLength(2);
-      expect(remote.helloSupport!.has(ENVIRONMENT_ID, other, other.replace(/^http/, "ws"))).toBe(
-        false,
-      );
+      expect(
+        yield* remote.helloSupport!.has(ENVIRONMENT_ID, other, other.replace(/^http/, "ws")),
+      ).toBe(false);
     }).pipe(Effect.provide(h.layer));
   }),
 );
+
+describe("persisted hello support", () => {
+  const advertised = {
+    ...DESCRIPTOR,
+    capabilities: { ...DESCRIPTOR.capabilities, websocketHello: 1 as const },
+  };
+  const memory = () => {
+    const hints = new Set<string>();
+    const key = (id: EnvironmentId, http: string, ws: string) =>
+      `${id}:${Persistence.helloSupportEndpointKey(http, ws)}`;
+    const store: NonNullable<Persistence.EnvironmentCacheStore["Service"]["helloSupport"]> = {
+      load: (id, http, ws) => Effect.sync(() => hints.has(key(id, http, ws))),
+      save: (id, http, ws) =>
+        Effect.sync(() => {
+          hints.add(key(id, http, ws));
+        }),
+      remove: (id, http, ws) =>
+        Effect.sync(() => {
+          hints.delete(key(id, http, ws));
+        }),
+    };
+    return store;
+  };
+  it.effect("uses H on the first connection after restart without HTTP preparation", () =>
+    Effect.gen(function* () {
+      const store = memory();
+      const first = yield* makeConnectionHarness({
+        helloEnabled: true,
+        helloPersistence: store,
+        responses: [Response.json(advertised), websocketTicket("learn")],
+      });
+      yield* Effect.gen(function* () {
+        const driver = yield* ConnectionDriver.ConnectionDriver;
+        expect(
+          (yield* driver.connect(connectionEntry([bearerRoute("first")]), () => Effect.void))
+            .prepared.handshake?._tag,
+        ).toBe("Legacy");
+      }).pipe(Effect.provide(first.layer));
+      const cold = yield* makeConnectionHarness({
+        helloEnabled: true,
+        helloPersistence: store,
+        responses: [],
+      });
+      yield* Effect.gen(function* () {
+        const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+        expect(
+          yield* remote.helloSupport!.has(
+            EnvironmentId.make("other"),
+            ENDPOINT.httpBaseUrl,
+            ENDPOINT.wsBaseUrl,
+          ),
+        ).toBe(false);
+        expect(
+          yield* remote.helloSupport!.has(
+            ENVIRONMENT_ID,
+            ENDPOINT.httpBaseUrl + "/other",
+            ENDPOINT.wsBaseUrl,
+          ),
+        ).toBe(false);
+        expect(
+          yield* remote.helloSupport!.has(
+            ENVIRONMENT_ID,
+            ENDPOINT.httpBaseUrl,
+            ENDPOINT.wsBaseUrl + "/other",
+          ),
+        ).toBe(false);
+        const driver = yield* ConnectionDriver.ConnectionDriver;
+        expect(
+          (yield* driver.connect(connectionEntry([bearerRoute("first")]), () => Effect.void))
+            .prepared.handshake?._tag,
+        ).toBe("Hello");
+        expect(requestSequence(cold)).toEqual([]);
+      }).pipe(Effect.provide(cold.layer));
+    }),
+  );
+  it.effect.each(["unsupported", "authentication", "configuration"] as const)(
+    "persists invalidation after a %s rejection without falling back",
+    (reason) =>
+      Effect.gen(function* () {
+        const store = memory();
+        yield* store.save(ENVIRONMENT_ID, ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl);
+        const h = yield* makeConnectionHarness({
+          helloEnabled: true,
+          helloPersistence: store,
+          responses: [],
+          sessionReady: () =>
+            Effect.fail(new ConnectionBlockedError({ reason, detail: "Rejected Hello" })),
+        });
+        yield* Effect.gen(function* () {
+          const driver = yield* ConnectionDriver.ConnectionDriver;
+          yield* driver
+            .connect(connectionEntry([bearerRoute("first")]), () => Effect.void)
+            .pipe(Effect.flip);
+          expect(h.opened.map((p) => p.handshake?._tag)).toEqual(["Hello"]);
+          expect(requestSequence(h)).toEqual([]);
+        }).pipe(Effect.provide(h.layer));
+        const cold = yield* makeHarness({
+          helloEnabled: true,
+          helloPersistence: store,
+          responses: [],
+        });
+        yield* Effect.gen(function* () {
+          const remote = yield* RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization;
+          expect(
+            yield* remote.helloSupport!.has(
+              ENVIRONMENT_ID,
+              ENDPOINT.httpBaseUrl,
+              ENDPOINT.wsBaseUrl,
+            ),
+          ).toBe(false);
+        }).pipe(Effect.provide(cold.layer));
+      }),
+  );
+  it.effect("forgets persisted stale support and makes one legacy retry", () =>
+    Effect.gen(function* () {
+      const store = memory();
+      yield* store.save(ENVIRONMENT_ID, ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl);
+      const h = yield* makeConnectionHarness({
+        helloEnabled: true,
+        helloPersistence: store,
+        responses: [Response.json(DESCRIPTOR), websocketTicket("fallback")],
+        sessionReady: (_prepared, index) =>
+          index === 1
+            ? Effect.fail(
+                new ConnectionTransientError({
+                  reason: "transport",
+                  detail: "No Hello",
+                  helloFallback: true,
+                }),
+              )
+            : Effect.void,
+      });
+      yield* Effect.gen(function* () {
+        const driver = yield* ConnectionDriver.ConnectionDriver;
+        yield* driver.connect(connectionEntry([bearerRoute("first")]), () => Effect.void);
+        expect(h.opened.map((p) => p.handshake?._tag)).toEqual(["Hello", "Legacy"]);
+      }).pipe(Effect.provide(h.layer));
+      expect(yield* store.load(ENVIRONMENT_ID, ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl)).toBe(
+        false,
+      );
+    }),
+  );
+  it.effect("invalidates support relearned by a legacy fallback that rejects the credential", () =>
+    Effect.gen(function* () {
+      const store = memory();
+      yield* store.save(ENVIRONMENT_ID, ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl);
+      const h = yield* makeConnectionHarness({
+        helloEnabled: true,
+        helloPersistence: store,
+        responses: [Response.json(advertised), websocketTicket("rejected")],
+        sessionReady: (_prepared, index) =>
+          index === 1
+            ? Effect.fail(
+                new ConnectionTransientError({
+                  reason: "transport",
+                  detail: "No Hello",
+                  helloFallback: true,
+                }),
+              )
+            : Effect.fail(
+                new ConnectionBlockedError({ reason: "authentication", detail: "Rejected" }),
+              ),
+      });
+      yield* Effect.gen(function* () {
+        const driver = yield* ConnectionDriver.ConnectionDriver;
+        yield* driver
+          .connect(connectionEntry([bearerRoute("first")]), () => Effect.void)
+          .pipe(Effect.flip);
+        expect(h.opened.map((p) => p.handshake?._tag)).toEqual(["Hello", "Legacy"]);
+      }).pipe(Effect.provide(h.layer));
+      expect(yield* store.load(ENVIRONMENT_ID, ENDPOINT.httpBaseUrl, ENDPOINT.wsBaseUrl)).toBe(
+        false,
+      );
+    }),
+  );
+  it.effect("treats unavailable persistent storage as a legacy cache miss", () =>
+    Effect.gen(function* () {
+      const store = memory();
+      const h = yield* makeConnectionHarness({
+        helloEnabled: true,
+        helloPersistence: {
+          ...store,
+          load: () =>
+            Effect.fail(
+              new Persistence.ConnectionPersistenceError({
+                operation: "load-hello-support",
+                message: "Unavailable",
+              }),
+            ),
+        },
+        responses: [Response.json(advertised), websocketTicket("legacy")],
+      });
+      yield* Effect.gen(function* () {
+        const driver = yield* ConnectionDriver.ConnectionDriver;
+        expect(
+          (yield* driver.connect(connectionEntry([bearerRoute("first")]), () => Effect.void))
+            .prepared.handshake?._tag,
+        ).toBe("Legacy");
+      }).pipe(Effect.provide(h.layer));
+    }),
+  );
+});
