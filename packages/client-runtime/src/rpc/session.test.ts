@@ -269,6 +269,12 @@ const BEARER_PREPARED: PreparedConnection = {
   httpAuthorization: { _tag: "Bearer", token: "paired-mobile-bearer" },
 };
 
+const HELLO_PREPARED = {
+  ...BEARER_PREPARED,
+  handshake: { _tag: "Hello", version: 1 },
+  socketUrl: "wss://environment.example.test/ws?handshake=hello-v1",
+} satisfies PreparedConnection;
+
 const makeHeaderFactory = Effect.fn("TestRpcSessionFactory.makeHeader")(function* (
   fetchFn: typeof fetch,
 ) {
@@ -671,11 +677,7 @@ describe("RpcSessionFactory", () => {
             throw new Error("H must not send the bearer during the upgrade.");
           }),
         );
-        const session = yield* factory.connect({
-          ...BEARER_PREPARED,
-          handshake: { _tag: "Hello", version: 1 },
-          socketUrl: "wss://environment.example.test/ws?handshake=hello-v1",
-        });
+        const session = yield* factory.connect(HELLO_PREPARED);
         const ready = yield* Deferred.make<void>();
         const readyFiber = yield* session.ready.pipe(
           Effect.andThen(Deferred.succeed(ready, undefined)),
@@ -830,12 +832,17 @@ describe("RpcSessionFactory", () => {
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
-  it.effect("releases an unopened session before the interrupt timeout", () =>
+  it.effect.each([
+    { name: "legacy", connection: PREPARED, open: false },
+    { name: "hello", connection: HELLO_PREPARED, open: false },
+    { name: "hello awaiting identity", connection: HELLO_PREPARED, open: true },
+  ])("releases a pending $name session before the interrupt timeout", ({ connection, open }) =>
     Effect.gen(function* () {
       const { factory, sockets } = yield* makeFactory();
       const scope = yield* Scope.make();
-      yield* factory.connect(PREPARED).pipe(Scope.provide(scope));
+      yield* factory.connect(connection).pipe(Scope.provide(scope));
       const socket = yield* awaitSocket(sockets);
+      if (open) socket.open();
       yield* TestClock.adjust(0);
       const releasing = yield* Scope.close(scope, Exit.void).pipe(Effect.forkChild);
       yield* TestClock.adjust(0);

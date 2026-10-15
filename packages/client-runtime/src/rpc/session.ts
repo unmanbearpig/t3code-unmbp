@@ -229,8 +229,8 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
               Effect.flatMap((diagnosed) => Effect.fail(Option.getOrElse(diagnosed, () => error))),
             );
     // This session never reopens its socket. Once it ends, waiting for the
-    // socket writer's open latch cannot succeed, including an RPC interrupt
-    // already waiting there when the transport drops.
+    // socket writer's open latch or Hello gate cannot succeed, including an
+    // RPC interrupt already waiting there when the transport drops.
     const transportClosed = yield* Deferred.make<void>();
     const stopTransportWrites = Deferred.succeed(transportClosed, undefined).pipe(Effect.asVoid);
     const writeWhileLive = (write: Effect.Effect<void, Socket.SocketError>) =>
@@ -272,7 +272,16 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
           }
         : undefined,
     );
-    const liveLayerSocket = Layer.effect(
+    const handshakeLayerSocket = usesHello
+      ? Layer.effect(
+          Socket.Socket,
+          Effect.gen(function* () {
+            const socket = yield* Socket.Socket;
+            return yield* Hello.wrap(socket, connection, handshakeFailure);
+          }),
+        ).pipe(Layer.provide(rawLayerSocket))
+      : rawLayerSocket;
+    const layerSocket = Layer.effect(
       Socket.Socket,
       Effect.map(Socket.Socket, (socket) =>
         Socket.make({
@@ -283,16 +292,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
           })),
         }),
       ),
-    ).pipe(Layer.provide(rawLayerSocket));
-    const layerSocket = usesHello
-      ? Layer.effect(
-          Socket.Socket,
-          Effect.gen(function* () {
-            const socket = yield* Socket.Socket;
-            return yield* Hello.wrap(socket, connection, handshakeFailure);
-          }),
-        ).pipe(Layer.provide(liveLayerSocket))
-      : liveLayerSocket;
+    ).pipe(Layer.provide(handshakeLayerSocket));
     const layerProtocol = Layer.effect(
       RpcClient.Protocol,
       RpcClient.makeProtocolSocket({
