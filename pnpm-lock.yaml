@@ -153,6 +153,7 @@ patchedDependencies:
   '@effect/platform-node-shared@4.0.2': 4efe73732a53b7d7bdbd9a9263eed06310fc387f870ef4a5e66429e9d1fd7cd9
   '@effect/vitest@4.0.2': 595b7d26fb635caba9c3d39fcb189bb78a000192f8d3b60ead7174b310d1ade9
   '@expo/metro-config@58.0.6': 90fa980e8b6480631fb2fbb04559834e3c612db40c550cd828f11be297d8d760
+  '@fails-components/webtransport-transport-http3-quiche@1.6.9': 1a3f6c5de1c429ab4d5d91ccc82cf9b636dc4ff0e87ae3ec18fa9627f14113df
   '@ff-labs/fff-node@0.11.0': 8956d6ed6938a1bce69b2d0b067ff258dd9ca753c5bbe7006f7b68f760ea3ad2
   '@legendapp/list@3.3.5': 680cc6a5c5b4a4032e467e7b3fde22f89a84c0ee2e6eac6fda737d6277cc0806
   '@opencode/client@2.0.23': f725d6e6d9af0d56dc6ed71b863518fbfc751af1773cff2311209d2c404cf4cd
@@ -717,12 +718,6 @@ importers:
       '@effect/vitest':
         specifier: 4.0.2
         version: 4.0.2(patch_hash=595b7d26fb635caba9c3d39fcb189bb78a000192f8d3b60ead7174b310d1ade9)(@types/node@24.12.4)(@vitest/ui@5.0.1)(bufferutil@4.1.0)(effect@4.0.2(patch_hash=ec61ee307eaec3e17f757e0e6a16296ea4b7a8c3188df0c6ec5e66301fd78688))(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(msw@2.12.11(@types/node@24.12.4)(typescript@7.0.2))(terser@5.48.0)(typescript@7.0.2)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
-      '@fails-components/webtransport':
-        specifier: 1.6.9
-        version: 1.6.9
-      '@fails-components/webtransport-transport-http3-quiche':
-        specifier: 1.6.9
-        version: 1.6.9
       '@modelcontextprotocol/sdk':
         specifier: 1.29.0
         version: 1.29.0(zod@4.6.5)
@@ -774,6 +769,13 @@ importers:
       ws:
         specifier: 'catalog:'
         version: 8.22.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+    optionalDependencies:
+      '@fails-components/webtransport':
+        specifier: 1.6.9
+        version: 1.6.9
+      '@fails-components/webtransport-transport-http3-quiche':
+        specifier: 1.6.9
+        version: 1.6.9(patch_hash=1a3f6c5de1c429ab4d5d91ccc82cf9b636dc4ff0e87ae3ec18fa9627f14113df)
 
   apps/web:
     dependencies:
@@ -15000,7 +15002,7 @@ snapshots:
       chalk: 4.1.2
       js-yaml: 4.3.2
 
-  '@fails-components/webtransport-transport-http3-quiche@1.6.9':
+  '@fails-components/webtransport-transport-http3-quiche@1.6.9(patch_hash=1a3f6c5de1c429ab4d5d91ccc82cf9b636dc4ff0e87ae3ec18fa9627f14113df)':
     dependencies:
       '@types/debug': 4.1.13
       bindings: 1.5.0
@@ -15010,6 +15012,7 @@ snapshots:
       prebuild-install: 7.1.3
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   '@fails-components/webtransport@1.6.9':
     dependencies:
@@ -15018,6 +15021,7 @@ snapshots:
       debug: 4.4.3
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   '@ff-labs/fff-bin-android-arm64@0.11.0':
     optional: true
@@ -18310,6 +18314,7 @@ snapshots:
   bindings@1.5.0:
     dependencies:
       file-uri-to-path: 1.0.0
+    optional: true
 
   bippy@0.5.41(react@19.2.6):
     dependencies:
@@ -18320,6 +18325,7 @@ snapshots:
       buffer: 5.7.1
       inherits: 2.0.4
       readable-stream: 3.6.2
+    optional: true
 
   bluebird@3.7.2: {}
 
@@ -18399,6 +18405,7 @@ snapshots:
     dependencies:
       base64-js: 1.5.1
       ieee754: 1.2.1
+    optional: true
 
   bufferutil@4.1.0:
     dependencies:
@@ -18507,7 +18514,8 @@ snapshots:
     dependencies:
       readdirp: 5.0.0
 
-  chownr@1.1.4: {}
+  chownr@1.1.4:
+    optional: true
 
   chownr@3.0.0: {}
 
@@ -18576,6 +18584,7 @@ snapshots:
       yargs: 17.7.2
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   cn@0.3.2: {}
 
@@ -19013,7 +19022,8 @@ snapshots:
     dependencies:
       mimic-response: 3.1.0
 
-  deep-extend@0.6.0: {}
+  deep-extend@0.6.0:
+    optional: true
 
   deepmerge@4.3.1: {}
 
@@ -19427,7 +19437,8 @@ snapshots:
     dependencies:
       eventsource-parser: 3.1.0
 
-  expand-template@2.0.3: {}
+  expand-template@2.0.3:
+    optional: true
 
   expect-type@1.4.0: {}
 
@@ -19948,7 +19959,8 @@ snapshots:
 
   fflate@0.8.3: {}
 
-  file-uri-to-path@1.0.0: {}
+  file-uri-to-path@1.0.0:
+    optional: true
 
   filelist@1.0.6:
     dependencies:
@@ -20041,7 +20053,8 @@ snapshots:
 
   from@0.1.7: {}
 
-  fs-constants@1.0.0: {}
+  fs-constants@1.0.0:
+    optional: true
 
   fs-extra@10.1.0:
     dependencies:
@@ -20136,7 +20149,8 @@ snapshots:
 
   getenv@2.0.0: {}
 
-  github-from-package@0.0.0: {}
+  github-from-package@0.0.0:
+    optional: true
 
   github-slugger@2.0.0: {}
 
@@ -20412,7 +20426,8 @@ snapshots:
   idb-keyval@6.2.1:
     optional: true
 
-  ieee754@1.2.1: {}
+  ieee754@1.2.1:
+    optional: true
 
   ignore@5.3.2: {}
 
@@ -20429,7 +20444,8 @@ snapshots:
 
   inherits@2.0.4: {}
 
-  ini@1.3.8: {}
+  ini@1.3.8:
+    optional: true
 
   inline-style-parser@0.2.7: {}
 
@@ -21505,7 +21521,8 @@ snapshots:
     dependencies:
       minipass: 7.1.3
 
-  mkdirp-classic@0.5.3: {}
+  mkdirp-classic@0.5.3:
+    optional: true
 
   mkdirp@0.5.6:
     dependencies:
@@ -21576,7 +21593,8 @@ snapshots:
 
   nanoid@3.3.19: {}
 
-  napi-build-utils@2.0.0: {}
+  napi-build-utils@2.0.0:
+    optional: true
 
   negotiator@0.6.3: {}
 
@@ -21601,7 +21619,8 @@ snapshots:
   node-addon-api@8.9.2:
     optional: true
 
-  node-api-headers@1.9.0: {}
+  node-api-headers@1.9.0:
+    optional: true
 
   node-api-version@0.2.1:
     dependencies:
@@ -22263,6 +22282,7 @@ snapshots:
       simple-get: 4.0.1
       tar-fs: 2.1.5
       tunnel-agent: 0.6.0
+    optional: true
 
   prettier@3.8.3: {}
 
@@ -22441,6 +22461,7 @@ snapshots:
       ini: 1.3.8
       minimist: 1.2.8
       strip-json-comments: 2.0.1
+    optional: true
 
   react-day-picker@10.0.1(@types/react@19.3.0)(react@19.2.6):
     dependencies:
@@ -22730,6 +22751,7 @@ snapshots:
       inherits: 2.0.4
       string_decoder: 1.1.1
       util-deprecate: 1.0.2
+    optional: true
 
   readdirp@4.1.2: {}
 
@@ -23220,13 +23242,15 @@ snapshots:
 
   signal-exit@4.1.0: {}
 
-  simple-concat@1.0.1: {}
+  simple-concat@1.0.1:
+    optional: true
 
   simple-get@4.0.1:
     dependencies:
       decompress-response: 6.0.0
       once: 1.4.0
       simple-concat: 1.0.1
+    optional: true
 
   simple-plist@1.3.1:
     dependencies:
@@ -23384,7 +23408,8 @@ snapshots:
     dependencies:
       ansi-regex: 6.2.2
 
-  strip-json-comments@2.0.1: {}
+  strip-json-comments@2.0.1:
+    optional: true
 
   strip-json-comments@5.0.3: {}
 
@@ -23470,6 +23495,7 @@ snapshots:
       mkdirp-classic: 0.5.3
       pump: 3.0.4
       tar-stream: 2.2.0
+    optional: true
 
   tar-stream@2.2.0:
     dependencies:
@@ -23478,6 +23504,7 @@ snapshots:
       fs-constants: 1.0.0
       inherits: 2.0.4
       readable-stream: 3.6.2
+    optional: true
 
   tar@7.5.22:
     dependencies:
@@ -23611,6 +23638,7 @@ snapshots:
   tunnel-agent@0.6.0:
     dependencies:
       safe-buffer: 5.2.1
+    optional: true
 
   type-fest@0.13.1:
     optional: true
@@ -23808,7 +23836,8 @@ snapshots:
       punycode: 2.3.1
     optional: true
 
-  url-join@4.0.1: {}
+  url-join@4.0.1:
+    optional: true
 
   use-latest-callback@0.2.6(react@19.3.0):
     dependencies:

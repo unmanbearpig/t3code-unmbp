@@ -11,6 +11,8 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import {
   buildNpmPlatformPackages,
   NpmPackagesArchivesMissingError,
+  optionalBundledPackages,
+  npmPlatformPackageManifest,
 } from "./build-npm-platform-packages.ts";
 
 const VERSION = "1.2.3";
@@ -45,7 +47,7 @@ const run = Effect.fn("test.run")(function* (
 });
 
 /** A tar.gz laid out like build-cli-archive.ts writes, with a stub `t3` that echoes its args. */
-const makeFakeArchives = Effect.fn("test.makeFakeArchives")(function* () {
+const makeFakeArchives = Effect.fn("test.makeFakeArchives")(function* (withOptional = false) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-npm-packages-test-" });
@@ -71,6 +73,28 @@ const makeFakeArchives = Effect.fn("test.makeFakeArchives")(function* () {
       path.join(contentDir, "node_modules/@ff-labs/fff-node/package.json"),
       '{ "name": "@ff-labs/fff-node", "version": "0.9.4" }\n',
     );
+    if (withOptional) {
+      yield* fs.makeDirectory(
+        path.join(contentDir, "node_modules/@fails-components/webtransport"),
+        { recursive: true },
+      );
+      yield* fs.makeDirectory(path.join(contentDir, "node_modules/debug"), { recursive: true });
+      yield* fs.writeFileString(
+        path.join(contentDir, "node_modules/@fails-components/webtransport/package.json"),
+        JSON.stringify({ version: "1.6.9", dependencies: { debug: "4.4.3" } }),
+      );
+      yield* fs.writeFileString(
+        path.join(contentDir, "node_modules/debug/package.json"),
+        JSON.stringify({ version: "4.4.3" }),
+      );
+      yield* fs.writeFileString(
+        path.join(contentDir, "package.json"),
+        JSON.stringify({
+          dependencies: { "node-pty": "1.1.0", "@ff-labs/fff-node": "0.9.4" },
+          optionalDependencies: { "@fails-components/webtransport": "1.6.9" },
+        }),
+      );
+    }
     yield* fs.writeFileString(path.join(contentDir, "client/index.html"), "<html></html>\n");
     yield* fs.writeFileString(
       path.join(contentDir, "t3"),
@@ -87,6 +111,30 @@ const makeFakeArchives = Effect.fn("test.makeFakeArchives")(function* () {
 });
 
 it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
+  it.effect("keeps optional runtime closure optional after archive to npm conversion", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const fixture = yield* makeFakeArchives(true);
+      yield* buildNpmPlatformPackages({ ...fixture, version: VERSION, allowMissing: true });
+      const manifest = yield* decodeManifest(
+        yield* fs.readFileString(path.join(fixture.outputDir, "@t3code/t3-linux-x64/package.json")),
+      );
+      assert.deepStrictEqual(manifest.dependencies, {
+        "@ff-labs/fff-node": "0.9.4",
+        "node-pty": "1.1.0",
+      });
+      assert.deepStrictEqual(manifest.optionalDependencies, {
+        "@fails-components/webtransport": "1.6.9",
+        debug: "4.4.3",
+      });
+      assert.includeMembers(manifest.bundleDependencies as string[], [
+        "@fails-components/webtransport",
+        "debug",
+      ]);
+    }),
+  );
+
   it.effect("refuses a partial release unless --allow-missing is passed", () =>
     Effect.gen(function* () {
       const fixture = yield* makeFakeArchives();
@@ -258,4 +306,24 @@ it.layer(NodeServices.layer)("build-npm-platform-packages", (it) => {
       assert.include(unsupported.stderr, "https://github.com/pingdotgg/t3code/releases");
     }),
   );
+});
+
+it("keeps shared required dependencies required while bundling optional packages", () => {
+  const packages = {
+    required: { version: "1", dependencies: { debug: "1" } },
+    quic: { version: "1", dependencies: { debug: "1", native: "1" } },
+    debug: { version: "1" },
+    native: { version: "1" },
+  };
+  const optional = optionalBundledPackages(packages, ["required"]);
+  assert.deepStrictEqual(optional, { quic: "1", native: "1" });
+  const manifest = npmPlatformPackageManifest(
+    "linux-x64",
+    VERSION,
+    { required: "1", quic: "1", debug: "1", native: "1" },
+    optional,
+  );
+  assert.deepStrictEqual(manifest.dependencies, { debug: "1", required: "1" });
+  assert.deepStrictEqual(manifest.optionalDependencies, optional);
+  assert.deepStrictEqual(manifest.bundleDependencies, ["debug", "native", "quic", "required"]);
 });

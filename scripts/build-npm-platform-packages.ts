@@ -101,6 +101,7 @@ export function npmPlatformPackageManifest(
   platformKey: CliArchivePlatformKey,
   version: string,
   bundled: Readonly<Record<string, string>>,
+  optional: Readonly<Record<string, string>> = {},
 ) {
   const [os, cpu] = platformKey.split("-") as [string, string];
   const bundleDependencies = Object.keys(bundled).sort();
@@ -114,19 +115,62 @@ export function npmPlatformPackageManifest(
     cpu: [cpu],
     files: ["t3", "t3.exe", "client", "resource-monitor", "node_modules"],
     preferUnplugged: true,
-    dependencies: Object.fromEntries(bundleDependencies.map((name) => [name, bundled[name]])),
+    dependencies: Object.fromEntries(
+      bundleDependencies
+        .filter((name) => !Object.hasOwn(optional, name))
+        .map((name) => [name, bundled[name]]),
+    ),
+    ...(Object.keys(optional).length > 0 ? { optionalDependencies: optional } : {}),
     bundleDependencies,
   };
 }
 
-const PackageVersion = Schema.Struct({ version: Schema.String });
-const decodePackageVersion = Schema.decodeUnknownEffect(Schema.fromJsonString(PackageVersion));
+const BundledManifest = Schema.Struct({
+  version: Schema.String,
+  dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  optionalDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  peerDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  peerDependenciesMeta: Schema.optional(
+    Schema.Record(Schema.String, Schema.Struct({ optional: Schema.optional(Schema.Boolean) })),
+  ),
+});
+const RuntimeRoots = Schema.Struct({
+  dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+});
+
+/** A dependency shared with a required root stays required in the npm tarball. */
+export function optionalBundledPackages(
+  packages: Readonly<Record<string, typeof BundledManifest.Type>>,
+  requiredRoots: ReadonlyArray<string>,
+): Record<string, string> {
+  const required = new Set<string>();
+  const queue = [...requiredRoots];
+  for (const name of queue) {
+    if (required.has(name)) continue;
+    required.add(name);
+    const manifest = packages[name];
+    if (!manifest) continue;
+    for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+      if (!Object.hasOwn(manifest.optionalDependencies ?? {}, dependency)) queue.push(dependency);
+    }
+    for (const dependency of Object.keys(manifest.peerDependencies ?? {})) {
+      if (!manifest.peerDependenciesMeta?.[dependency]?.optional) queue.push(dependency);
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(packages)
+      .filter(([name]) => !required.has(name))
+      .map(([name, manifest]) => [name, manifest.version]),
+  );
+}
+const decodePackageVersion = Schema.decodeEffect(Schema.fromJsonString(BundledManifest));
+const decodeRuntimeRoots = Schema.decodeEffect(Schema.fromJsonString(RuntimeRoots));
 
 /** Every top-level package under `node_modules`, scoped ones included, at the version its manifest names. */
 const readBundledPackages = Effect.fn("readBundledPackages")(function* (nodeModulesDir: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const bundled: Record<string, string> = {};
+  const packages: Record<string, typeof BundledManifest.Type> = {};
   const packageDirs: Array<{ readonly name: string; readonly dir: string }> = [];
   for (const entry of yield* fs.readDirectory(nodeModulesDir)) {
     if (entry.startsWith(".")) continue;
@@ -141,9 +185,20 @@ const readBundledPackages = Effect.fn("readBundledPackages")(function* (nodeModu
   }
   for (const { name, dir } of packageDirs) {
     const manifest = yield* fs.readFileString(path.join(dir, "package.json"));
-    bundled[name] = (yield* decodePackageVersion(manifest)).version;
+    packages[name] = yield* decodePackageVersion(manifest);
   }
-  return bundled;
+  const archiveManifest = path.join(path.dirname(nodeModulesDir), "package.json");
+  const requiredRoots = (yield* fs.exists(archiveManifest))
+    ? Object.keys(
+        (yield* decodeRuntimeRoots(yield* fs.readFileString(archiveManifest))).dependencies ?? {},
+      )
+    : Object.keys(packages);
+  return {
+    versions: Object.fromEntries(
+      Object.entries(packages).map(([name, manifest]) => [name, manifest.version]),
+    ),
+    optional: optionalBundledPackages(packages, requiredRoots),
+  };
 });
 
 /**
@@ -347,7 +402,7 @@ const stagePlatformPackage = Effect.fn("stagePlatformPackage")(function* (input:
   const bundled = yield* readBundledPackages(path.join(contentDir, "node_modules"));
   yield* fs.writeFileString(
     path.join(contentDir, "package.json"),
-    `${yield* encodePackageJson(npmPlatformPackageManifest(input.key, input.version, bundled))}\n`,
+    `${yield* encodePackageJson(npmPlatformPackageManifest(input.key, input.version, bundled.versions, bundled.optional))}\n`,
   );
   yield* fs.writeFileString(
     path.join(contentDir, "README.md"),
