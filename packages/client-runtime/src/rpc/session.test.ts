@@ -7,6 +7,7 @@ import {
   type ServerConfig as ServerConfigType,
   ServerConfigStreamEvent,
   type ServerConfigStreamEvent as ServerConfigStreamEventType,
+  EnvironmentAuthInvalidError,
   WS_METHODS,
   UsageLimitSourceId,
 } from "@t3tools/contracts";
@@ -37,6 +38,12 @@ import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as Persistence from "../platform/persistence.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as RpcSession from "./session.ts";
+import * as RpcHttp from "./http.ts";
+import { issueRemoteWebSocketTicket } from "../authorization/remote.ts";
+import { mapRemoteEnvironmentError } from "../connection/errors.ts";
+import * as ConnectionDriver from "../connection/driver.ts";
+import * as Connectivity from "../connection/connectivity.ts";
+import * as ConnectionWakeups from "../connection/wakeups.ts";
 import { makeEnvironmentServerConfigState } from "../state/server.ts";
 import { applyServerConfigProjection } from "../state/serverConfigProjection.ts";
 import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
@@ -90,6 +97,11 @@ class TestWebSocket {
   open() {
     this.readyState = TestWebSocket.OPEN;
     this.emit("open", { type: "open" });
+  }
+
+  fail() {
+    this.emit("error", { type: "error" });
+    this.close(1006, "WebSocket upgrade failed");
   }
 
   serverMessage(data: string) {
@@ -214,6 +226,7 @@ const LEGACY_SERVER_CONFIG = {
 
 const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* (
   options: RpcSession.RpcSessionOptions = {},
+  fetchFn: typeof fetch = () => Promise.reject(new Error("Unexpected HTTP request.")),
 ) {
   const sockets: TestWebSocket[] = [];
   const layerConstructor = Layer.succeed(Socket.WebSocketConstructor, (url) => {
@@ -221,8 +234,30 @@ const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* (
     sockets.push(socket);
     return socket as unknown as globalThis.WebSocket;
   });
-  const layer = RpcSession.layer(options).pipe(Layer.provide(layerConstructor));
+  const layer = RpcSession.layer(options).pipe(
+    Layer.provide(Layer.merge(layerConstructor, RpcHttp.layerRemoteHttpClient(fetchFn))),
+  );
   const factory = yield* RpcSession.RpcSessionFactory.pipe(Effect.provide(layer));
+  return { factory, sockets };
+});
+
+const BEARER_PREPARED: PreparedConnection = {
+  ...PREPARED,
+  socketUrl: "wss://environment.example.test/ws?orchestrationProtocol=2",
+  httpAuthorization: { _tag: "Bearer", token: "paired-mobile-bearer" },
+};
+
+const makeHeaderFactory = Effect.fn("TestRpcSessionFactory.makeHeader")(function* (
+  fetchFn: typeof fetch,
+) {
+  const sockets: TestWebSocket[] = [];
+  const { factory } = yield* makeFactory({}, fetchFn).pipe(
+    Effect.provideService(ClientCapabilities.WebSocketConstructorWithHeaders, (url) => {
+      const socket = new TestWebSocket(url);
+      sockets.push(socket);
+      return socket as unknown as globalThis.WebSocket;
+    }),
+  );
   return { factory, sockets };
 });
 
@@ -289,6 +324,215 @@ const publishConfigEvents = Effect.fn("TestRpcSessionFactory.publishConfigEvents
 });
 
 describe("RpcSessionFactory", () => {
+  it.effect("blocks a revoked bearer with the ticket path's error and stops retrying", () =>
+    Effect.gen(function* () {
+      const requests: Request[] = [];
+      const fetchFn = ((input, init) => {
+        requests.push(new Request(input, init));
+        return Promise.resolve(
+          Response.json(
+            {
+              _tag: "EnvironmentAuthInvalidError",
+              code: "auth_invalid",
+              reason: "invalid_credential",
+              traceId: "trace-revoked-bearer",
+            },
+            { status: 401 },
+          ),
+        );
+      }) satisfies typeof fetch;
+      const ticketError = yield* issueRemoteWebSocketTicket({
+        httpBaseUrl: PREPARED.httpBaseUrl,
+        bearerToken: "paired-mobile-bearer",
+      }).pipe(Effect.provide(RpcHttp.layerRemoteHttpClient(fetchFn)), Effect.flip);
+      expect(ticketError).toBeInstanceOf(EnvironmentAuthInvalidError);
+      requests.length = 0;
+      const { factory, sockets } = yield* makeHeaderFactory(fetchFn);
+      const driver = ConnectionDriver.ConnectionDriver.of({
+        connect: (_entry, reportProgress) =>
+          Effect.gen(function* () {
+            yield* reportProgress({ stage: "opening", prepared: BEARER_PREPARED });
+            const session = yield* factory.connect(BEARER_PREPARED);
+            yield* session.ready;
+            return { prepared: BEARER_PREPARED, session };
+          }),
+        checkRoute: () => Effect.succeed("unchecked"),
+        preflight: () => Effect.succeed(false),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(
+        { target: TARGET, enabled: true, profile: Option.none() },
+        { initiallyDesired: true },
+      ).pipe(
+        Effect.provideService(ConnectionDriver.ConnectionDriver, driver),
+        Effect.provideService(Connectivity.Connectivity, {
+          status: Effect.succeed("online" as const),
+          changes: Stream.never,
+        }),
+        Effect.provideService(ConnectionWakeups.ConnectionWakeups, { changes: Stream.never }),
+      );
+      const socket = yield* awaitSocket(sockets);
+      socket.fail();
+      const state = yield* SubscriptionRef.changes(supervisor.state).pipe(
+        Stream.filter((state) => state.phase === "blocked"),
+        Stream.runHead,
+        Effect.map(Option.getOrThrow),
+      );
+      expect(state.lastFailure).toEqual(mapRemoteEnvironmentError(ticketError));
+      expect(state.lastFailure).toMatchObject({ reason: "authentication" });
+      expect(state.retryAt).toBeNull();
+      yield* TestClock.adjust("10 minutes");
+      expect(sockets).toHaveLength(1);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.url).toBe(`${PREPARED.httpBaseUrl}/api/auth/websocket-ticket`);
+      expect(requests[0]?.method).toBe("POST");
+      expect(requests[0]?.headers.get("authorization")).toBe("Bearer paired-mobile-bearer");
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("shares one credential rejection diagnostic across concurrent session consumers", () =>
+    Effect.gen(function* () {
+      let requests = 0;
+      const { factory, sockets } = yield* makeHeaderFactory(() => {
+        requests += 1;
+        return Promise.resolve(
+          Response.json(
+            {
+              _tag: "EnvironmentAuthInvalidError",
+              code: "auth_invalid",
+              reason: "invalid_credential",
+              traceId: "trace-shared-diagnostic",
+            },
+            { status: 401 },
+          ),
+        );
+      });
+      const session = yield* factory.connect(BEARER_PREPARED);
+      const failures = yield* Effect.forEach(
+        [session.ready, session.initialConfig, session.closed],
+        Effect.flip,
+        { concurrency: "unbounded" },
+      ).pipe(Effect.forkChild);
+      const socket = yield* awaitSocket(sockets);
+      socket.fail();
+      expect(yield* Fiber.join(failures)).toEqual([
+        expect.objectContaining({ _tag: "ConnectionBlockedError", reason: "authentication" }),
+        expect.objectContaining({ _tag: "ConnectionBlockedError", reason: "authentication" }),
+        expect.objectContaining({ _tag: "ConnectionBlockedError", reason: "authentication" }),
+      ]);
+      yield* session.ready.pipe(Effect.flip);
+      yield* session.closed.pipe(Effect.flip);
+      expect(requests).toBe(1);
+      expect(sockets).toHaveLength(1);
+    }),
+  );
+
+  it.effect.each(["network", "authorized"] as const)(
+    "keeps a failed bearer upgrade transient when its diagnostic is %s",
+    (diagnostic) =>
+      Effect.gen(function* () {
+        let requests = 0;
+        const { factory, sockets } = yield* makeHeaderFactory(() => {
+          requests += 1;
+          return diagnostic === "network"
+            ? Promise.reject(new Error("Network unavailable"))
+            : Promise.resolve(
+                Response.json({ ticket: "unused-ticket", expiresAt: "2026-10-15T12:00:00Z" }),
+              );
+        });
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const session = yield* factory.connect(BEARER_PREPARED);
+          const failure = yield* session.ready.pipe(Effect.flip, Effect.forkChild);
+          const socket = yield* awaitSocket(sockets, attempt);
+          socket.fail();
+          const error = yield* Fiber.join(failure);
+          expect(error).toBeInstanceOf(ConnectionTransientError);
+          expect(error.reason).toBe(diagnostic === "network" ? "network" : "transport");
+          yield* session.ready.pipe(Effect.flip);
+          yield* session.closed.pipe(Effect.flip);
+          expect(requests).toBe(attempt + 1);
+          expect(sockets).toHaveLength(attempt + 1);
+        }
+      }),
+  );
+
+  it.effect("retains the single diagnostic when a readiness waiter is canceled", () =>
+    Effect.gen(function* () {
+      const started = yield* Queue.unbounded<void>();
+      let requests = 0;
+      let respond: ((response: Response) => void) | undefined;
+      const { factory, sockets } = yield* makeHeaderFactory(() => {
+        requests += 1;
+        Queue.offerUnsafe(started, undefined);
+        return new Promise<Response>((resolve) => {
+          respond = resolve;
+        });
+      });
+      const session = yield* factory.connect(BEARER_PREPARED);
+      const ready = yield* session.ready.pipe(Effect.forkChild);
+      const socket = yield* awaitSocket(sockets);
+      socket.fail();
+      yield* Queue.take(started);
+      yield* Fiber.interrupt(ready);
+      const closed = yield* session.closed.pipe(Effect.flip, Effect.forkChild);
+      if (respond === undefined) return yield* Effect.die("Expected a diagnostic request.");
+      respond(Response.json({ ticket: "unused-ticket", expiresAt: "2026-10-15T12:00:00Z" }));
+      expect(yield* Fiber.join(closed)).toBeInstanceOf(ConnectionTransientError);
+      expect(requests).toBe(1);
+    }),
+  );
+
+  it.effect("bounds a hung diagnostic to three seconds and preserves a transient failure", () =>
+    Effect.gen(function* () {
+      const started = yield* Queue.unbounded<void>();
+      const aborted = yield* Queue.unbounded<void>();
+      let requests = 0;
+      const { factory, sockets } = yield* makeHeaderFactory((_input, init) => {
+        requests += 1;
+        Queue.offerUnsafe(started, undefined);
+        init?.signal?.addEventListener("abort", () => Queue.offerUnsafe(aborted, undefined));
+        return new Promise<Response>(() => undefined);
+      });
+      const session = yield* factory.connect(BEARER_PREPARED);
+      const ready = yield* session.ready.pipe(Effect.flip, Effect.forkChild);
+      const socket = yield* awaitSocket(sockets);
+      socket.fail();
+      yield* Queue.take(started);
+      yield* TestClock.adjust("3 seconds");
+      expect(yield* Fiber.join(ready)).toMatchObject({
+        _tag: "ConnectionTransientError",
+        reason: "timeout",
+      });
+      yield* Queue.take(aborted);
+      yield* session.ready.pipe(Effect.flip);
+      expect(requests).toBe(1);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect.each([true, false])(
+    "makes no diagnostic request after an upgrade opens, initial config ready: %s",
+    (configReady) =>
+      Effect.gen(function* () {
+        let requests = 0;
+        const { factory, sockets } = yield* makeHeaderFactory(() => {
+          requests += 1;
+          return Promise.reject(new Error("No diagnostic expected."));
+        });
+        const session = yield* factory.connect(BEARER_PREPARED);
+        const ready = yield* session.ready.pipe(Effect.exit, Effect.forkChild);
+        const socket = yield* awaitSocket(sockets);
+        socket.open();
+        if (configReady) {
+          yield* completeInitialConfig(socket);
+          expect(Exit.isSuccess(yield* Fiber.join(ready))).toBe(true);
+        }
+        expect(requests).toBe(0);
+        socket.fail();
+        expect(yield* session.closed.pipe(Effect.flip)).toBeInstanceOf(ConnectionTransientError);
+        if (!configReady) expect(Exit.isFailure(yield* Fiber.join(ready))).toBe(true);
+        expect(requests).toBe(0);
+      }),
+  );
+
   it.effect("sends bearer credentials through the platform's upgrade header constructor", () =>
     Effect.gen(function* () {
       const sockets: TestWebSocket[] = [];
