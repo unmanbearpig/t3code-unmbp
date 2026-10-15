@@ -21,6 +21,7 @@ import {
   OrchestrationV2RpcSchemas,
   WsRpcGroup as ServerWsRpcGroup,
   WsSubscribeServerConfigRpc,
+  ServerLifecycleStreamEvent,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -54,6 +55,7 @@ import * as ServerSecretStore from "../../src/auth/ServerSecretStore.ts";
 import * as ServerEnvironment from "../../src/environment/ServerEnvironment.ts";
 import * as ServerConfig from "../../src/config.ts";
 import * as AnalyticsService from "../../src/telemetry/AnalyticsService.ts";
+import * as FixtureLifecycle from "./reconnectFixtureLifecycle.ts";
 import * as RpcAuthorization from "../../src/auth/RpcAuthorization.ts";
 import { layerNodeHttpServer } from "../../src/httpServer.ts";
 import {
@@ -153,6 +155,7 @@ async function serveCase(entry: ReconnectCase, epoch: string) {
     Layer.provideMerge(enrichment),
     Layer.provideMerge(persistence),
     Layer.provideMerge(NodeServices.layer),
+    Layer.provideMerge(FixtureLifecycle.layer(reconnectConfig.environment)),
   );
 
   const serverConfig = Layer.effect(
@@ -215,6 +218,12 @@ async function serveCase(entry: ReconnectCase, epoch: string) {
       stream: true,
     }),
     WsSubscribeServerConfigRpc,
+    Rpc.make(WS_METHODS.subscribeServerLifecycle, {
+      payload: Schema.Struct({}),
+      success: ServerLifecycleStreamEvent,
+      error: EnvironmentAuthorizationError,
+      stream: true,
+    }),
     Rpc.make(ORCHESTRATION_V2_WS_METHODS.subscribeThread, {
       payload: OrchestrationV2RpcSchemas.subscribeThread.input,
       success: OrchestrationV2RpcSchemas.subscribeThread.output,
@@ -237,7 +246,9 @@ async function serveCase(entry: ReconnectCase, epoch: string) {
           ]),
         ),
       );
+      const lifecycle = yield* FixtureLifecycle.subscribe;
       const measured = yield* group.toHandlers({
+        [WS_METHODS.subscribeServerLifecycle]: () => lifecycle,
         [WS_METHODS.serverProbe]: () => Effect.succeed({}),
         [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input) =>
           Stream.unwrap(subscribeOrchestrationV2Shell(input)),
