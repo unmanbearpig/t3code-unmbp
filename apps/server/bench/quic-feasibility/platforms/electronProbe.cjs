@@ -5,8 +5,11 @@ const { mkdtempSync, mkdirSync, rmSync } = require("node:fs");
 const { homedir } = require("node:os");
 const { join } = require("node:path");
 
-const pageUrl = process.argv[2];
-const scheme = process.argv[3] ?? "t3code";
+// Electron retains Chromium switches in argv, so locate the fixture URL explicitly.
+const pageArgumentIndex = process.argv.findIndex((argument) => argument.startsWith("http://"));
+const pageUrl = pageArgumentIndex < 0 ? undefined : process.argv[pageArgumentIndex];
+const scheme =
+  pageArgumentIndex < 0 ? undefined : (process.argv[pageArgumentIndex + 1] ?? "t3code");
 if (!pageUrl || !["t3code", "t3code-dev"].includes(scheme)) {
   throw new Error("Usage: electron electronProbe.cjs <fixture-page-url> [t3code|t3code-dev]");
 }
