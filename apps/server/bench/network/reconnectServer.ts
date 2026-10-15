@@ -71,6 +71,8 @@ import {
 const [scheme, portText, certPath, keyPath, scratch] = process.argv.slice(2);
 if (!scratch || !certPath || !keyPath || !portText || !["http", "https"].includes(scheme!))
   throw new Error("reconnectServer.ts http|https port cert key scratch");
+// A worker crash must not leave its listener alive in the suite namespace.
+process.once("disconnect", () => process.exit(0));
 const port = Number(portText);
 export const reconnectConfig = {
   ...operationServerConfig,
