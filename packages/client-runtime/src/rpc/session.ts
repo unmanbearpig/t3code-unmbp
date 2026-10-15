@@ -248,6 +248,17 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
             Effect.flatMap(Fiber.join),
             Effect.flatMap((diagnosed) => Effect.fail(Option.getOrElse(diagnosed, () => error))),
           );
+    // This session never reopens its socket. Once it ends, waiting for the
+    // socket writer's open latch cannot succeed, including an RPC interrupt
+    // already waiting there when the transport drops.
+    const transportClosed = yield* Deferred.make<void>();
+    const stopTransportWrites = Deferred.succeed(transportClosed, undefined).pipe(Effect.asVoid);
+    const writeWhileLive = (write: Effect.Effect<void, Socket.SocketError>) =>
+      Deferred.isDone(transportClosed).pipe(
+        Effect.flatMap((closed) =>
+          closed ? Effect.void : Effect.raceFirst(write, Deferred.await(transportClosed)),
+        ),
+      );
     // Set when the socket closes because the server stopped answering, so the failure says so
     // instead of looking like the server closed the connection.
     const pingTimedOut = yield* Ref.make(false);
@@ -263,7 +274,8 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     const hooks = RpcClient.ConnectionHooks.of({
       onConnect: Deferred.succeed(connected, undefined).pipe(Effect.asVoid),
       onPingTimeout: Ref.set(pingTimedOut, true),
-      onDisconnect: recordTransportFailure.pipe(
+      onDisconnect: stopTransportWrites.pipe(
+        Effect.andThen(recordTransportFailure),
         Effect.andThen(Effect.all([Deferred.isDone(connected), Ref.get(pingTimedOut)])),
         Effect.flatMap(([wasConnected, timedOut]) =>
           Deferred.fail(
@@ -371,7 +383,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     const protocolContext =
       selected ??
       (yield* Effect.gen(function* () {
-        const layerSocket = webSocketLayer(
+        const layerNativeSocket = webSocketLayer(
           connection,
           usesBearerUpgradeHeaders
             ? () => {
@@ -379,6 +391,18 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
               }
             : undefined,
         );
+        const layerSocket = Layer.effect(
+          Socket.Socket,
+          Effect.map(Socket.Socket, (socket) =>
+            Socket.make({
+              reader: socket.reader,
+              writer: Effect.map(socket.writer, (writer) => ({
+                write: (chunk) => writeWhileLive(writer.write(chunk)),
+                writeAll: (chunks) => writeWhileLive(writer.writeAll(chunks)),
+              })),
+            }),
+          ),
+        ).pipe(Layer.provide(layerNativeSocket));
         const layerProtocol = Layer.effect(
           RpcClient.Protocol,
           RpcClient.makeProtocolSocket({
@@ -483,7 +507,16 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
         );
       }),
     );
-    yield* serverConfigSource.pipe(Effect.forkScoped);
+    // LIFO scope release must retire writes before canceling the config
+    // stream or RPC client. Register both atomically so interruption during
+    // construction cannot leave an unopened socket waiting on an interrupt.
+    // Teardown remains synchronous: the native close runs before replacement.
+    yield* Effect.uninterruptible(
+      serverConfigSource.pipe(
+        Effect.forkScoped,
+        Effect.andThen(Effect.addFinalizer(() => stopTransportWrites)),
+      ),
+    );
     const initialConfig = Effect.raceFirst(
       Deferred.await(initialConfigDeferred),
       Deferred.await(serverConfigExit).pipe(
