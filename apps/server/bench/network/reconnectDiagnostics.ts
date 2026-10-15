@@ -47,9 +47,9 @@ type Fields = Readonly<Record<string, unknown>>;
 type Event = { readonly atMs: number; readonly event: string } & Fields;
 
 /** Keeps framing lengths only. Bodies, credentials and RPC payloads are never retained. */
-function recordCounter() {
+function recordCounter(prefaceBytes: number) {
   const header = new Uint8Array(10);
-  let prefaceRemaining = 5;
+  let prefaceRemaining = prefaceBytes;
   let headerBytes = 0;
   let bodyRemaining = 0;
   let bytes = 0;
@@ -238,8 +238,8 @@ export function makeReconnectDiagnostics(side: "client" | "server") {
     const state = {
       id: streams.length,
       readable: stream.readable,
-      reads: recordCounter(),
-      writes: recordCounter(),
+      reads: recordCounter(side === "server" ? 5 : 0),
+      writes: recordCounter(side === "client" ? 5 : 0),
       events: [] as Event[],
       firstClosure: undefined as Event | undefined,
     };
@@ -284,11 +284,13 @@ export function makeReconnectDiagnostics(side: "client" | "server") {
               const method: unknown = Reflect.get(readerTarget, key, readerTarget);
               if (typeof method !== "function") return method;
               return (...readArgs: readonly unknown[]) => {
-                const result: unknown = Reflect.apply(method, readerTarget, readArgs);
                 if (key === "read") {
                   stamp("reader-read", {
                     requested: readArgs[0] instanceof Uint8Array ? readArgs[0].byteLength : 0,
                   });
+                }
+                const result: unknown = Reflect.apply(method, readerTarget, readArgs);
+                if (key === "read") {
                   if (result instanceof Promise)
                     void result.then(
                       (item: unknown) => {
@@ -399,7 +401,11 @@ export function makeReconnectDiagnostics(side: "client" | "server") {
     event,
     native,
     adapter: (stream: ReliableByteStream, id: number) => {
-      const state: (typeof adapters)[number] = { id, reads: recordCounter(), events: [] };
+      const state: (typeof adapters)[number] = {
+        id,
+        reads: recordCounter(side === "server" ? 5 : 0),
+        events: [],
+      };
       adapters.push(state);
       const stamp = (name: string, fields: Fields = {}) => {
         const item = event(name, { adapter: id, ...fields });
