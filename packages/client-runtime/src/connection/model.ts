@@ -79,6 +79,8 @@ export class ConnectionTransientError extends Schema.TaggedError<ConnectionTrans
   "ConnectionTransientError",
   {
     reason: ConnectionTransientReason,
+    /** No valid Hello was received; permits one legacy discovery attempt. */
+    helloFallback: Schema.optionalKey(Schema.Boolean),
     detail: Schema.String,
     traceId: Schema.optionalKey(Schema.String),
   },
@@ -119,6 +121,9 @@ export type PreparedHttpAuthorization =
     };
 
 export interface PreparedConnection {
+  readonly handshake?:
+    | { readonly _tag: "Legacy" }
+    | { readonly _tag: "Hello"; readonly version: 1 };
   readonly environmentId: EnvironmentId;
   readonly label: string;
   readonly httpBaseUrl: string;
