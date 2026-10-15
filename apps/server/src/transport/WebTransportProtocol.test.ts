@@ -60,6 +60,226 @@ const Group = RpcGroup.make(
 );
 
 describe("WebTransport Effect protocols", () => {
+  describe.each(["ordinary", "probe"] as const)("%s FIN settlement", (kind) => {
+    it.effect.each(["release", "dispose", "reject", "capacity"] as const)(
+      "preserves class credit while local FIN remains pending: %s",
+      (mode) =>
+        Effect.gen(function* () {
+          const owner = yield* Scope.make();
+          yield* Effect.addFinalizer((exit) => Scope.close(owner, exit));
+          const gate = Promise.withResolvers<void>();
+          yield* Effect.addFinalizer(() => Effect.sync(() => gate.resolve()));
+          yield* Effect.gen(function* () {
+            const pair = memorySessionPair({ neverAcknowledgeClose: true });
+            const published = yield* Deferred.make<void>();
+            const clientEof = yield* Deferred.make<void>();
+            const settled = yield* Deferred.make<void>();
+            const sessionClosed = yield* Deferred.make<void>();
+            const subscriptionStopped = yield* Deferred.make<void>();
+            const secondStarted = yield* Deferred.make<void>();
+            const holdSecond = yield* Deferred.make<void>();
+            const source = yield* Queue.make<string>();
+            const seen = yield* Queue.make<string>();
+            const target = kind === "ordinary" ? 1 : 2;
+            let accepted = 0;
+            let opened = 0;
+            let acceptCalls = 0;
+            let classCalls = 0;
+            let abortedFin = 0;
+            let resets = 0;
+            let stops = 0;
+            let finishSettled = false;
+            const fixture = yield* setup({
+              ...(kind === "ordinary"
+                ? { limits: { ordinaryRequestStreams: 1, pendingOrdinaryRequests: 1 } }
+                : {}),
+              pair: {
+                ...pair,
+                client: {
+                  ...pair.client,
+                  async openBidirectionalStream(signal) {
+                    const stream = await pair.client.openBidirectionalStream(signal);
+                    if (opened++ !== target) return stream;
+                    return {
+                      ...stream,
+                      async read(max, signal) {
+                        const bytes = await stream.read(max, signal);
+                        if (bytes === null) Deferred.doneUnsafe(clientEof, Effect.void);
+                        return bytes;
+                      },
+                    };
+                  },
+                },
+                server: {
+                  ...pair.server,
+                  async acceptBidirectionalStream(signal) {
+                    acceptCalls++;
+                    const stream = await pair.server.acceptBidirectionalStream(signal);
+                    if (accepted++ !== target) return stream;
+                    return {
+                      ...stream,
+                      async finish(signal) {
+                        await stream.finish(signal);
+                        Deferred.doneUnsafe(published, Effect.void);
+                        const abort = () => {
+                          abortedFin++;
+                          gate.reject(new Error("Local FIN aborted"));
+                        };
+                        signal.addEventListener("abort", abort, { once: true });
+                        try {
+                          if (signal.aborted) abort();
+                          await gate.promise;
+                          finishSettled = true;
+                          Deferred.doneUnsafe(settled, Effect.void);
+                        } finally {
+                          signal.removeEventListener("abort", abort);
+                        }
+                      },
+                      reset(code) {
+                        resets++;
+                        stream.reset(code);
+                      },
+                      stop(code) {
+                        stops++;
+                        stream.stop(code);
+                      },
+                    };
+                  },
+                },
+              },
+            });
+            const classResponse = (value: string) =>
+              Effect.gen(function* () {
+                classCalls++;
+                if (mode === "capacity" && classCalls === 2) {
+                  yield* Deferred.succeed(secondStarted, undefined);
+                  yield* Deferred.await(holdSecond);
+                }
+                return value;
+              });
+            yield* fixture.serverProtocol.closed.pipe(
+              Effect.andThen(Deferred.succeed(sessionClosed, undefined)),
+              Effect.forkScoped,
+            );
+            yield* RpcServer.make(Group).pipe(
+              Effect.provide(
+                Group.toLayer({
+                  echo: (text) =>
+                    kind === "ordinary" ? classResponse(text) : Effect.succeed(text),
+                  "server.probe": () =>
+                    kind === "probe" ? classResponse("alive") : Effect.succeed("alive"),
+                  listen: () =>
+                    Stream.fromQueue(source).pipe(
+                      Stream.ensuring(Deferred.succeed(subscriptionStopped, undefined)),
+                    ),
+                }),
+              ),
+              Effect.provideService(RpcServer.Protocol, fixture.serverProtocol.protocol),
+              Effect.forkScoped,
+            );
+            const protocol = yield* makeRpcWebTransportClientProtocol(
+              yield* Fiber.join(fixture.prepareClient),
+            );
+            const client = yield* RpcClient.make(Group).pipe(
+              Effect.provideService(RpcClient.Protocol, protocol),
+            );
+            const call = (text: string) =>
+              kind === "ordinary" ? client.echo(text) : client["server.probe"]();
+            if (kind === "probe") {
+              yield* client.listen().pipe(
+                Stream.runForEach((value) => Queue.offer(seen, value)),
+                Effect.forkScoped,
+              );
+              yield* Queue.offer(source, "before");
+              expect(yield* Queue.take(seen)).toBe("before");
+            }
+            expect(yield* call("first")).toBe(kind === "ordinary" ? "first" : "alive");
+            yield* Deferred.await(published);
+            yield* Deferred.await(clientEof);
+            yield* TestClock.adjust(0);
+            if (mode === "capacity") {
+              const second = yield* call("second").pipe(Effect.exit, Effect.forkScoped);
+              yield* Deferred.await(secondStarted);
+              const probe =
+                kind === "ordinary"
+                  ? yield* client["server.probe"]().pipe(Effect.forkScoped)
+                  : undefined;
+              yield* TestClock.adjust(0);
+              if (probe) {
+                // Both aggregate permits remain owned while the first local FIN is pending.
+                expect(acceptCalls).toBe(3);
+                expect(probe.pollUnsafe()).toBeUndefined();
+              }
+              expect(resets).toBe(0);
+              expect(stops).toBe(0);
+              gate.resolve();
+              yield* Deferred.await(settled);
+              yield* TestClock.adjust(0);
+              if (probe) expect(yield* Fiber.join(probe)).toBe("alive");
+              // Cleanup of the first request must not return the second request's credit.
+              const stream = yield* transportTry((signal) =>
+                fixture.client.openBidirectionalStream(signal),
+              );
+              const extra = makeRpcWebTransportFrameChannel(
+                stream,
+                createTransportByteBudget(1024 * 1024),
+                createTransportByteBudget(1024 * 1024),
+                rpcWebTransportDefaultLimits,
+              );
+              yield* extra.writePreface("request");
+              yield* extra.write({
+                _tag: "Request",
+                id: "over-capacity",
+                tag: kind === "ordinary" ? "echo" : "server.probe",
+                payload: kind === "ordinary" ? "extra" : undefined,
+                headers: [],
+              });
+              yield* TestClock.adjust(0);
+              expect(classCalls).toBe(2);
+              expect(yield* Deferred.isDone(sessionClosed)).toBe(true);
+              expect(Exit.isFailure(yield* Fiber.join(second))).toBe(true);
+            } else {
+              const second = yield* call("second").pipe(Effect.exit);
+              expect(second).toMatchObject({
+                _tag: "Success",
+                value: kind === "ordinary" ? "second" : "alive",
+              });
+              expect(finishSettled).toBe(false);
+              expect(resets).toBe(0);
+              expect(stops).toBe(0);
+              expect(yield* client["server.probe"]()).toBe("alive");
+              if (kind === "probe") {
+                yield* Queue.offer(source, "during");
+                expect(yield* Queue.take(seen)).toBe("during");
+                expect(yield* Deferred.isDone(subscriptionStopped)).toBe(false);
+              }
+              expect(yield* Deferred.isDone(sessionClosed)).toBe(false);
+              if (mode === "release") {
+                gate.resolve();
+                yield* Deferred.await(settled);
+                expect(yield* call("after")).toBe(kind === "ordinary" ? "after" : "alive");
+                if (kind === "probe") {
+                  yield* Queue.offer(source, "after");
+                  expect(yield* Queue.take(seen)).toBe("after");
+                  expect(yield* Deferred.isDone(subscriptionStopped)).toBe(false);
+                }
+                expect(yield* Deferred.isDone(sessionClosed)).toBe(false);
+              } else if (mode === "reject") {
+                gate.reject(new Error("Local FIN failed"));
+                yield* Deferred.await(sessionClosed);
+                if (kind === "probe") yield* Deferred.await(subscriptionStopped);
+              }
+            }
+            yield* Scope.close(owner, Exit.void);
+            if (mode === "dispose") expect(abortedFin).toBe(1);
+            yield* Effect.promise(() => fixture.server.closed);
+            expect(fixture.shared.input.usedBytes).toBe(0);
+            expect(fixture.shared.output.usedBytes).toBe(0);
+          }).pipe(Effect.provideService(Scope.Scope, owner));
+        }).pipe(Effect.scoped),
+    );
+  });
+
   it.effect.each(["release", "dispose", "reject"] as const)(
     "joins client FIN with the server terminal write before releasing admission: %s",
     (mode) =>

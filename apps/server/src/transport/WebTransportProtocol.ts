@@ -82,6 +82,7 @@ export const prepareRpcWebTransportServer = Effect.fn("prepareRpcWebTransportSer
       readonly channel: ReturnType<typeof makeRpcWebTransportFrameChannel>;
       readonly writes: Semaphore.Semaphore;
       readonly finished: Deferred.Deferred<void>;
+      readonly releaseCredit: () => void;
       terminal?: Deferred.Deferred<void>;
     }
     const requests = new Map<string | number, RequestEntry>();
@@ -98,6 +99,12 @@ export const prepareRpcWebTransportServer = Effect.fn("prepareRpcWebTransportSer
         let counted = false;
         let completed = false;
         const finished = Deferred.makeUnsafe<void>();
+        const releaseCredit = () => {
+          if (!counted) return;
+          counted = false;
+          if (isProbe) probe--;
+          else ordinary--;
+        };
         return Effect.gen(function* () {
           const role = yield* channel.readPreface();
           if (role !== "request")
@@ -136,6 +143,7 @@ export const prepareRpcWebTransportServer = Effect.fn("prepareRpcWebTransportSer
             channel,
             writes: Semaphore.makeUnsafe(1),
             finished,
+            releaseCredit,
           };
           requests.set(requestId, entry);
           yield* receive(0, {
@@ -169,10 +177,7 @@ export const prepareRpcWebTransportServer = Effect.fn("prepareRpcWebTransportSer
           Effect.ensuring(
             Effect.sync(() => {
               if (requestId !== undefined) requests.delete(requestId);
-              if (counted) {
-                if (isProbe) probe--;
-                else ordinary--;
-              }
+              releaseCredit();
               if (!completed) {
                 stream.reset(1);
                 stream.stop(1);
@@ -188,6 +193,9 @@ export const prepareRpcWebTransportServer = Effect.fn("prepareRpcWebTransportSer
       terminal: Deferred.Deferred<void>,
     ) =>
       entry.channel.write(message).pipe(
+        // FIN can reach the client before its local Promise settles. Return class
+        // credit first; the map entry and aggregate stream permit still own cleanup.
+        Effect.andThen(Effect.sync(entry.releaseCredit)),
         Effect.andThen(
           entry.channel.finish.pipe(
             Effect.andThen(Deferred.succeed(terminal, undefined)),
@@ -200,7 +208,7 @@ export const prepareRpcWebTransportServer = Effect.fn("prepareRpcWebTransportSer
           ),
         ),
         lifetime.race,
-        Effect.catch(lifetime.close),
+        Effect.catch((cause) => lifetime.close(cause).pipe(Effect.uninterruptible)),
         Effect.interruptible,
       );
     const protocol: RpcServer.Protocol["Service"] = {
