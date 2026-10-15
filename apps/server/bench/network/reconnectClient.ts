@@ -180,7 +180,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
             bytesRead: response.socket.bytesRead,
             bytesWritten: response.socket.bytesWritten,
           });
-        response.socket.on("data", progress);
+        if (process.env.RPC_RECONNECT_TRACE === "1") response.socket.on("data", progress);
         response.socket.once("close", progress);
       }
       activeSocketPort = response.socket.localPort;
