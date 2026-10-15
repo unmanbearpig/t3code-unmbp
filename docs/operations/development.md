@@ -67,7 +67,9 @@ Each worktree must contain this benchmark and be committed and clean. The runner
 checks revision and dirty state before and after every case. It runs one case per
 variant before moving to the next case, rotating forward and reverse variant order.
 Every row records variant, revision, dirty flag, manifest hash, network inputs,
-request counts, event counts, socket count, IP bytes/packets, and timestamps.
+request attempt counts, event counts, socket count, IP bytes/packets, and timestamps.
+HTTP stages retain success/failure outcomes, including descriptor checks canceled
+by the route deadline during an outage.
 `rows.json` retains failures; `summary.json` separates profile, workload, HTTP/TLS,
 and saved-route count. It reports counts, median total time, per-stage completion
 and duration medians, and nearest-rank observed p90 only with 20 successful samples.
@@ -118,8 +120,8 @@ rate in each direction. Controller application must stay within 30 ms of its sch
 a failed calibration prevents the matrix from running. A fixed seed fixes netem
 random draws, but variants can consume draws with different packetization.
 
-These measurements use the host Linux TCP stack, including its SYN retry timers
-and initial window. They do not run WireGuard or DERP, reproduce radio wake or
+These measurements use Node ws, Node fetch/undici connection pooling, and the
+host Linux TCP stack, including its SYN retry timers and initial window. They do not run WireGuard or DERP, reproduce radio wake or
 phone suspension, or measure rendering. Client, server, and controller share host
 CPU. A real-device resume log is still needed to validate the reconnect change.
 
