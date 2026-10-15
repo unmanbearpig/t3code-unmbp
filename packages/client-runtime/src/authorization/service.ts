@@ -26,6 +26,8 @@ import {
 import * as ConnectionDescriptors from "../connection/descriptors.ts";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
+import * as Persistence from "../platform/persistence.ts";
+import { orchestrationProtocolCompatibilityError } from "../connection/compatibility.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
 import * as TokenStore from "./tokenStore.ts";
 import * as Clock from "effect/Clock";
@@ -72,18 +74,18 @@ export class RemoteEnvironmentAuthorization extends Context.Service<
         environmentId: EnvironmentId,
         httpBaseUrl: string,
         wsBaseUrl: string,
-      ) => boolean;
+      ) => Effect.Effect<boolean>;
       /** Seeds support learned by a previous connection, without treating it as current identity. */
       readonly remember: (
         httpBaseUrl: string,
         wsBaseUrl: string,
         descriptor: ExecutionEnvironmentDescriptor,
-      ) => void;
+      ) => Effect.Effect<void>;
       readonly forget: (
         environmentId: EnvironmentId,
         httpBaseUrl: string,
         wsBaseUrl: string,
-      ) => void;
+      ) => Effect.Effect<void>;
     };
     readonly authorizeBearer: (input: {
       readonly expectedEnvironmentId: EnvironmentId;
@@ -140,21 +142,53 @@ export const make = Effect.gen(function* () {
   );
   const helloOption = yield* Effect.serviceOption(ClientCapabilities.ExperimentalReconnectHello);
   const helloEnabled = Option.isSome(helloOption) && helloOption.value.enabled;
-  const helloCache = new Map<string, ExecutionEnvironmentDescriptor>();
+  const cacheStore = yield* Effect.serviceOption(Persistence.EnvironmentCacheStore);
+  const persistentHello = Option.isSome(cacheStore) ? cacheStore.value.helloSupport : undefined;
+  const helloCache = new Map<string, boolean>();
+  const helloLock = yield* Semaphore.make(1);
   const helloKey = (id: EnvironmentId, http: string, ws: string) =>
-    `${id.length}:${id}${http.length}:${http}${ws}`;
+    `${id.length}:${id}${Persistence.helloSupportEndpointKey(http, ws)}`;
   const helloSupport = {
     has: (id: EnvironmentId, http: string, ws: string) =>
-      helloEnabled && helloCache.has(helloKey(id, http, ws)),
-    remember: (http: string, ws: string, descriptor: ExecutionEnvironmentDescriptor) => {
-      const key = helloKey(descriptor.environmentId, http, ws);
-      if (helloEnabled && descriptor.capabilities.websocketHello === 1)
-        helloCache.set(key, descriptor);
-      else helloCache.delete(key);
-    },
-    forget: (id: EnvironmentId, http: string, ws: string) => {
-      helloCache.delete(helloKey(id, http, ws));
-    },
+      helloLock.withPermits(1)(
+        Effect.gen(function* () {
+          if (!helloEnabled) return false;
+          const key = helloKey(id, http, ws);
+          const cached = helloCache.get(key);
+          if (cached !== undefined) return cached;
+          const supported =
+            persistentHello === undefined
+              ? false
+              : yield* persistentHello.load(id, http, ws).pipe(Effect.orElseSucceed(() => false));
+          helloCache.set(key, supported);
+          return supported;
+        }),
+      ),
+    remember: (http: string, ws: string, descriptor: ExecutionEnvironmentDescriptor) =>
+      helloLock.withPermits(1)(
+        Effect.gen(function* () {
+          if (!helloEnabled) return;
+          const supported =
+            descriptor.capabilities.websocketHello === 1 &&
+            orchestrationProtocolCompatibilityError(descriptor) === null;
+          helloCache.set(helloKey(descriptor.environmentId, http, ws), supported);
+          if (persistentHello !== undefined)
+            yield* (
+              supported
+                ? persistentHello.save(descriptor.environmentId, http, ws)
+                : persistentHello.remove(descriptor.environmentId, http, ws)
+            ).pipe(Effect.ignore);
+        }),
+      ),
+    forget: (id: EnvironmentId, http: string, ws: string) =>
+      helloLock.withPermits(1)(
+        Effect.gen(function* () {
+          // A failed disk removal must still invalidate the hint for this running client.
+          helloCache.set(helloKey(id, http, ws), false);
+          if (persistentHello !== undefined)
+            yield* persistentHello.remove(id, http, ws).pipe(Effect.ignore);
+        }),
+      ),
   };
   const tokenStore = yield* TokenStore.RemoteDpopAccessTokenStore;
   const httpClient = yield* HttpClient.HttpClient;
@@ -242,12 +276,10 @@ export const make = Effect.gen(function* () {
       const forceLegacy = yield* ClientCapabilities.LegacyReconnectHandshake;
       const useHello =
         !forceLegacy &&
-        helloSupport.has(input.expectedEnvironmentId, input.httpBaseUrl, input.wsBaseUrl);
-      const descriptor = useHello
-        ? helloCache.get(helloKey(input.expectedEnvironmentId, input.httpBaseUrl, input.wsBaseUrl))
-        : yield* verifyDirectEndpoint(input);
+        (yield* helloSupport.has(input.expectedEnvironmentId, input.httpBaseUrl, input.wsBaseUrl));
+      const descriptor = useHello ? undefined : yield* verifyDirectEndpoint(input);
       if (helloEnabled && descriptor !== undefined) {
-        helloSupport.remember(input.httpBaseUrl, input.wsBaseUrl, descriptor);
+        yield* helloSupport.remember(input.httpBaseUrl, input.wsBaseUrl, descriptor);
       }
       const socketInput = {
         wsBaseUrl: input.wsBaseUrl,
