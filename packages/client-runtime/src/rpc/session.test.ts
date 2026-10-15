@@ -1,6 +1,7 @@
 import {
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
+  ORCHESTRATION_V2_WS_METHODS,
   ProviderDriverKind,
   ProviderInstanceId,
   ServerConfig,
@@ -14,6 +15,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -46,6 +48,7 @@ import { mapRemoteEnvironmentError } from "../connection/errors.ts";
 import * as ConnectionDriver from "../connection/driver.ts";
 import * as Connectivity from "../connection/connectivity.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
+import { EnvironmentRpcSubscriptionObserver, subscribeDynamicWithSession } from "./client.ts";
 import { makeEnvironmentServerConfigState } from "../state/server.ts";
 import { applyServerConfigProjection } from "../state/serverConfigProjection.ts";
 import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
@@ -68,6 +71,7 @@ class TestWebSocket {
   readyState = TestWebSocket.CONNECTING;
   readonly sent: string[] = [];
   readonly url: string;
+  deferClose = false;
   private readonly listeners = new Map<SocketEventType, Set<SocketListener>>();
 
   constructor(url: string) {
@@ -85,11 +89,20 @@ class TestWebSocket {
   }
 
   send(data: string) {
+    if (this.readyState !== TestWebSocket.OPEN) throw new Error("Socket is not open.");
     this.sent.push(data);
+  }
+
+  get listenerCount() {
+    return [...this.listeners.values()].reduce((sum, listeners) => sum + listeners.size, 0);
   }
 
   close(code = 1000, reason = "") {
     if (this.readyState === TestWebSocket.CLOSED) {
+      return;
+    }
+    if (this.deferClose) {
+      this.readyState = TestWebSocket.CLOSING;
       return;
     }
     this.readyState = TestWebSocket.CLOSED;
@@ -231,16 +244,23 @@ const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* (
   fetchFn: typeof fetch = () => Promise.reject(new Error("Unexpected HTTP request.")),
 ) {
   const sockets: TestWebSocket[] = [];
+  const liveSocketCounts: number[] = [];
+  const createdAt: number[] = [];
+  const clock = yield* Clock.Clock;
   const layerConstructor = Layer.succeed(Socket.WebSocketConstructor, (url) => {
     const socket = new TestWebSocket(url);
     sockets.push(socket);
+    liveSocketCounts.push(
+      sockets.filter((candidate) => candidate.readyState < TestWebSocket.CLOSING).length,
+    );
+    createdAt.push(clock.currentTimeMillisUnsafe());
     return socket as unknown as globalThis.WebSocket;
   });
   const layer = RpcSession.layer(options).pipe(
     Layer.provide(Layer.merge(layerConstructor, RpcHttp.layerRemoteHttpClient(fetchFn))),
   );
   const factory = yield* RpcSession.RpcSessionFactory.pipe(Effect.provide(layer));
-  return { factory, sockets };
+  return { factory, sockets, liveSocketCounts, createdAt };
 });
 
 const BEARER_PREPARED: PreparedConnection = {
@@ -826,6 +846,220 @@ describe("RpcSessionFactory", () => {
       expect(socket.readyState).toBe(TestWebSocket.CLOSED);
       expect(socket.sent).toEqual([]);
     }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("cancels a live stream over its healthy socket", () =>
+    Effect.gen(function* () {
+      const { factory, sockets } = yield* makeFactory();
+      const session = yield* factory.connect(PREPARED);
+      const socket = yield* awaitSocket(sockets);
+      socket.open();
+      yield* completeInitialConfig(socket);
+      yield* session.ready;
+      const consumer = yield* session.client[WS_METHODS.subscribeServerLifecycle]({}).pipe(
+        Stream.runDrain,
+        Effect.forkChild,
+      );
+      const request = yield* awaitRequest(socket, 1);
+      yield* Fiber.interrupt(consumer);
+      expect(socket.sent.map((message) => decodeJson(message))).toContainEqual({
+        _tag: "Interrupt",
+        requestId: request.id,
+      });
+      expect(socket.readyState).toBe(TestWebSocket.OPEN);
+    }),
+  );
+
+  it.effect("starts a replacement before a stale unopened session's interrupt timeout", () =>
+    Effect.gen(function* () {
+      const { factory, sockets, liveSocketCounts, createdAt } = yield* makeFactory();
+      const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
+      const owner = yield* Scope.fork(yield* Scope.Scope);
+      yield* EnvironmentSupervisor.make(
+        { target: TARGET, profile: Option.none(), enabled: true },
+        {
+          initiallyDesired: true,
+        },
+      ).pipe(
+        Effect.provideService(ConnectionDriver.ConnectionDriver, {
+          connect: () =>
+            Effect.gen(function* () {
+              const session = yield* factory.connect(PREPARED);
+              yield* session.ready;
+              return { prepared: PREPARED, session };
+            }),
+          checkRoute: () => Effect.succeed("unchecked" as const),
+          preflight: () => Effect.succeed(false),
+        }),
+        Effect.provideService(Connectivity.Connectivity, {
+          status: Effect.succeed("online" as const),
+          changes: Stream.never,
+        }),
+        Effect.provideService(ConnectionWakeups.ConnectionWakeups, {
+          changes: Stream.fromQueue(wakeups),
+        }),
+        Scope.provide(owner),
+      );
+      const first = yield* awaitSocket(sockets);
+      yield* TestClock.adjust("2 seconds");
+      yield* Queue.offer(wakeups, "application-active-reconnect");
+      yield* TestClock.adjust(0);
+      const releasedWithoutTimeout = first.readyState === TestWebSocket.CLOSED;
+      // On upstream, teardown is still waiting for an interrupt to the old
+      // unopened transport. Advance its deadline only to allow test cleanup.
+      yield* TestClock.adjust("1 second");
+      const second = yield* awaitSocket(sockets, 1);
+      second.open();
+      yield* completeInitialConfig(second);
+      yield* Scope.close(owner, Exit.void);
+      expect(releasedWithoutTimeout).toBe(true);
+      expect(createdAt).toEqual([0, 2000]);
+      expect(liveSocketCounts).toEqual([1, 1]);
+      expect(sockets.every((socket) => socket.listenerCount === 0)).toBe(true);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect.each(["closed before active", "half-open", "healthy"] as const)(
+    "replaces a %s socket synchronously and migrates a durable stream exactly once",
+    (oldTransport) =>
+      Effect.gen(function* () {
+        const { factory, sockets, liveSocketCounts, createdAt } = yield* makeFactory();
+        const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
+        const owner = yield* Scope.fork(yield* Scope.Scope);
+        const driver = ConnectionDriver.ConnectionDriver.of({
+          connect: (_entry, report) =>
+            Effect.gen(function* () {
+              yield* report({ stage: "opening", prepared: PREPARED });
+              const session = yield* factory.connect(PREPARED);
+              yield* report({ stage: "synchronizing", prepared: PREPARED });
+              yield* session.ready;
+              return { prepared: PREPARED, session };
+            }),
+          checkRoute: () => Effect.succeed("unchecked"),
+          preflight: () => Effect.succeed(false),
+        });
+        const supervisor = yield* EnvironmentSupervisor.make(
+          {
+            target: TARGET,
+            profile: Option.none(),
+            enabled: true,
+          },
+          { initiallyDesired: true },
+        ).pipe(
+          Effect.provideService(ConnectionDriver.ConnectionDriver, driver),
+          Effect.provideService(Connectivity.Connectivity, {
+            status: Effect.succeed("online" as const),
+            changes: Stream.never,
+          }),
+          Effect.provideService(ConnectionWakeups.ConnectionWakeups, {
+            changes: Stream.fromQueue(wakeups),
+          }),
+          Scope.provide(owner),
+        );
+        const first = yield* awaitSocket(sockets);
+        first.open();
+        yield* completeInitialConfig(first);
+        yield* TestClock.adjust(0);
+
+        const received = yield* Queue.unbounded<number>();
+        let cursor = 0;
+        let subscriptions = 0;
+        let cancellations = 0;
+        let activeSubscriptions = 0;
+        let maxSubscriptions = 0;
+        const consumer = yield* subscribeDynamicWithSession(
+          ORCHESTRATION_V2_WS_METHODS.subscribeShell,
+          () => Effect.succeed({ afterSequence: cursor }),
+        ).pipe(
+          Stream.runForEach(([, event]) => {
+            if (!("sequence" in event)) return Effect.void;
+            cursor = event.sequence;
+            return Queue.offer(received, event.sequence).pipe(Effect.asVoid);
+          }),
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+          Effect.provideService(EnvironmentRpcSubscriptionObserver, {
+            observe: () =>
+              Effect.sync(() => {
+                subscriptions += 1;
+                activeSubscriptions += 1;
+                maxSubscriptions = Math.max(maxSubscriptions, activeSubscriptions);
+                return Effect.sync(() => {
+                  cancellations += 1;
+                  activeSubscriptions -= 1;
+                });
+              }),
+          }),
+          Effect.forkChild,
+        );
+        const oldRequest = yield* awaitRequest(first, 1);
+        expect(oldRequest).toMatchObject({
+          tag: ORCHESTRATION_V2_WS_METHODS.subscribeShell,
+          payload: { afterSequence: 0 },
+        });
+        const publish = (socket: TestWebSocket, requestId: string | number, sequences: number[]) =>
+          socket.serverMessage(
+            encodeJson({
+              _tag: "Chunk",
+              requestId,
+              values: sequences.map((sequence) => ({
+                kind: "project.removed",
+                sequence,
+                projectId: "project-1",
+              })),
+            }),
+          );
+        publish(first, oldRequest.id, [1]);
+        expect(yield* Queue.take(received)).toBe(1);
+
+        if (oldTransport === "closed before active") {
+          first.close(1006, "closed during suspension");
+          yield* TestClock.adjust("400 millis");
+        } else if (oldTransport === "half-open") {
+          // No frames or close event arrive. Native close starts a handshake
+          // that need not finish before the next socket is constructed.
+          first.deferClose = true;
+        }
+        const activeAt = yield* Clock.currentTimeMillis;
+        yield* Queue.offer(wakeups, "application-active-reconnect");
+        const second = yield* awaitSocket(sockets, 1);
+        expect(first.readyState).toBe(
+          oldTransport === "half-open" ? TestWebSocket.CLOSING : TestWebSocket.CLOSED,
+        );
+        expect(first.listenerCount).toBe(0);
+        second.open();
+        yield* completeInitialConfig(second);
+        const newRequest = yield* awaitRequest(second, 1);
+        expect(newRequest).toMatchObject({
+          tag: ORCHESTRATION_V2_WS_METHODS.subscribeShell,
+          payload: { afterSequence: 1 },
+        });
+        // A late frame from the retired generation cannot reach the consumer.
+        publish(first, oldRequest.id, [999]);
+        publish(second, newRequest.id, [2, 3]);
+        expect(yield* Queue.take(received)).toBe(2);
+        expect(yield* Queue.take(received)).toBe(3);
+        yield* TestClock.adjust(0);
+        expect(yield* Queue.poll(received)).toEqual(Option.none());
+        expect(subscriptions).toBe(2);
+        expect(cancellations).toBe(1);
+        expect(maxSubscriptions).toBe(1);
+        expect(liveSocketCounts).toEqual([1, 1]);
+        expect(createdAt[1]).toBe(activeAt);
+        for (const socket of sockets) {
+          expect(
+            socket.sent.map((message) => decodeJson(message)).filter(isRpcRequest),
+          ).toHaveLength(2);
+        }
+        yield* Fiber.interrupt(consumer);
+        yield* Scope.close(owner, Exit.void);
+        expect(activeSubscriptions).toBe(0);
+        expect(cancellations).toBe(2);
+        expect(sockets.every((socket) => socket.listenerCount === 0)).toBe(true);
+        const sendsAfterRelease = sockets.map((socket) => socket.sent.length);
+        yield* TestClock.adjust("1 minute");
+        expect(sockets.map((socket) => socket.sent.length)).toEqual(sendsAfterRelease);
+        expect(sockets).toHaveLength(2);
+      }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("replays current config and broadcasts updates to every subscriber", () =>
