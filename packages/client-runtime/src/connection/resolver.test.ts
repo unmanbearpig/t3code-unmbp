@@ -186,6 +186,35 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
 });
 
 describe("ConnectionResolver", () => {
+  it.effect("blocks incompatible protocols on header-authenticated bearer routes", () =>
+    Effect.gen(function* () {
+      const layerBroker = yield* makeDependencies({
+        descriptorProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION + 1,
+        primaryBearerToken: "paired-mobile-bearer",
+        authorizeBearer: (input) =>
+          Effect.succeed({
+            environmentId: input.expectedEnvironmentId,
+            label: "Mobile environment",
+            httpBaseUrl: input.httpBaseUrl,
+            socketUrl: input.wsBaseUrl,
+            httpAuthorization: { _tag: "Bearer" as const, token: input.bearerToken },
+          }),
+      });
+      const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(layerBroker));
+      const target = new PrimaryConnectionTarget({
+        environmentId: ENVIRONMENT_ID,
+        label: "Mobile environment",
+        ...ENDPOINT,
+      });
+      const error = yield* broker.prepare(catalogEntry(target)).pipe(Effect.flip);
+      expect(error).toMatchObject({ _tag: "ConnectionBlockedError", reason: "unsupported" });
+    }).pipe(
+      Effect.provideService(ClientCapabilities.WebSocketConstructorWithHeaders, () => {
+        throw new Error("An incompatible protocol must not open a WebSocket.");
+      }),
+    ),
+  );
+
   it.effect("blocks an old host during discovery before opening orchestration RPC", () =>
     Effect.gen(function* () {
       const layerBroker = yield* makeDependencies({ descriptorProtocolVersion: null });
