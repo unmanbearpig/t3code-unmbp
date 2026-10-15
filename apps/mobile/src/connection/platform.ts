@@ -28,6 +28,7 @@ import { clearThreadOutboxEnvironment } from "../state/thread-outbox-removal";
 import { clearComposerDraftsEnvironment } from "../state/use-composer-drafts";
 import { clearThreadComposerErrorsForEnvironment } from "../state/thread-composer-error";
 import { mobileApplicationActiveWakeup } from "./app-state-wakeups";
+import * as NativeWebTransport from "./nativeWebTransport";
 import * as ConnectionStorage from "./storage";
 
 function networkStatus(state: Network.NetworkState): "unknown" | "offline" | "online" {
@@ -280,6 +281,7 @@ type ConnectionPlatformLayerSource =
   | typeof layerWakeups
   | typeof layerProvidedCapabilities
   | typeof layerPlatformConnectionSource
+  | typeof NativeWebTransport.layer
   | typeof layerEnvironmentOwnedDataCleanup;
 
 export const layer: Layer.Layer<
@@ -293,5 +295,6 @@ export const layer: Layer.Layer<
   layerWakeups,
   layerProvidedCapabilities,
   layerPlatformConnectionSource,
+  NativeWebTransport.layer,
   layerEnvironmentOwnedDataCleanup,
 );
