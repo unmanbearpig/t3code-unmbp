@@ -152,6 +152,56 @@ const makeHarness = Effect.fnUntraced(function* (
 });
 
 describe("environment session permissions", () => {
+  it.effect("cancels an unobserved request when its endpoint changes", () =>
+    Effect.gen(function* () {
+      const requested = Promise.withResolvers<void>();
+      const obsolete = Promise.withResolvers<Response>();
+      let hold = false;
+      let replaced = false;
+      let aborted = false;
+      const h = yield* makeHarness((init) => {
+        if (replaced || !hold) return Response.json(SESSION);
+        init.signal?.addEventListener(
+          "abort",
+          () => {
+            aborted = true;
+          },
+          { once: true },
+        );
+        requested.resolve();
+        return obsolete.promise;
+      });
+      yield* h.read;
+      hold = true;
+      h.registry.refresh(h.atom);
+      yield* Effect.promise(() => requested.promise);
+      h.unmount();
+      replaced = true;
+      yield* SubscriptionRef.set(
+        h.prepared,
+        Option.some({ ...PREPARED, httpBaseUrl: "https://new.test" }),
+      );
+      yield* Effect.promise(() => vi.advanceTimersByTimeAsync(0));
+      expect(aborted).toBe(true);
+      obsolete.resolve(Response.json(SESSION));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("stops unobserved retries when the socket disconnects", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness(() => {
+        throw new TypeError("Offline");
+      });
+      yield* h.read.pipe(Effect.flip);
+      h.unmount();
+      yield* Effect.promise(() => vi.advanceTimersByTimeAsync(0));
+      yield* SubscriptionRef.set(h.session, Option.none());
+      yield* Effect.promise(() => vi.advanceTimersByTimeAsync(0));
+      const requests = h.requests();
+      yield* Effect.promise(() => vi.advanceTimersByTimeAsync(60_000));
+      expect(h.requests()).toBe(requests);
+    }).pipe(Effect.scoped),
+  );
   it.effect("caps retry delays and stops the retry worker when the registry is disposed", () =>
     Effect.gen(function* () {
       const h = yield* makeHarness(() => {
@@ -372,6 +422,7 @@ describe("environment session permissions", () => {
         expect((yield* h.read.pipe(Effect.flip))._tag).toBe("RemoteEnvironmentAuthBlockedError");
         expect(h.registry.get(h.permission)).toBe(false);
         expect((yield* h.authorize.pipe(Effect.flip))._tag).toBe("EnvironmentAuthorizationError");
+        if (failure === "relay rejection") expect(h.relay.authorizations).toBe(2);
         const authorizations = h.relay.authorizations;
         yield* Effect.promise(() => vi.advanceTimersByTimeAsync(60_000));
         expect(h.relay.authorizations).toBe(authorizations);

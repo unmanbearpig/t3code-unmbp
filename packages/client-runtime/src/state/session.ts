@@ -213,7 +213,7 @@ function makeEnvironmentSessionAtoms<R, E>(
             }),
           );
         })
-        .pipe(Atom.swr({ staleTime: 30_000, revalidateOnMount: true }), Atom.setIdleTTL(0));
+        .pipe(Atom.setIdleTTL(0));
     });
     return Atom.readable(
       (get) => {
@@ -222,6 +222,8 @@ function makeEnvironmentSessionAtoms<R, E>(
       },
       (refresh) => refresh(refreshSignal),
     ).pipe(
+      // Connection changes must cancel obsolete work even during the idle TTL.
+      Atom.setLazy(false),
       Atom.setIdleTTL(5 * 60_000),
       Atom.withLabel(`environment-session-state:${environmentId}`),
     );
