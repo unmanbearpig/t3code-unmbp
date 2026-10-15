@@ -181,6 +181,9 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       maxVersion: "TLSv1.3",
       perMessageDeflate: true,
     });
+    // Match browser/RN error-event semantics when Effect closes a CONNECTING
+    // socket and removes its listener before ws emits the cancellation error.
+    socket.on("error", () => {});
     activeSocket = socket;
     socket.once("upgrade", (response) => {
       negotiatedExtensions = response.headers["sec-websocket-extensions"];
