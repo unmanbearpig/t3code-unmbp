@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QUIC platform probe</title>
+  <body>
+    <h1>QUIC platform probe</h1>
+    <button id="run" type="button">Run probe</button>
+    <pre id="result">Ready</pre>
+    <script type="module">
+      import { runWebTransportProbe } from "./browserProbe.mjs";
+      const button = document.querySelector("#run");
+      const result = document.querySelector("#result");
+      let complete;
+      globalThis.quicProbeFinished = new Promise((resolve) => {
+        complete = resolve;
+      });
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        result.textContent = "Running";
+        try {
+          const config = await fetch("./config.json").then((response) => response.json());
+          const report = await runWebTransportProbe(config);
+          result.textContent = JSON.stringify(report, null, 2);
+          await fetch("./result", { method: "POST", body: JSON.stringify(report) });
+          globalThis.quicProbeResult = report;
+          complete(report);
+        } catch (error) {
+          result.textContent = String(error);
+          complete({ ok: false, error: String(error) });
+        } finally {
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
