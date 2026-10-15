@@ -50,6 +50,7 @@ const server = NodeChildProcess.fork(
 let controller: Awaited<ReturnType<typeof startController>> | undefined;
 let native: Awaited<ReturnType<typeof makeBenchmarkConnector>> | undefined;
 let clientMeter: ReturnType<typeof startProcessMeasurement> | undefined;
+let stoppedServerResources: Readonly<Record<string, number>> | undefined;
 let failureCause: unknown;
 let caseDeadline = false;
 let failureStage = "fixture-startup";
@@ -64,10 +65,14 @@ const inspectServer = async () => {
   return await inspected;
 };
 const resourceRequest = async (_tag: "netbench-resource-start" | "netbench-resource-stop") => {
+  if (_tag === "netbench-resource-stop" && stoppedServerResources) return stoppedServerResources;
+  if (_tag === "netbench-resource-start") stoppedServerResources = undefined;
   if (!server.connected) throw new Error("Fixture server IPC disconnected");
   const response = receive(server, 5000);
   server.send({ _tag }, () => {});
-  return decodeResource(await response).metrics;
+  const metrics = decodeResource(await response).metrics;
+  if (_tag === "netbench-resource-stop") stoppedServerResources = metrics;
+  return metrics;
 };
 const cleanup = async () => {
   clientMeter?.stop();

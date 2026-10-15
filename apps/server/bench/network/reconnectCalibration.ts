@@ -165,7 +165,7 @@ export async function calibrate(manifest: Manifest, report: (message: string) =>
     for (const profile of rates.values()) {
       for (const direction of ["down", "up"] as const) {
         const configured = profile[direction].rateKbit;
-        report(`calibrating ${profile.name} ${direction} throughput at ${configured} kbit/s`);
+        report(`calibrating zero-delay/zero-loss ${direction} rate at ${configured} kbit/s`);
         applyProfile(
           {
             ...profile,
@@ -188,6 +188,7 @@ export async function calibrate(manifest: Manifest, report: (message: string) =>
           const ratio = result.kbitPerSecond / configured;
           bulkRows.push({
             profile: profile.name,
+            impairmentModel: "zero-delay-zero-jitter-zero-loss-rate-only",
             ...result,
             configuredKbit: configured,
             ratio,

@@ -287,7 +287,9 @@ The optional measurement plans use clean loopback, 50 ms RTT, and 50 ms RTT with
 resume inputs, 45 operation inputs, 30 overlap inputs, or 15 fallback inputs per
 transport. Both directions have a configured 100 Mbit/s rate. Before application
 cases, calibration verifies packetization, numbered UDP echoes for each profile,
-and TCP throughput in each direction for each distinct configured rate. Failed
+and TCP throughput in each direction for each distinct configured rate. Rate
+checks remove delay, jitter and loss, so they validate the configured cap rather
+than throughput under the full profile. Failed
 calibration prevents application measurements. `--calibrate-only` saves that
 evidence without running application cases. Inputs and MTU 1280 are frozen in
 the manifest. Cases rotate variant order and require
