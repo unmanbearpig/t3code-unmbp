@@ -18,7 +18,9 @@ const row = (
   result: {
     totalMs,
     shellLiveMs: totalMs + 20,
-    selectedTransport: "wss",
+    selectedTransport: "websocket",
+    selections: [{ transport: "websocket", atMs: 0 }],
+    nativeEvidence: null,
     serverRequests: [],
     stages: [],
     requests: {},

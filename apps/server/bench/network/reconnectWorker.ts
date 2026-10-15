@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { OperationControlResponse } from "./operationsFixture.ts";
 import { ResourceResponse, startProcessMeasurement } from "./resourceUsage.ts";
+import { makeBenchmarkConnector } from "./productionConnector.ts";
 import { ReconnectCase } from "./reconnectManifest.ts";
 import { runReconnect } from "./reconnectClient.ts";
 import { serverPort } from "./reconnectNetwork.ts";
@@ -20,7 +21,7 @@ const decodeReady = Schema.decodeUnknownSync(
   ),
 );
 const decodeControl = Schema.decodeUnknownSync(Schema.toCodecJson(OperationControlResponse));
-const [entryFile, cert, key, scratch, queue] = process.argv.slice(2);
+const [entryFile, cert, key, scratch, queue, mode = "websocket"] = process.argv.slice(2);
 if (!entryFile || !cert || !key || !scratch || !queue) throw new Error("Missing worker arguments");
 const entry = Schema.decodeSync(Schema.fromJsonString(ReconnectCase))(
   NodeFS.readFileSync(entryFile, "utf8"),
@@ -46,6 +47,12 @@ try {
       server.send({ count: entry.workload === "idle" ? 0 : 20 });
       return decodeControl(await response);
     }).pipe(Effect.orDie);
+  if (mode !== "websocket" && mode !== "webtransport")
+    throw new Error("Unsupported benchmark transport");
+  const native =
+    mode === "webtransport"
+      ? await makeBenchmarkConnector(NodeFS.readFileSync(cert, "utf8"))
+      : undefined;
   controller = await startController(entry, Number(queue));
   const resourceRequest = async (_tag: "netbench-resource-start" | "netbench-resource-stop") => {
     const response = receive(server);
@@ -64,6 +71,8 @@ try {
         initial: ready.initial,
         advance,
         startController: controller.start,
+        requestedTransport: mode,
+        ...(native ? { connector: native.connector, nativeEvidence: native.evidence } : {}),
       }),
     ).pipe(Effect.timeout(entry.timeoutMs)),
   );

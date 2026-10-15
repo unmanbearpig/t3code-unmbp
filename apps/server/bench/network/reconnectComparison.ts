@@ -11,7 +11,26 @@ const Stage = Schema.Struct({
 export const ReconnectResult = Schema.Struct({
   totalMs: Schema.Number,
   shellLiveMs: Schema.Number,
-  selectedTransport: Schema.Literal("wss"),
+  selectedTransport: Schema.Literals(["websocket", "webtransport"]),
+  selections: Schema.Array(
+    Schema.Struct({
+      transport: Schema.optionalKey(Schema.Literals(["websocket", "webtransport"])),
+      atMs: Schema.Number,
+    }),
+  ),
+  nativeEvidence: Schema.NullOr(
+    Schema.Struct({
+      constructed: Schema.Number,
+      connectReady: Schema.Number,
+      controlStreamsOpened: Schema.Number,
+      requestStreamsOpened: Schema.Number,
+      closedByOwner: Schema.Number,
+      aborted: Schema.Number,
+      admissionPath: Schema.String,
+      ticketPresent: Schema.Boolean,
+      reliability: Schema.String,
+    }),
+  ),
   serverRequests: Schema.Array(
     Schema.Struct({
       path: Schema.String,

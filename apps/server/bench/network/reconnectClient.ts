@@ -12,7 +12,6 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as PubSub from "effect/PubSub";
 import * as Stream from "effect/Stream";
-import * as Schema from "effect/Schema";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { FetchHttpClient, HttpClient } from "effect/http";
 import * as Socket from "effect/socket/Socket";
@@ -33,6 +32,10 @@ import {
 import * as Capabilities from "../../../../packages/client-runtime/src/platform/capabilities.ts";
 import * as Persistence from "../../../../packages/client-runtime/src/platform/persistence.ts";
 import * as ManagedRelay from "../../../../packages/client-runtime/src/relay/managedRelay.ts";
+import type { ReliableConnector } from "@t3tools/shared/rpcWebTransport";
+import { RpcWebTransportConnector } from "../../../../packages/client-runtime/src/platform/rpcWebTransport.ts";
+import { observeRpcSessionFactory } from "./rpcObservation.ts";
+import type { NativeConnectionEvidence } from "./productionConnector.ts";
 import * as Session from "../../../../packages/client-runtime/src/rpc/session.ts";
 import * as BoundedSnapshot from "../../../../packages/client-runtime/src/state/boundedThreadSnapshotHttp.ts";
 import * as History from "../../../../packages/client-runtime/src/state/threadHistoryController.ts";
@@ -48,8 +51,6 @@ import {
 import { observeHttpClient } from "./reconnectHttp.ts";
 import { operationStateError, waitForOperationState } from "./operationState.ts";
 import type { ReconnectCase } from "./reconnectManifest.ts";
-
-const decodeFrame = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
 export interface Stage {
   readonly name: string;
@@ -75,12 +76,17 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   readonly initial: OperationControlResponse;
   readonly advance: () => Effect.Effect<OperationControlResponse, Error>;
   readonly startController: () => void;
+  readonly connector?: ReliableConnector;
+  readonly nativeEvidence?: NativeConnectionEvidence;
+  readonly requestedTransport: "websocket" | "webtransport";
 }) {
   let start = 0;
   let measurementStartMs = 0;
   const stages: Stage[] = [];
   const requests: Record<string, number> = {};
   let sockets = 0;
+  let selectedTransport: Session.RpcSession["transport"];
+  const selections: { transport: Session.RpcSession["transport"]; atMs: number }[] = [];
   let events = 0;
   let snapshots = 0;
   let sequence = input.initial.sequence;
@@ -90,53 +96,46 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   let activeSocketPort: number | undefined;
   const isShort =
     input.entry.workload === "short-probe" || input.entry.workload === "network-changed";
-  const requestTags = new Map<string, unknown>();
   const stamp = (name: string) => {
     if (start) stages.push({ name, atMs: performance.now() - start });
   };
-  const observe = (text: string, outgoing: boolean) => {
-    const decoded = decodeFrame(text);
-    for (const message of Array.isArray(decoded) ? decoded : [decoded]) {
-      if (!Predicate.hasProperty(message, "_tag")) continue;
-      if (outgoing && message._tag === "Request" && Predicate.hasProperty(message, "tag")) {
-        if (Predicate.hasProperty(message, "id")) requestTags.set(String(message.id), message.tag);
-        if (message.tag === "orchestration.subscribeShell") stamp("shell-subscribe");
-        if (message.tag === "server.probe") stamp("probe-request");
-        if (message.tag === "subscribeServerConfig") stamp("config-request");
-        if (message.tag === "orchestration.subscribeThread") stamp("subscribe");
+  const observation = {
+    session: (
+      event: "start" | "selected" | "ready",
+      transport?: Session.RpcSession["transport"],
+    ) => {
+      stamp(`session-${event}`);
+      if (event === "selected") {
+        selectedTransport = transport;
+        if (start) selections.push({ transport, atMs: performance.now() - start });
       }
-      if (
-        outgoing ||
-        message._tag !== "Chunk" ||
-        !Predicate.hasProperty(message, "values") ||
-        !Array.isArray(message.values)
-      )
-        continue;
-      const tag = Predicate.hasProperty(message, "requestId")
-        ? requestTags.get(String(message.requestId))
-        : undefined;
-      for (const value of message.values) {
-        if (tag === "orchestration.subscribeShell") {
-          if (Predicate.hasProperty(value, "kind") && value.kind === "synchronized")
-            stamp("shell-synchronized");
-          continue;
-        }
-        if (Predicate.hasProperty(value, "config")) stamp("config");
-        if (!start || !Predicate.hasProperty(value, "kind")) continue;
-        if (value.kind === "snapshot") snapshots++;
-        if (value.kind === "event") {
-          events++;
-          if (!Predicate.hasProperty(value, "sequence") || value.sequence !== sequence + 1)
-            sequenceError = true;
-          if (Predicate.hasProperty(value, "sequence") && typeof value.sequence === "number")
-            sequence = value.sequence;
-        }
-        if (value.kind === "synchronized") {
-          stamp("synchronized");
-          Deferred.doneUnsafe(synchronized, Effect.void);
-        }
+    },
+    request: (tag: string) => {
+      if (tag === "orchestration.subscribeShell") stamp("shell-subscribe");
+      if (tag === "session-probe") stamp("probe-request");
+      if (tag === "orchestration.subscribeThread") stamp("subscribe");
+    },
+    value: (tag: string, value: unknown) => {
+      if (tag === "initialConfig" || tag === "subscribeServerConfig") stamp("config");
+      if (!Predicate.hasProperty(value, "kind")) return;
+      if (tag === "orchestration.subscribeShell") {
+        if (value.kind === "synchronized") stamp("shell-synchronized");
+        return;
       }
-    }
+      if (!start || tag !== "orchestration.subscribeThread") return;
+      if (value.kind === "snapshot") snapshots++;
+      if (value.kind === "event") {
+        events++;
+        if (!Predicate.hasProperty(value, "sequence") || value.sequence !== sequence + 1)
+          sequenceError = true;
+        if (Predicate.hasProperty(value, "sequence") && typeof value.sequence === "number")
+          sequence = value.sequence;
+      }
+      if (value.kind === "synchronized") {
+        stamp("synchronized");
+        Deferred.doneUnsafe(synchronized, Effect.void);
+      }
+    },
   };
   const socketConstructor: Socket.WebSocketConstructor["Service"] = (url, options) => {
     sockets++;
@@ -166,17 +165,6 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       stamp("socket-open");
       if (!socket.extensions.includes("permessage-deflate")) throw new Error("Deflate missing");
     });
-    socket.on("message", (data) => observe(data.toString(), false));
-    const send = socket.send.bind(socket);
-    socket.send = (
-      data,
-      options?: Parameters<NodeWebSocket["send"]>[1] | ((error?: Error) => void),
-      callback?: (error?: Error) => void,
-    ) => {
-      observe(String(data), true);
-      if (typeof options === "function") send(data, options);
-      else send(data, options ?? {}, callback);
-    };
     return socket;
   };
   const httpBase = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
@@ -184,6 +172,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   const unused = Effect.die(new Error("Unrelated platform service used by reconnect"));
   const platform = Layer.mergeAll(
     Layer.succeed(HttpClient.HttpClient, http),
+    ...(input.connector ? [Layer.succeed(RpcWebTransportConnector, input.connector)] : []),
     Layer.succeed(Socket.WebSocketConstructor, socketConstructor),
     Layer.succeed(Capabilities.ClientPresentation, { metadata: { surface: "mobile" } }),
     Layer.mock(Capabilities.CloudSession)({ identity: Effect.succeedNone }),
@@ -204,7 +193,12 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   const authorization = RemoteAuthorization.layer.pipe(Layer.provideMerge(platform));
   const connectionLayers = Driver.layer.pipe(
     Layer.provide(Resolver.layer),
-    Layer.provide(Session.layer({})),
+    Layer.provide(
+      Layer.effect(
+        Session.RpcSessionFactory,
+        Effect.map(Session.make({}), (factory) => observeRpcSessionFactory(factory, observation)),
+      ),
+    ),
     Layer.provide(authorization),
   );
   const context = yield* Layer.build(connectionLayers);
@@ -313,6 +307,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   sockets = events = snapshots = 0;
   sequence = input.initial.sequence;
   sequenceError = false;
+  const nativeBefore = input.nativeEvidence ? { ...input.nativeEvidence } : undefined;
   const before = linkCounters();
   const shellDone = yield* Deferred.make<number>();
   const applied = yield* Effect.forkChild(
@@ -369,18 +364,20 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     snapshots ||
     events !== (input.entry.workload === "idle" ? 0 : 50) ||
     sequence !== expected.sequence ||
-    sockets !== 1
+    selections.length !== 1 ||
+    selectedTransport !== input.requestedTransport ||
+    sockets !== (selectedTransport === "websocket" ? 1 : 0)
   )
     return yield* Effect.die(
       new Error(
         error ??
-          `Invalid replay: sequenceError=${sequenceError} snapshots=${snapshots} events=${events} sequence=${sequence} sockets=${sockets}`,
+          `Invalid replay: sequenceError=${sequenceError} snapshots=${snapshots} events=${events} sequence=${sequence} sockets=${sockets} selected=${selectedTransport} requested=${input.requestedTransport}`,
       ),
     );
   const requiredStages = [
-    "socket-start",
-    "socket-open",
-    "config-request",
+    "session-start",
+    "session-selected",
+    "session-ready",
     "config",
     "subscribe",
     "synchronized",
@@ -398,7 +395,20 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     measurementStartMs,
     totalMs,
     shellLiveMs,
-    selectedTransport: "wss" as const,
+    selectedTransport: selectedTransport!,
+    selections,
+    nativeEvidence:
+      input.nativeEvidence && nativeBefore
+        ? {
+            ...input.nativeEvidence,
+            constructed: input.nativeEvidence.constructed - nativeBefore.constructed,
+            connectReady: input.nativeEvidence.connectReady - nativeBefore.connectReady,
+            controlStreamsOpened:
+              input.nativeEvidence.controlStreamsOpened - nativeBefore.controlStreamsOpened,
+            requestStreamsOpened:
+              input.nativeEvidence.requestStreamsOpened - nativeBefore.requestStreamsOpened,
+          }
+        : null,
     stages,
     requests,
     bytes: after.bytes - before.bytes,

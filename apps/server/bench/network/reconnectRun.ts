@@ -29,6 +29,7 @@ const { values } = NodeUtil.parseArgs({
     manifest: { type: "string" },
     "write-manifest": { type: "string" },
     variants: { type: "string" },
+    transports: { type: "string" },
     out: { type: "string" },
     "dry-run": { type: "boolean" },
     help: { type: "boolean", short: "h" },
@@ -41,9 +42,10 @@ if (values.help) {
   --manifest FILE       Exact frozen inputs, including custom subsets
   --write-manifest FILE Write inputs and exit without starting listeners
   --variants A=/worktree,B=/worktree  Pair clean committed worktrees, rotating order
+  --transports websocket,webtransport Pair the same revision with/without its real connector
   --dry-run             Print manifest hash and planned case counts
 Uses production client resolver/auth/session/supervisor and thread/shell reducers.
-The current fixture supports WSS only and reports its actual selected transport.
+Supply websocket or webtransport, with actual selection checked for every cold connection.
 Every fixture runs in a private user/network/PID namespace with MTU 1280.`);
   process.exit(0);
 }
@@ -59,7 +61,7 @@ if (values["write-manifest"]) {
   process.exit(0);
 }
 const root = NodePath.resolve(import.meta.dirname, "../../../..");
-const variants = (values.variants ?? `baseline=${root}`).split(",").map((spec) => {
+const baseVariants = (values.variants ?? `baseline=${root}`).split(",").map((spec) => {
   const index = spec.indexOf("=");
   const name = spec.slice(0, index),
     path = spec.slice(index + 1);
@@ -72,10 +74,20 @@ const variants = (values.variants ?? `baseline=${root}`).split(",").map((spec) =
   return { name, path };
 });
 if (
-  new Set(variants.map((v) => v.name)).size !== variants.length ||
-  new Set(variants.map((v) => NodeFS.realpathSync(v.path))).size !== variants.length
+  new Set(baseVariants.map((v) => v.name)).size !== baseVariants.length ||
+  new Set(baseVariants.map((v) => NodeFS.realpathSync(v.path))).size !== baseVariants.length
 )
   throw new Error("Variant names and worktrees must be distinct");
+const transports = (values.transports ?? "websocket").split(",");
+if (
+  !transports.length ||
+  new Set(transports).size !== transports.length ||
+  transports.some((mode) => mode !== "websocket" && mode !== "webtransport")
+)
+  throw new Error("--transports requires websocket and/or webtransport");
+const variants = baseVariants.flatMap((variant) =>
+  transports.map((transport) => ({ ...variant, name: `${variant.name}/${transport}`, transport })),
+);
 if (values["dry-run"]) {
   console.log(
     JSON.stringify(
@@ -233,7 +245,7 @@ try {
       applyProfile(entry.profile, entry.seed, manifest.queuePackets);
       active = NodeChildProcess.fork(
         NodePath.join(variant.path, "apps/server/bench/network/reconnectWorker.ts"),
-        [entryFile, cert, key, scratch, String(manifest.queuePackets)],
+        [entryFile, cert, key, scratch, String(manifest.queuePackets), variant.transport],
         {
           cwd: variant.path,
           stdio: ["ignore", "inherit", "inherit", "ipc"],
