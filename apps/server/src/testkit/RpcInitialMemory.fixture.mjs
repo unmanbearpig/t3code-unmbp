@@ -15,7 +15,7 @@ const [Effect, Stream, Layer, Deferred, Fiber] = await Promise.all(
 const app = (file) => import(NodeURL.pathToFileURL(root + "/apps/server/src/" + file + ".ts"));
 const [Prefix, Ws, Threads, Events] = await Promise.all([
   app("rpcInitialItems"),
-  app("ws"),
+  app("AuthenticatedRpcSession"),
   app("orchestration-v2/ThreadManagementService"),
   app("persistence/OrchestrationEventStore"),
 ]);
