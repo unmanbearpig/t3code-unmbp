@@ -44,7 +44,7 @@ import * as ProjectStore from "../../src/orchestration-v2/ProjectStore.ts";
 import * as ProjectEnrichmentService from "../../src/project/ProjectEnrichmentService.ts";
 import * as OrchestrationHttp from "../../src/orchestration-v2/http.ts";
 import * as ServerHttp from "../../src/http.ts";
-import { subscribeOrchestrationV2Thread } from "../../src/ws.ts";
+import { subscribeOrchestrationV2Thread } from "../../src/AuthenticatedRpcSession.ts";
 import {
   THREAD_HISTORY_PAGE_POLICY,
   THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,

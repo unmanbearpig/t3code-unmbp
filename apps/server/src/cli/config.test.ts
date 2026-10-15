@@ -37,6 +37,7 @@ const minimalDesktopFlags = (baseDir: string) => ({
   bootstrapFd: Option.none<number>(),
   autoBootstrapProjectFromCwd: Option.none<boolean>(),
   logWebSocketEvents: Option.none<boolean>(),
+  rpcWebTransport: Option.none<string>(),
   tailscaleServeEnabled: Option.none<boolean>(),
   tailscaleServePort: Option.none<number>(),
 });
@@ -94,6 +95,39 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         }),
     );
   });
+
+  it.effect(
+    "keeps RPC WebTransport opt-in grouped and gives the CLI precedence over environment",
+    () =>
+      Effect.gen(function* () {
+        for (const [flag, env, expected] of [
+          [undefined, undefined, undefined],
+          [undefined, "invalid environment JSON", "invalid environment JSON"],
+          ["invalid CLI JSON", "environment", "invalid CLI JSON"],
+        ] as const) {
+          const config = yield* resolveServerConfig(
+            {
+              ...minimalDesktopFlags(NodeOS.tmpdir()),
+              rpcWebTransport: Option.fromUndefinedOr(flag),
+            },
+            Option.none(),
+          ).pipe(
+            Effect.provide(
+              Layer.merge(
+                NetService.layer,
+                ConfigProvider.layer(
+                  ConfigProvider.fromEnv({
+                    env: env === undefined ? {} : { T3CODE_RPC_WEBTRANSPORT: env },
+                  }),
+                ),
+              ),
+            ),
+          );
+          // Validation is listener-local, so even malformed opt-in cannot stop WSS.
+          expect(config.rpcWebTransport).toBe(expected);
+        }
+      }),
+  );
 
   it.effect("keeps stale records and supervised startup out of the manual launch preflight", () =>
     Effect.gen(function* () {
@@ -158,6 +192,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         bootstrapFd: Option.none<number>(),
         autoBootstrapProjectFromCwd: Option.none<boolean>(),
         logWebSocketEvents: Option.none<boolean>(),
+        rpcWebTransport: Option.none<string>(),
         tailscaleServeEnabled: Option.none<boolean>(),
         tailscaleServePort: Option.none<number>(),
       };
@@ -202,6 +237,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         bootstrapFd: Option.none<number>(),
         autoBootstrapProjectFromCwd: Option.none<boolean>(),
         logWebSocketEvents: Option.none<boolean>(),
+        rpcWebTransport: Option.none<string>(),
         tailscaleServeEnabled: Option.none<boolean>(),
         tailscaleServePort: Option.none<number>(),
       };
@@ -249,6 +285,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.none(),
           logWebSocketEvents: Option.none(),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -322,6 +359,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.some(true),
           logWebSocketEvents: Option.some(true),
+          rpcWebTransport: Option.none(),
           tailscaleServeEnabled: Option.some(true),
           tailscaleServePort: Option.some(8443),
         },
@@ -400,6 +438,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.some(false),
           logWebSocketEvents: Option.some(false),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -480,6 +519,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.none(),
           logWebSocketEvents: Option.none(),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -579,6 +619,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.none(),
           logWebSocketEvents: Option.none(),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -640,6 +681,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.none(),
           logWebSocketEvents: Option.none(),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -716,6 +758,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.none(),
           logWebSocketEvents: Option.none(),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -787,6 +830,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.none(),
           logWebSocketEvents: Option.none(),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -836,6 +880,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.none(),
           logWebSocketEvents: Option.none(),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -876,6 +921,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.none(),
           logWebSocketEvents: Option.none(),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -938,6 +984,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.none(),
           logWebSocketEvents: Option.none(),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -981,6 +1028,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.none(),
           logWebSocketEvents: Option.none(),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -1026,6 +1074,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.none(),
           logWebSocketEvents: Option.none(),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -1066,6 +1115,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           bootstrapFd: Option.none(),
           autoBootstrapProjectFromCwd: Option.none(),
           logWebSocketEvents: Option.none(),
+          rpcWebTransport: Option.none<string>(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
         },
@@ -1098,6 +1148,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     bootstrapFd: Option.none<number>(),
     autoBootstrapProjectFromCwd: Option.none<boolean>(),
     logWebSocketEvents: Option.none<boolean>(),
+    rpcWebTransport: Option.none<string>(),
     tailscaleServeEnabled: Option.none<boolean>(),
     tailscaleServePort: Option.none<number>(),
   });

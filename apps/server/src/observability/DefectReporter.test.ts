@@ -11,7 +11,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { Rpc, RpcClient, RpcGroup, RpcServer } from "effect/rpc";
 
-import { WS_RPC_SERVER_OPTIONS } from "../ws.ts";
+import { WS_RPC_SERVER_OPTIONS } from "../AuthenticatedRpcSession.ts";
 import * as DefectReporter from "./DefectReporter.ts";
 
 class TestRpcs extends RpcGroup.make(
@@ -41,7 +41,7 @@ describe("DefectReporter", () => {
     withErrorLogs((logs) =>
       Effect.gen(function* () {
         const subscription = yield* Queue.unbounded<number>();
-        // The same client/server pairing as RpcTest.makeClient, with ws.ts's options.
+        // The same client/server pairing as RpcTest.makeClient, with the authenticated runner's options.
         let client!: Effect.Success<
           ReturnType<typeof RpcClient.makeNoSerialization<TestRpc, never>>
         >;
@@ -49,7 +49,7 @@ describe("DefectReporter", () => {
           ...WS_RPC_SERVER_OPTIONS,
           onFromServer: (response) => client.write(response),
         }).pipe(
-          // Provided to the handlers, as ws.ts does.
+          // Provided to the handlers, as AuthenticatedRpcSession does.
           Effect.provide(
             TestRpcs.toLayer({
               subscribe: () => Stream.fromQueue(subscription),
