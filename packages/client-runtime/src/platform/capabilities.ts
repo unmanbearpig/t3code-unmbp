@@ -7,6 +7,7 @@ import {
 import * as Context from "effect/Context";
 import type * as Effect from "effect/Effect";
 import type * as Option from "effect/Option";
+import type * as Socket from "effect/socket/Socket";
 
 import type { ConnectionAttemptError } from "../connection/model.ts";
 
@@ -46,6 +47,12 @@ export class ClientPresentation extends Context.Service<
     readonly metadata: AuthClientPresentationMetadata;
   }
 >()("@t3tools/client-runtime/platform/capabilities/ClientPresentation") {}
+
+/** Optional platform constructor that can put credentials in upgrade headers. */
+export class WebSocketConstructorWithHeaders extends Context.Service<
+  WebSocketConstructorWithHeaders,
+  (url: string, headers: Readonly<Record<string, string>>) => Socket.WebSocketLike
+>()("@t3tools/client-runtime/platform/capabilities/WebSocketConstructorWithHeaders") {}
 
 export class PrimaryEnvironmentAuth extends Context.Service<
   PrimaryEnvironmentAuth,
