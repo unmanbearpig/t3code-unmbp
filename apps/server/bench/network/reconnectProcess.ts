@@ -11,10 +11,75 @@ export function benchmarkLockArguments(
   command: readonly string[],
 ) {
   return [
+    "--no-fork",
     ...(waitForLock ? ["--exclusive"] : ["-n", "--conflict-exit-code", "75"]),
     lockPath,
     ...command,
   ];
+}
+
+/** The tracked PID stays the locker/namespace guard; fixture work needs an explicit start grant. */
+export function controlBenchmarkCommand(child: NodeChildProcess.ChildProcess) {
+  let phase: "waiting" | "active" | "finished" = "waiting";
+  let cancellation: "SIGINT" | "SIGTERM" | undefined;
+  const send = (message: string) => {
+    if (!child.connected) {
+      child.kill("SIGTERM");
+      return;
+    }
+    child.send(message, (error) => {
+      if (error && phase !== "finished") child.kill("SIGTERM");
+    });
+  };
+  const onMessage = (message: unknown) => {
+    if (message !== "benchmark-lock-ready" || phase !== "waiting") return;
+    if (cancellation) child.kill(cancellation);
+    else {
+      phase = "active";
+      send("benchmark-start");
+    }
+  };
+  child.on("message", onMessage);
+  const done = new Promise<number>((resolve, reject) => {
+    child.once("error", (error) => {
+      phase = "finished";
+      child.off("message", onMessage);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      phase = "finished";
+      child.off("message", onMessage);
+      resolve(code ?? (signal === "SIGINT" ? 130 : signal === "SIGTERM" ? 143 : 1));
+    });
+  });
+  return {
+    done,
+    interrupt(signal: "SIGINT" | "SIGTERM") {
+      if (phase === "finished" || cancellation) return;
+      cancellation = signal;
+      if (phase === "waiting") child.kill(signal);
+      else send("interrupt");
+    },
+  };
+}
+
+/** Called after interruption handlers exist and before namespace setup, calibration or listeners. */
+export function awaitBenchmarkStart() {
+  if (!process.send) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const onMessage = (message: unknown) => {
+      if (message !== "benchmark-start") return;
+      process.off("message", onMessage);
+      resolve();
+    };
+    process.on("message", onMessage);
+    process.send!("benchmark-lock-ready", (error) => {
+      if (error) {
+        process.off("message", onMessage);
+        reject(error);
+      }
+    });
+  });
 }
 
 export async function stopChild(child: NodeChildProcess.ChildProcess | undefined) {

@@ -9,7 +9,13 @@ import * as Effect from "effect/Effect";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { makeManifest, manifestHash, validateManifest, variantOrder } from "./reconnectManifest.ts";
 import { applyProfile } from "./reconnectNetwork.ts";
-import { benchmarkLockArguments, receive, stopChild } from "./reconnectProcess.ts";
+import {
+  awaitBenchmarkStart,
+  benchmarkLockArguments,
+  controlBenchmarkCommand,
+  receive,
+  stopChild,
+} from "./reconnectProcess.ts";
 import { prepareLoopback } from "./impairments.ts";
 import { calibrate } from "./reconnectCalibration.ts";
 import { ReconnectResult, summarize, type ReconnectRow } from "./reconnectComparison.ts";
@@ -177,24 +183,15 @@ if (process.env.RPC_RECONNECT_NETNS !== "1") {
       },
     },
   );
-  const interrupt = () =>
-    child.send("interrupt", (error) => {
-      if (error) child.kill("SIGKILL");
-    });
-  process.once("SIGINT", interrupt);
-  process.once("SIGTERM", interrupt);
-  process.exit(
-    await new Promise<number>((resolve, reject) => {
-      child.once("error", reject);
-      child.once("exit", (code) => {
-        if (code === 75)
-          console.error(
-            "Another reconnect benchmark holds the shared host lock; no fixture was started.",
-          );
-        resolve(code ?? 1);
-      });
-    }),
-  );
+  const command = controlBenchmarkCommand(child);
+  process.once("SIGINT", () => command.interrupt("SIGINT"));
+  process.once("SIGTERM", () => command.interrupt("SIGTERM"));
+  const exitCode = await command.done;
+  if (exitCode === 75)
+    console.error(
+      "Another reconnect benchmark holds the shared host lock; no fixture was started.",
+    );
+  process.exit(exitCode);
 }
 NodeFS.mkdirSync(out, { recursive: true });
 const scratch = NodeFS.mkdtempSync(
@@ -207,7 +204,10 @@ const cleanup = async () => {
   await stopChild(active);
   NodeFS.rmSync(scratch, { recursive: true, force: true });
 };
+let stopping = false;
 const interrupted = () => {
+  if (stopping) return;
+  stopping = true;
   void cleanup().finally(() => process.exit(143));
 };
 process.once("SIGTERM", interrupted);
@@ -233,6 +233,7 @@ const save = () => {
   });
 };
 try {
+  await awaitBenchmarkStart();
   prepareLoopback(scratch, true, undefined, manifest.mtu);
   write("manifest.json", manifest);
   write("environment.json", {
