@@ -61,6 +61,7 @@ import {
 import { projectThreadProjectionForWire } from "../../src/orchestration-v2/WireProjection.ts";
 import {
   operationMessageEvents,
+  operationMessageText,
   operationServerConfig,
   operationThreadCreated,
   operationThreadId,
@@ -325,7 +326,7 @@ await Effect.runPromise(
             ...operationThreadCreated.payload,
             id,
             projectId: ProjectId.make(i % 8 === 0 ? "operation-project" : `bench-project-${i % 8}`),
-            title: `Thread ${i}: ${operationMessageEvents.name} ${String(i * 7919).padStart(8, "0")} deterministic shell fixture`,
+            title: `Thread ${i}: ${operationMessageText(i).slice(0, 100)}`,
             lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: id },
           },
         };
