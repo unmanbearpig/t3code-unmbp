@@ -123,13 +123,23 @@ function layerPairingHttp(
 }
 
 describe("connection onboarding", () => {
-  it.effect("prepares a persisted bearer registration from pairing details", () =>
+  it.effect.each([false, true])("keeps HTTPS pairing discovery with experiment=%s", (enabled) =>
     Effect.gen(function* () {
       const calls: Array<{ readonly url: string; readonly init: RequestInit }> = [];
       const registration = yield* preparePairingRegistration({
         host: "remote.example.test",
         pairingCode: "pairing-token",
-      }).pipe(Effect.provide(Layer.mergeAll(layerClientPresentation, layerPairingHttp(calls))));
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            layerClientPresentation,
+            layerPairingHttp(calls),
+            Layer.succeed(ClientCapabilities.ExperimentalReconnectOptions, {
+              skipDescriptorOnHttpsReconnect: enabled,
+            }),
+          ),
+        ),
+      );
 
       expect(registration).toMatchObject({
         _tag: "BearerConnectionRegistration",
