@@ -24,14 +24,31 @@ server.startServer();
 await server.ready;
 console.log(JSON.stringify({ url: `https://127.0.0.1:${server.address().port}/probe` }));
 
-async function serveStream(stream) {
+async function serveStream(stream, cancellation) {
   const reader = stream.readable.getReader();
   const writer = stream.writable.getWriter();
   const first = await reader.read();
   if (first.done) return;
   if (first.value[0] === 1) {
-    // Cancellation probe: leave this stream pending while its sibling completes.
-    await reader.read();
+    // The pinned backend exposes received stream error codes in its public errors' messages.
+    const reset = reader.read().then(
+      () => "unexpected readable completion",
+      (error) => error.message,
+    );
+    const stop = writer.closed.then(
+      () => "unexpected writable completion",
+      (error) => error.message,
+    );
+    await writer.write(Uint8Array.of(1));
+    const [resetError, stopError] = await Promise.all([reset, stop]);
+    cancellation.resolve(
+      `reset=${resetError.replace(/^Resetstream with code:/, "")};stop=${stopError.replace(/^StopSending with code:/, "")}`,
+    );
+    return;
+  }
+  if (first.value[0] === 2) {
+    await writer.write(new TextEncoder().encode(await cancellation.promise));
+    await writer.close();
     return;
   }
   if (first.value.length > 1) await writer.write(first.value.subarray(1));
@@ -50,11 +67,13 @@ void (async () => {
     void (async () => {
       await session.ready;
       session.closed.catch(() => {});
+      const cancellation = {};
+      cancellation.promise = new Promise((resolve) => { cancellation.resolve = resolve; });
       const streams = session.incomingBidirectionalStreams.getReader();
       for (;;) {
         const { value, done } = await streams.read();
         if (done) return;
-        void serveStream(value).catch(() => {});
+        void serveStream(value, cancellation).catch(() => {});
       }
     })().catch((error) => console.error(error.message));
   }

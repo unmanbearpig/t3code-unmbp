@@ -10,6 +10,14 @@ use wtransport::{
 const DEADLINE: Duration = Duration::from_secs(15);
 const TICKET: &str = "isolated-fixture-ticket";
 
+// wtransport 0.7.2 forwards raw QUIC codes. WebTransport reserves this HTTP/3
+// range and skips HTTP/3's reserved values. See draft-ietf-webtrans-http3 section 4.4.
+fn stream_error_code(application_code: u32) -> VarInt {
+    let code = u64::from(application_code);
+    VarInt::try_from_u64(0x52e4_a40f_a8db + code + code / 0x1e)
+        .expect("all WebTransport u32 application error codes fit a QUIC varint")
+}
+
 fn options(url: &str, ticket: &str) -> ConnectOptions {
     ConnectOptions::builder(url)
         .add_header("origin", "https://t3-probe.invalid")
@@ -74,12 +82,35 @@ async fn suite(url: &str, hash: Sha256Digest) -> Result<()> {
     .await??;
     println!("PASS 16 concurrent independent streams, 1 MiB verified");
 
-    let (mut canceled_send, canceled_receive) = connection.open_bi().await?.await?;
-    canceled_send.write_all(&[1]).await?;
-    canceled_send.reset(VarInt::from_u32(17))?;
-    canceled_receive.stop(VarInt::from_u32(18));
+    timeout(DEADLINE, async {
+        let (mut canceled_send, mut canceled_receive) = connection.open_bi().await?.await?;
+        canceled_send.write_all(&[1]).await?;
+        let mut ready = [0];
+        // Wait for the peer to identify the probe stream before discarding its send data.
+        canceled_receive.read_exact(&mut ready).await?;
+        ensure!(ready == [1], "peer did not acknowledge cancellation probe");
+        canceled_send.reset(stream_error_code(17))?;
+        canceled_receive.stop(stream_error_code(18));
+
+        let (mut status_send, mut status_receive) = connection.open_bi().await?.await?;
+        status_send.write_all(&[2]).await?;
+        status_send.finish().await?;
+        let expected = b"reset=17;stop=18";
+        let mut status = [0; 16];
+        status_receive.read_exact(&mut status).await?;
+        ensure!(
+            &status == expected,
+            "peer cancellation codes differ: {status:?}"
+        );
+        ensure!(
+            status_receive.read(&mut [0]).await?.is_none(),
+            "unexpected cancellation result bytes"
+        );
+        Result::<()>::Ok(())
+    })
+    .await??;
     timeout(DEADLINE, echo(&connection, b"after-reset".to_vec())).await??;
-    println!("PASS reset/stop stream followed by healthy sibling stream");
+    println!("PASS peer observed RESET_STREAM=17 and STOP_SENDING=18; sibling stream healthy");
 
     connection.close(VarInt::from_u32(0), b"probe complete");
     timeout(DEADLINE, connection.closed()).await?;
@@ -126,5 +157,19 @@ pub unsafe extern "C" fn t3_apple_webtransport_probe(
             1
         }
         Err(_) => 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stream_error_code;
+
+    #[test]
+    fn stream_errors_match_specification_boundaries() {
+        assert_eq!(stream_error_code(0).into_inner(), 0x52e4_a40f_a8db);
+        assert_eq!(stream_error_code(29).into_inner(), 0x52e4_a40f_a8f8);
+        // The next HTTP/3 value is reserved and must be skipped.
+        assert_eq!(stream_error_code(30).into_inner(), 0x52e4_a40f_a8fa);
+        assert_eq!(stream_error_code(u32::MAX).into_inner(), 0x52e5_ac98_3162);
     }
 }
