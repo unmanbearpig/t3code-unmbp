@@ -550,6 +550,10 @@ export class EnvironmentAuth extends Context.Service<
     readonly authenticateHttpRequest: (
       request: HttpServerRequest.HttpServerRequest,
     ) => Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError>;
+    /** Bearer-only: no request, cookies, tickets, or ambient authority. */
+    readonly authenticateWebSocketFrame: (
+      token: string,
+    ) => Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError>;
     readonly authenticateWebSocketUpgrade: (
       request: HttpServerRequest.HttpServerRequest,
     ) => Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError>;
@@ -1250,6 +1254,21 @@ export const make = Effect.gen(function* () {
   ) =>
     authenticateRequest(request).pipe(Effect.withSpan("EnvironmentAuth.authenticateHttpRequest"));
 
+  const authenticateWebSocketFrame: EnvironmentAuth["Service"]["authenticateWebSocketFrame"] = (
+    token,
+  ) =>
+    authenticateToken(token).pipe(
+      Effect.flatMap((session) =>
+        session.proofKeyThumbprint || session.method !== "bearer-access-token"
+          ? Effect.fail(
+              new ServerAuthInvalidCredentialError({
+                diagnostic: "Frame authentication requires an unbound bearer access token.",
+              }),
+            )
+          : Effect.succeed(session),
+      ),
+    );
+
   const authenticateWebSocketUpgrade: EnvironmentAuth["Service"]["authenticateWebSocketUpgrade"] =
     Effect.fn("EnvironmentAuth.authenticateWebSocketUpgrade")(function* (request) {
       const requestUrl = HttpServerRequest.toURL(request);
@@ -1371,6 +1390,7 @@ export const make = Effect.gen(function* () {
     revokeOtherClientSessions,
     authenticateHttpRequest,
     authenticateWebSocketUpgrade,
+    authenticateWebSocketFrame,
     issueWebSocketTicket,
     issueStartupPairingUrl,
     authenticateMcpClient,

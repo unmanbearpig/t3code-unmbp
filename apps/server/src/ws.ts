@@ -1,3 +1,6 @@
+import { RECONNECT_HANDSHAKE_QUERY_PARAM, RECONNECT_HANDSHAKE_MODE } from "@t3tools/contracts";
+import * as HelloUpgrade from "./auth/HelloUpgrade.ts";
+import * as WebSocketHello from "./auth/WebSocketHello.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -3163,7 +3166,14 @@ export const layerWebSocketRoute = <R>(
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const requestUrl = HttpServerRequest.toURL(request);
-      if (Option.isNone(requestUrl) || !hasCompatibleOrchestrationProtocol(requestUrl.value)) {
+      const isHello =
+        Option.isSome(requestUrl) &&
+        requestUrl.value.searchParams.get(RECONNECT_HANDSHAKE_QUERY_PARAM) ===
+          RECONNECT_HANDSHAKE_MODE;
+      if (
+        !isHello &&
+        (Option.isNone(requestUrl) || !hasCompatibleOrchestrationProtocol(requestUrl.value))
+      ) {
         return HttpServerResponse.jsonUnsafe(
           {
             code: "orchestration_protocol_incompatible",
@@ -3176,17 +3186,42 @@ export const layerWebSocketRoute = <R>(
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
       const sessions = yield* SessionStore.SessionStore;
       const analytics = yield* AnalyticsService.AnalyticsService;
-      const session = yield* serverAuth.authenticateWebSocketUpgrade(request).pipe(
-        Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, (error) =>
-          failEnvironmentAuthInvalid(
-            EnvironmentAuth.serverAuthCredentialReason(error),
-            EnvironmentAuth.serverAuthDpopFailureReason(error),
+      let rpcRequest = request;
+      const framed = isHello
+        ? yield* Effect.gen(function* () {
+            const environment = yield* ServerEnvironment.ServerEnvironment;
+            const descriptor = yield* environment.getDescriptor;
+            if (descriptor.capabilities.websocketHello !== 1) return undefined;
+            const socket = yield* Effect.orDie(request.upgrade);
+            return yield* WebSocketHello.authenticate(socket, {
+              _tag: "Hello",
+              handshakeVersion: 1,
+              environment: descriptor,
+              resume: { threadResumeCompletionMarker: true, shellResumeCompletionMarker: true },
+            });
+          })
+        : undefined;
+      if (isHello && framed === undefined) return HttpServerResponse.empty({ status: 400 });
+      if (framed !== undefined) {
+        HelloUpgrade.authenticated(request.source);
+        rpcRequest = new Proxy(request, {
+          get: (target, key, receiver) =>
+            key === "upgrade" ? Effect.succeed(framed.socket) : Reflect.get(target, key, receiver),
+        });
+      }
+      const session =
+        framed?.session ??
+        (yield* serverAuth.authenticateWebSocketUpgrade(request).pipe(
+          Effect.catchIf(EnvironmentAuth.isServerAuthCredentialError, (error) =>
+            failEnvironmentAuthInvalid(
+              EnvironmentAuth.serverAuthCredentialReason(error),
+              EnvironmentAuth.serverAuthDpopFailureReason(error),
+            ),
           ),
-        ),
-        Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
-          failEnvironmentInternal("internal_error", error),
-        ),
-      );
+          Effect.catchIf(EnvironmentAuth.isServerAuthInternalError, (error) =>
+            failEnvironmentInternal("internal_error", error),
+          ),
+        ));
       const clientOrigin = readClientConnectionOrigin(request);
       const clientAnalyticsProps = readClientAnalyticsProps(request);
       yield* sessions.recordClientConnection(session.sessionId, clientOrigin);
@@ -3196,7 +3231,9 @@ export const layerWebSocketRoute = <R>(
         sessions.markConnected(session.sessionId),
         () =>
           Effect.raceFirst(
-            rpcWebSocketHttpEffect,
+            rpcWebSocketHttpEffect.pipe(
+              Effect.provideService(HttpServerRequest.HttpServerRequest, rpcRequest),
+            ),
             sessions.awaitInvalidation(session.sessionId).pipe(
               Effect.as(HttpServerResponse.empty()),
               Effect.catchTags({

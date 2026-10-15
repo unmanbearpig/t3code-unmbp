@@ -5,6 +5,7 @@ import {
   type ExecutionEnvironmentDescriptor,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Config from "effect/Config";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -205,6 +206,9 @@ export const make = Effect.gen(function* () {
   const desktopAppUpdate =
     serverSelfUpdate === "desktop-managed" && serverConfig.desktopTelemetryControlFd !== undefined;
 
+  const helloEnabled = yield* Config.Boolean("T3CODE_EXPERIMENTAL_RECONNECT_HELLO").pipe(
+    Config.withDefault(false),
+  );
   const descriptor: ExecutionEnvironmentDescriptor = {
     environmentId,
     label,
@@ -216,6 +220,7 @@ export const make = Effect.gen(function* () {
     serverVersion: packageJson.version,
     orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
     capabilities: {
+      ...(helloEnabled ? { websocketHello: 1 as const } : {}),
       repositoryIdentity: true,
       connectionProbe: true,
       attachmentUploads: true,
