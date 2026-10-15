@@ -74,10 +74,13 @@
     "@t3tools/web": "workspace:*",
     "@types/node": "catalog:",
     "@types/proper-lockfile": "^4.1.4",
+    "@types/ws": "catalog:",
     "@types/yauzl": "^3.4.0",
     "effect-acp": "workspace:*",
     "effect-codex-app-server": "workspace:*",
-    "vite-plus": "catalog:"
+    "undici": "8.3.0",
+    "vite-plus": "catalog:",
+    "ws": "catalog:"
   },
   "engines": {
     "node": "^22.16 || ^23.11 || >=24.10"
