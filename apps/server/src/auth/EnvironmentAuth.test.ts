@@ -12,6 +12,7 @@ import * as Layer from "effect/Layer";
 import * as Redacted from "effect/Redacted";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -692,6 +693,46 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       } as never);
       expect(state.authenticated).toBe(false);
     }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web" }))),
+  );
+
+  it.effect("authenticates paired mobile bearer upgrades with the same scopes as tickets", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const pairing = yield* serverAuth.issuePairingCredential({ scopes: ["orchestration:read"] });
+      const bearer = yield* serverAuth.exchangeBootstrapCredentialForAccessToken(
+        pairing.credential,
+        undefined,
+        { deviceType: "mobile", os: "iOS", label: "Paired iPhone" },
+      );
+      const url = new URL(
+        "https://box.tail1234.ts.net/ws?clientSurface=mobile&connectionMethod=direct",
+      );
+      const headerRequest = HttpServerRequest.fromWeb(
+        new Request(url, { headers: { authorization: `Bearer ${bearer.access_token}` } }),
+      );
+      const headerSession = yield* serverAuth.authenticateWebSocketUpgrade(headerRequest);
+      const ticket = yield* serverAuth.issueWebSocketTicket(headerSession);
+      url.searchParams.set("wsTicket", ticket.ticket);
+      const ticketRequest = HttpServerRequest.fromWeb(new Request(url));
+      const ticketSession = yield* serverAuth.authenticateWebSocketUpgrade(ticketRequest);
+
+      expect(headerSession).toEqual(ticketSession);
+      expect(headerSession.method).toBe("bearer-access-token");
+      expect(headerSession.scopes).toEqual(["orchestration:read"]);
+      const clients = yield* serverAuth.listClientSessions(headerSession.sessionId);
+      expect(clients[0]?.client).toMatchObject({
+        deviceType: "mobile",
+        os: "iOS",
+        label: "Paired iPhone",
+      });
+
+      yield* sessions.revoke(headerSession.sessionId);
+      for (const request of [headerRequest, ticketRequest]) {
+        const rejected = yield* serverAuth.authenticateWebSocketUpgrade(request).pipe(Effect.flip);
+        expect(rejected._tag).toBe("ServerAuthInvalidCredentialError");
+      }
+    }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "192.168.1.50" }))),
   );
 
   it.effect("keeps bearer socket upgrades independent of the page origin", () =>
