@@ -198,6 +198,27 @@ export const issueRemoteDpopWebSocketTicket = Effect.fn(
   );
 });
 
+export const remoteWebSocketUrl = (
+  input: {
+    readonly wsBaseUrl: string;
+    readonly clientMetadata?: AuthClientPresentationMetadata;
+    readonly connectionMethod?: ClientConnectionMethod;
+  },
+  ticket?: string,
+): string => {
+  const url = new URL(input.wsBaseUrl);
+  if (url.pathname === "" || url.pathname === "/") {
+    url.pathname = "/ws";
+  }
+  // A saved URL must not let a stale ticket override upgrade header auth.
+  url.searchParams.delete("wsTicket");
+  if (ticket !== undefined) {
+    url.searchParams.set("wsTicket", ticket);
+  }
+  appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod);
+  return url.toString();
+};
+
 export const resolveRemoteWebSocketConnectionUrl = Effect.fn(
   "clientRuntime.authorization.resolveRemoteWebSocketConnectionUrl",
 )(function* (input: {
@@ -214,13 +235,7 @@ export const resolveRemoteWebSocketConnectionUrl = Effect.fn(
     ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
   });
 
-  const url = new URL(input.wsBaseUrl);
-  if (url.pathname === "" || url.pathname === "/") {
-    url.pathname = "/ws";
-  }
-  url.searchParams.set("wsTicket", issued.ticket);
-  appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod);
-  return url.toString();
+  return remoteWebSocketUrl(input, issued.ticket);
 });
 
 export const resolveRemoteDpopWebSocketConnectionUrl = Effect.fn(
@@ -240,11 +255,5 @@ export const resolveRemoteDpopWebSocketConnectionUrl = Effect.fn(
     dpopProof: input.dpopProof,
     ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
   });
-  const url = new URL(input.wsBaseUrl);
-  if (url.pathname === "" || url.pathname === "/") {
-    url.pathname = "/ws";
-  }
-  url.searchParams.set("wsTicket", issued.ticket);
-  appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod);
-  return url.toString();
+  return remoteWebSocketUrl(input, issued.ticket);
 });
