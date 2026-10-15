@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
+import { warmupCase } from "./reconnectWarmup.ts";
 import { isFullShellSnapshot } from "./reconnectObservation.ts";
 import { backgroundClock } from "./reconnectClock.ts";
 import * as Stream from "effect/Stream";
@@ -212,4 +213,22 @@ it("distinguishes full shell fallback from the production metadata-only resume p
     }),
   ).toBe(false);
   expect(isFullShellSnapshot({ kind: "synchronized" })).toBe(false);
+});
+
+it("warms every HTTP/HTTPS, route count, and replay path without retaining state", () => {
+  const cases = Array.from({ length: 20 }, (_, i) => warmupCase(0, "baseline", i));
+  expect(cases.slice(0, 2).map((c) => [c.scheme, c.routes, c.workload])).toEqual([
+    ["https", 2, "idle"],
+    ["https", 2, "replay-50"],
+  ]);
+  expect(new Set(cases.slice(0, 8).map((c) => `${c.scheme}/${c.routes}/${c.workload}`)).size).toBe(
+    8,
+  );
+  expect(new Set(cases.map((c) => c.id)).size).toBe(20);
+  expect(
+    cases.every(
+      (c) =>
+        c.profile.down.delayMs === 10 && c.profile.schedule.length === 0 && !c.profile.stochastic,
+    ),
+  ).toBe(true);
 });

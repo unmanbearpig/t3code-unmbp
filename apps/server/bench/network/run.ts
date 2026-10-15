@@ -14,6 +14,7 @@ import {
   manifestHash,
   makeLifecycleManifest,
 } from "./reconnectManifest.ts";
+import { warmupCase } from "./reconnectWarmup.ts";
 import { scheduleLanes } from "./reconnectSchedule.ts";
 import { mailbox, stopChild } from "./reconnectProcess.ts";
 import { VariantOptions, defaultVariantOptions } from "./reconnectOptions.ts";
@@ -261,6 +262,8 @@ try {
     cpu: NodeOS.cpus()[0]?.model,
     laneCount,
     cpuSets,
+    warmups: Number(values.warmups),
+    freshWorkers: values["fresh-workers"] === true,
     variants: variants.map((variant) => ({ ...variant, ...state(variant.path) })),
   });
   NodeChildProcess.execFileSync(
@@ -352,23 +355,7 @@ try {
             const epoch = `${process.pid}-${lane}-${groupIndex}-${variant.name}`;
             if (!values["fresh-workers"] && !warmed.has(variant.name)) {
               for (let warmup = 0; warmup < warmupCount; warmup++) {
-                const entry = {
-                  id: `warmup/${lane}/${variant.name}/${warmup}`,
-                  profile: {
-                    name: "warmup-good",
-                    down: { delayMs: 10, jitterMs: 0, rateKbit: 100000 },
-                    up: { delayMs: 10, jitterMs: 0, rateKbit: 100000 },
-                    stochastic: false,
-                    schedule: [],
-                  },
-                  workload: warmup % 2 ? "replay-50" : "idle",
-                  scheme: "https",
-                  routes: 2,
-                  repetition: 1,
-                  seed: 104729,
-                  phaseMs: 0,
-                  timeoutMs: 60000,
-                };
+                const entry = warmupCase(lane, variant.name, warmup);
                 lanes[lane]!.send({
                   path: variant.path,
                   epoch: `${epoch}-warmup-${warmup}`,
