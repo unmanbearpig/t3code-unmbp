@@ -5,6 +5,7 @@ import * as NodeDgram from "node:dgram";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeURL from "node:url";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { ORCHESTRATION_PROTOCOL_VERSION, AuthSessionId, EnvironmentId } from "@t3tools/contracts";
@@ -138,6 +139,147 @@ const configLayer = (raw: string | undefined) =>
 const startupLayer = Layer.mock(ServerRuntimeStartup.ServerRuntimeStartup)({
   awaitCommandReady: Effect.void,
 });
+
+it.effect.each(["cancel", "timeout", "ready rejection", "start failure"] as const)(
+  "finishes logical cleanup after %s and stops a late ready listener exactly once",
+  (mode) =>
+    Effect.gen(function* () {
+      const cert = yield* certificates();
+      yield* TestClock.setTime(
+        Date.parse(new NodeCrypto.X509Certificate(cert.cert).validFrom) + 1000,
+      );
+      const started = Promise.withResolvers<PendingServer>();
+      const stopped = Promise.withResolvers<void>();
+      const endpoint = yield* Ref.make(Option.none<{ url: string; wireVersion: number }>());
+      let publications = 0;
+      class PendingServer {
+        readonly readiness = Promise.withResolvers<void>();
+        readonly ready = this.readiness.promise;
+        // Native closure is deliberately pending throughout logical cleanup.
+        readonly closed = new Promise<void>(() => {});
+        readonly incoming = new ReadableStream<unknown>();
+        request!: (input: { header: unknown }) => Promise<object>;
+        stops = 0;
+        startServer() {
+          started.resolve(this);
+          if (mode === "start failure") throw new Error("fixture synchronous startup failure");
+        }
+        stopServer() {
+          this.stops++;
+          stopped.resolve();
+        }
+        setRequestCallback(callback: typeof this.request) {
+          this.request = callback;
+        }
+        sessionStream() {
+          return this.incoming;
+        }
+      }
+      yield* Effect.gen(function* () {
+        const listener = yield* WebTransportListener.WebTransportListener;
+        const fiber = yield* listener.listen.pipe(Effect.forkScoped);
+        const native = yield* Effect.promise(() => started.promise);
+        if (mode === "cancel") {
+          yield* Fiber.interrupt(fiber);
+        } else {
+          if (mode === "timeout") yield* TestClock.adjust("5 seconds");
+          if (mode === "ready rejection") {
+            native.readiness.reject(new Error("fixture DNS failure"));
+          }
+          yield* Fiber.join(fiber);
+        }
+        expect(native.stops).toBe(0);
+        expect(publications).toBe(0);
+        expect(Option.isNone(yield* Ref.get(endpoint))).toBe(true);
+        expect(yield* Effect.promise(() => native.request({ header: {} }))).toEqual({
+          status: 403,
+          path: "/rpc",
+        });
+        if (mode === "ready rejection") {
+          // A rejected public promise cannot establish safe native ownership.
+          native.readiness.resolve();
+          yield* Effect.promise(() => Promise.resolve());
+          expect(native.stops).toBe(0);
+        } else {
+          native.readiness.resolve();
+          yield* Effect.promise(() => stopped.promise);
+          expect(native.stops).toBe(1);
+        }
+        expect(publications).toBe(0);
+        expect(Option.isNone(yield* Ref.get(endpoint))).toBe(true);
+      }).pipe(
+        Effect.provide(
+          WebTransportListener.layer.pipe(
+            Layer.provide(
+              Layer.succeed(WebTransportBackend.WebTransportBackend, {
+                load: Effect.succeed({
+                  Http3Server:
+                    PendingServer as unknown as typeof import("@fails-components/webtransport").Http3Server,
+                }),
+              }),
+            ),
+            Layer.provide(
+              Layer.succeed(WebTransportAvailability.WebTransportAvailability, {
+                get: Ref.get(endpoint),
+                set: (value) =>
+                  Ref.set(endpoint, value).pipe(
+                    Effect.andThen(
+                      Effect.sync(() => {
+                        if (Option.isSome(value)) publications++;
+                      }),
+                    ),
+                  ),
+              }),
+            ),
+            Layer.provide(Layer.mock(AuthenticatedRpcSession.AuthenticatedRpcSession)({})),
+            Layer.provide(Layer.mock(EnvironmentAuth.EnvironmentAuth)({})),
+            Layer.provide(
+              Layer.mock(ServerEnvironment.ServerEnvironmentIdentity)({
+                getEnvironmentId: Effect.succeed(EnvironmentId.make("fixture")),
+              }),
+            ),
+            Layer.provide(startupLayer),
+            Layer.provide(configLayer(JSON.stringify({ ...validConfig, ...cert }))),
+          ),
+        ),
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.live(
+  "survives cancellation during the pinned native backend's DNS initialization without a socket",
+  (test) =>
+    Effect.gen(function* () {
+      const backend = yield* WebTransportBackend.WebTransportBackend;
+      if (Option.isNone(yield* backend.load.pipe(Effect.option))) {
+        return test.skip("Optional QUIC backend unavailable");
+      }
+      const cert = yield* certificates();
+      const child = yield* Effect.promise(
+        () =>
+          new Promise<{ error: Error | null; stdout: string; stderr: string }>((resolve) => {
+            NodeChildProcess.execFile(
+              process.execPath,
+              [
+                NodeURL.fileURLToPath(
+                  new URL("./testkit/WebTransportListenerStartup.fixture.ts", import.meta.url),
+                ),
+                cert.certPath,
+                cert.keyPath,
+              ],
+              { timeout: 15_000, killSignal: "SIGKILL" },
+              (error, stdout, stderr) => resolve({ error, stdout, stderr }),
+            );
+          }),
+      );
+      expect(child.error, child.stderr || child.stdout).toBeNull();
+      expect(child.stdout).toContain('"stops":1,"sockets":1,"closes":1,"publications":0');
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(Layer.merge(WebTransportBackend.layer, NodeServices.layer)),
+    ),
+  { timeout: 20_000 },
+);
 
 it.effect(
   "does not load the optional backend when disabled, malformed, or missing certificate files",
