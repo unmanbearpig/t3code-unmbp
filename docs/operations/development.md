@@ -241,7 +241,7 @@ within the same fixture and distinguish them from total system or mobile costs.
 
 The separate reconnect runner uses the production resolver, bearer authorization,
 session factory, supervisor, shell loader and thread reducers. It compares WSS
-with the optional production QUIC connector on the same committed revision. Both
+with the production QUIC protocol through a Node connector on the same committed revision. Both
 modes start the real QUIC listener and WSS route. Discovery, ticket admission,
 session ownership, revocation, protocol shutdown and terminal flow control use
 production code. Controlled handlers replace provider execution and the full
