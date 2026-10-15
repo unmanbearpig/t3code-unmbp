@@ -708,12 +708,14 @@ export const make = Effect.gen(function* () {
           // the equivalent runtime. Anything not yet connected may be using the
           // old bearer: an attempt in flight would fail with it and then wait
           // blocked for a manual retry. Retry with the new one instead. A
-          // connected session keeps its socket.
+          // connected session keeps its socket, but a retry invalidates any
+          // preparation made by a pending health probe with the old bearer.
           if (bearerReplaced) {
             const scope = (yield* SubscriptionRef.get(serviceScopes)).get(target.environmentId);
             if (scope !== undefined) {
               const state = yield* SubscriptionRef.get(scope.supervisor.state);
               if (
+                state.phase === "connected" ||
                 state.phase === "connecting" ||
                 state.phase === "backoff" ||
                 (state.phase === "blocked" &&

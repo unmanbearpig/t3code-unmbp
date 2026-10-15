@@ -1,3 +1,4 @@
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -16,7 +17,7 @@ import type {
 import { ConnectionTransientError } from "./model.ts";
 import * as ConnectionResolver from "./resolver.ts";
 import * as ConnectionDescriptors from "./descriptors.ts";
-import { connectionRoutes, routeEntry, routeHttpBaseUrl, routeHelloEndpoint } from "./routes.ts";
+import { connectionRouteId, connectionRoutes, routeEntry, routeHttpBaseUrl, routeHelloEndpoint } from "./routes.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as RemoteAuthorization from "../authorization/service.ts";
 import * as RpcSession from "../rpc/session.ts";
@@ -30,6 +31,12 @@ export type ConnectionDriverProgress =
       readonly stage: Exclude<ConnectionAttemptStage, "preparing">;
       readonly prepared: PreparedConnection;
     };
+
+export interface ConnectionPreparation {
+  readonly connect: (
+    reportProgress: (progress: ConnectionDriverProgress) => Effect.Effect<void>,
+  ) => Effect.Effect<EnvironmentConnectionLease, ConnectionAttemptError, Scope.Scope>;
+}
 
 export interface EnvironmentConnectionLease {
   readonly prepared: PreparedConnection;
@@ -48,6 +55,9 @@ const ROUTE_CHECK_TIMEOUT_MS = 2_500;
 export class ConnectionDriver extends Context.Service<
   ConnectionDriver,
   {
+    readonly prepare: (
+      entry: ConnectionCatalogEntry,
+    ) => Effect.Effect<ConnectionPreparation, ConnectionAttemptError, Scope.Scope>;
     readonly connect: (
       entry: ConnectionCatalogEntry,
       reportProgress: (progress: ConnectionDriverProgress) => Effect.Effect<void>,
@@ -83,12 +93,12 @@ export class ConnectionDriver extends Context.Service<
  * so the supervisor keeps retrying a route that may come back; a blocked
  * error is reported only when every attempted route was blocked.
  */
-export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")(function* <R>(
+export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")(function* <A, R>(
   entry: ConnectionCatalogEntry,
   checkRoute: (route: ConnectionRoute) => Effect.Effect<RouteCheck>,
   connectRoute: (
     route: ConnectionRoute,
-  ) => Effect.Effect<EnvironmentConnectionLease, ConnectionAttemptError, R | Scope.Scope>,
+  ) => Effect.Effect<A, ConnectionAttemptError, R | Scope.Scope>,
 ) {
   const routes = connectionRoutes(entry);
   const checks =
@@ -139,6 +149,58 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
   );
 });
 
+/**
+ * Primes route checks and authorization without opening a socket. The returned
+ * connection attempt retains normal route fallback, including preparation errors.
+ */
+export const prepareOverRoutes = Effect.fn("ConnectionDriver.prepareOverRoutes")(function* (
+  entry: ConnectionCatalogEntry,
+  checkRoute: (route: ConnectionRoute) => Effect.Effect<RouteCheck>,
+  prepareRoute: (
+    route: ConnectionRoute,
+  ) => Effect.Effect<PreparedConnection, ConnectionAttemptError>,
+  open: (
+    prepared: PreparedConnection,
+    reportProgress: (progress: ConnectionDriverProgress) => Effect.Effect<void>,
+  ) => Effect.Effect<EnvironmentConnectionLease, ConnectionAttemptError, Scope.Scope>,
+) {
+  const startedAt = yield* Clock.monotonicTimeNanos;
+  const startedAtMillis = yield* Clock.currentTimeMillis;
+  // A probe normally lasts at most 3s. Use a much shorter lifetime than the
+  // server's 5-minute ticket expiry, including time spent preparing or suspended.
+  const fresh = Effect.gen(function* () {
+    return (
+      (yield* Clock.monotonicTimeNanos) - startedAt < 10_000_000_000n &&
+      (yield* Clock.currentTimeMillis) - startedAtMillis < 10_000
+    );
+  });
+  const routes = yield* Effect.forEach(connectionRoutes(entry), (route) =>
+    Effect.gen(function* () {
+      const check = yield* Effect.cached(checkRoute(route));
+      const prepare = yield* Effect.cached(prepareRoute(route));
+      return [connectionRouteId(route.target), { check, prepare }] as const;
+    }),
+  );
+  const cached = new Map(routes);
+  const check = (route: ConnectionRoute) => cached.get(connectionRouteId(route.target))!.check;
+  const prepare = (route: ConnectionRoute) => cached.get(connectionRouteId(route.target))!.prepare;
+  yield* connectOverRoutes(entry, check, prepare);
+  return {
+    connect: (reportProgress) =>
+      connectOverRoutes(
+        entry,
+        (route) =>
+          fresh.pipe(Effect.flatMap((valid) => (valid ? check(route) : checkRoute(route)))),
+        Effect.fnUntraced(function* (route) {
+          const prepared = yield* fresh.pipe(
+            Effect.flatMap((valid) => (valid ? prepare(route) : prepareRoute(route))),
+          );
+          return yield* open(prepared, reportProgress);
+        }),
+      ),
+  } satisfies ConnectionPreparation;
+});
+
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const resolver = yield* ConnectionResolver.ConnectionResolver;
@@ -182,6 +244,45 @@ export const make = Effect.gen(function* () {
       }),
     );
   };
+
+  const open = Effect.fnUntraced(function* (
+    prepared: PreparedConnection,
+    reportProgress: (progress: ConnectionDriverProgress) => Effect.Effect<void>,
+  ) {
+    yield* reportProgress({ stage: "opening", prepared });
+    const session = yield* sessions.connect(prepared);
+    yield* reportProgress({ stage: "synchronizing", prepared });
+    yield* session.ready;
+    return { prepared, session } satisfies EnvironmentConnectionLease;
+  });
+
+  const prepare = Effect.fn("ConnectionDriver.prepare")(function* (entry: ConnectionCatalogEntry) {
+    // Cached hello needs no HTTP preparation. Use the normal H path so its bounded
+    // legacy fallback and identity checks also apply after a failed quick probe.
+    const endpoint = routeHelloEndpoint(connectionRoutes(entry)[0]!);
+    if (
+      endpoint !== null && helloSupport !== undefined &&
+      (yield* helloSupport.has(entry.target.environmentId, endpoint.httpBaseUrl, endpoint.wsBaseUrl))
+    ) {
+      return { connect: (reportProgress) => connect(entry, reportProgress) } satisfies ConnectionPreparation;
+    }
+    const descriptorScope = yield* Scope.Scope;
+    const preparation = yield* prepareOverRoutes(
+      entry,
+      (route) => checkRoute(entry, route, descriptorScope),
+      (route) => resolver.prepare(routeEntry(entry, route)),
+      open,
+    ).pipe(
+      ConnectionDescriptors.withConnectionDescriptors,
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+    );
+    return {
+      connect: (reportProgress) => preparation.connect(reportProgress).pipe(
+        ConnectionDescriptors.withConnectionDescriptors,
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      ),
+    } satisfies ConnectionPreparation;
+  });
 
   const connect = Effect.fn("ConnectionDriver.connect")(function* (
     entry: ConnectionCatalogEntry,
@@ -294,6 +395,7 @@ export const make = Effect.gen(function* () {
     );
 
   return ConnectionDriver.of({
+    prepare,
     connect: (entry, reportProgress) =>
       connect(entry, reportProgress).pipe(
         ConnectionDescriptors.withConnectionDescriptors,
@@ -302,6 +404,7 @@ export const make = Effect.gen(function* () {
     checkRoute,
     preflight,
   });
+
 });
 
 export const layer = Layer.effect(ConnectionDriver, make);
