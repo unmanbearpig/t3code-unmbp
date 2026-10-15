@@ -210,7 +210,7 @@ export const make = Effect.gen(function* () {
         return yield* checkRoute(entry, route, descriptorScope).pipe(
           Effect.flatMap((check) =>
             check === "answered"
-              ? resolver.prepare(routeEntry(entry, route)).pipe(
+              ? resolver.prepare(routeEntry(entry, route), "preflight").pipe(
                   Effect.as(true),
                   Effect.orElseSucceed(() => false),
                 )
