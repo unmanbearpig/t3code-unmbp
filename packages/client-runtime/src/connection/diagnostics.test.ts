@@ -1,5 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
+import * as Exit from "effect/Exit";
+import * as TestClock from "effect/testing/TestClock";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
@@ -7,6 +11,7 @@ import {
   diagnosticHttpPath,
   diagnosticRoute,
   observePreparationHttp,
+  observeSessionScope,
   PreparationDiagnosticContext,
   type ConnectionDiagnosticEvent,
 } from "./diagnostics.ts";
@@ -86,4 +91,84 @@ it.effect(
       ]);
       expect(JSON.stringify(events)).not.toMatch(/secret|password|user|host/);
     }),
+);
+
+it.effect.each([0, 37])(
+  "measures %s ms of session release without including session lifetime",
+  (duration) =>
+    Effect.gen(function* () {
+      const events: ConnectionDiagnosticEvent[] = [];
+      const using = yield* Deferred.make<void>();
+      const finishUse = yield* Deferred.make<void>();
+      const releasing = yield* Deferred.make<void>();
+      const finishRelease = yield* Deferred.make<void>();
+      const fiber = yield* observeSessionScope(
+        Effect.gen(function* () {
+          yield* Effect.addFinalizer(() =>
+            Deferred.succeed(releasing, undefined).pipe(
+              Effect.andThen(Deferred.await(finishRelease)),
+            ),
+          );
+          yield* Deferred.succeed(using, undefined);
+          yield* Deferred.await(finishUse);
+          return 42;
+        }),
+        { record: (event) => events.push(event) },
+        "environment",
+      ).pipe(Effect.forkChild);
+      yield* Deferred.await(using);
+      yield* TestClock.adjust(1000);
+      const beforeRelease = [...events];
+      yield* Deferred.succeed(finishUse, undefined);
+      yield* Deferred.await(releasing);
+      const duringRelease = [...events];
+      yield* TestClock.adjust(duration);
+      yield* Deferred.succeed(finishRelease, undefined);
+      expect(yield* Fiber.join(fiber)).toBe(42);
+      expect(beforeRelease).toEqual([]);
+      expect(duringRelease).toMatchObject([
+        { kind: "cleanup", resource: "session", milestone: "started", durationMs: null },
+      ]);
+      expect(events.at(-1)).toMatchObject({
+        milestone: "finished",
+        durationMs: duration,
+        outcome: "completed",
+      });
+    }),
+);
+
+it.effect("retains interruption and waits for session finalizers before reporting release", () =>
+  Effect.gen(function* () {
+    const events: ConnectionDiagnosticEvent[] = [];
+    const using = yield* Deferred.make<void>();
+    const releasing = yield* Deferred.make<void>();
+    const finishRelease = yield* Deferred.make<void>();
+    const fiber = yield* observeSessionScope(
+      Effect.gen(function* () {
+        yield* Effect.addFinalizer(() =>
+          Deferred.succeed(releasing, undefined).pipe(
+            Effect.andThen(Deferred.await(finishRelease)),
+          ),
+        );
+        yield* Deferred.succeed(using, undefined);
+        return yield* Effect.never;
+      }),
+      { record: (event) => events.push(event) },
+      "environment",
+    ).pipe(Effect.forkChild);
+    yield* Deferred.await(using);
+    const interrupt = yield* Fiber.interrupt(fiber).pipe(Effect.forkChild);
+    yield* Deferred.await(releasing);
+    yield* TestClock.adjust(25);
+    const duringRelease = [...events];
+    yield* Deferred.succeed(finishRelease, undefined);
+    yield* Fiber.join(interrupt);
+    expect(duringRelease).toHaveLength(1);
+    expect(Exit.isFailure(yield* Fiber.await(fiber))).toBe(true);
+    expect(events.at(-1)).toMatchObject({
+      milestone: "finished",
+      durationMs: 25,
+      outcome: "interrupted",
+    });
+  }),
 );

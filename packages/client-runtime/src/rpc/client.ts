@@ -18,6 +18,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { RpcClientError } from "effect/rpc";
 
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
+import * as Diagnostics from "../connection/diagnostics.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import type { RpcSession } from "../rpc/session.ts";
 
@@ -288,6 +289,7 @@ export function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTa
     Effect.gen(function* () {
       const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
       const observer = yield* EnvironmentRpcSubscriptionObserver;
+      const diagnostics = yield* Diagnostics.ConnectionDiagnostics;
       const sessionChanges = SubscriptionRef.changes(supervisor.session);
       const sessions =
         options?.resubscribe === undefined
@@ -298,7 +300,12 @@ export function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTa
                 Stream.mapEffect(() => SubscriptionRef.get(supervisor.session)),
               ),
             );
-      return sessions.pipe(
+      let cancelCurrent = Effect.void;
+      // Observe the request before switchMap interrupts the old pull, whose own
+      // interruption handlers may already spend time cancelling RPC streams.
+      const observedSessions =
+        diagnostics === null ? sessions : sessions.pipe(Stream.tap(() => cancelCurrent));
+      return observedSessions.pipe(
         Stream.switchMap(
           Option.match({
             onNone: () => Stream.empty,
@@ -402,7 +409,33 @@ export function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTa
                     }),
                   ),
                 );
-              return subscribeToSession();
+              const stream = subscribeToSession();
+              if (diagnostics === null) return stream;
+              let finish:
+                | Effect.Success<ReturnType<typeof Diagnostics.startCleanupObservation>>
+                | undefined;
+              const beginCancellation = Effect.gen(function* () {
+                if (finish !== undefined) return;
+                finish = yield* Diagnostics.startCleanupObservation(diagnostics, {
+                  environmentId: supervisor.target.environmentId,
+                  resource: "subscription",
+                  method:
+                    tag === ORCHESTRATION_V2_WS_METHODS.subscribeShell
+                      ? "shell"
+                      : tag === ORCHESTRATION_V2_WS_METHODS.subscribeThread
+                        ? "thread"
+                        : "other",
+                });
+              });
+              cancelCurrent = beginCancellation;
+              return stream.pipe(
+                Stream.onExit((exit) =>
+                  Effect.suspend(() => {
+                    if (cancelCurrent === beginCancellation) cancelCurrent = Effect.void;
+                    return finish?.(exit) ?? Effect.void;
+                  }),
+                ),
+              );
             },
           }),
         ),

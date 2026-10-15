@@ -17,8 +17,12 @@ export interface ConnectionLogRecord {
   readonly backgroundMs: number | null;
   readonly route: Route | null;
   readonly oldSocket: "present" | "closed" | "absent" | "unknown";
+  readonly continuedFrom: string | null;
+  readonly sessionId: number | null;
   readonly probe: { readonly result: string; readonly durationMs: number | null } | null;
   readonly attempts: ReadonlyArray<{
+    readonly id: number | null;
+    readonly startedAfterMs: number | null;
     readonly stagesMs: Readonly<Record<"preparing" | "opening" | "synchronizing", number>>;
     readonly route: Route | null;
     readonly outcome: string;
@@ -31,6 +35,19 @@ export interface ConnectionLogRecord {
     readonly outcome: string;
   }>;
   readonly detailsTruncated: boolean;
+  readonly cleanup: ReadonlyArray<{
+    readonly id: number;
+    readonly resource: "session" | "subscription";
+    readonly method: "shell" | "thread" | "other" | null;
+    readonly startedAfterMs: number | null;
+    readonly durationMs: number | null;
+    readonly outcome: "completed" | "failed" | "interrupted" | null;
+  }>;
+  readonly shell: {
+    readonly liveAfterMs: number | null;
+    readonly completion: "marker" | "legacy" | null;
+    readonly outcome: "waiting" | "live" | "failed" | "unknown";
+  };
   readonly visibleThread: {
     readonly mode: "replay" | "snapshot" | null;
     readonly liveAfterMs: number | null;
@@ -57,6 +74,7 @@ export function createConnectionLog(
   changed: (record: ConnectionLogRecord) => void,
 ) {
   let sequence = 0;
+  let attemptSequence = 0;
   const contexts = new Map<string, MobileWakeupContext>();
   let visible: { environmentId: string; threadId: string } | null = null;
   const seen = new Map<string, number>();
@@ -104,8 +122,12 @@ export function createConnectionLog(
                 ? "unknown"
                 : "absent",
         probe: null,
+        continuedFrom: null,
+        sessionId: null,
         attempts: [],
         http: [],
+        cleanup: [],
+        shell: { liveAfterMs: null, completion: null, outcome: "waiting" },
         detailsTruncated: false,
         visibleThread: {
           mode: null,
@@ -125,6 +147,39 @@ export function createConnectionLog(
       wakeupAt: fromWakeup ? fromWakeup.at : null,
     };
     const previous = active.get(environmentId);
+    if (previous) {
+      const continuing = previous.record.attempts.at(-1)?.outcome === "pending";
+      const releasing = previous.record.cleanup.some((item) => item.outcome === null);
+      if (continuing || releasing) {
+        endStage(previous, time.monotonic);
+        const offset = previous.started - entry.started;
+        entry.record = {
+          ...entry.record,
+          continuedFrom: previous.record.id,
+          route: previous.record.route,
+          oldSocket: continuing ? previous.record.oldSocket : entry.record.oldSocket,
+          attempts: previous.record.attempts.map((attempt) => ({
+            ...attempt,
+            startedAfterMs:
+              attempt.startedAfterMs === null ? null : attempt.startedAfterMs + offset,
+          })),
+          http: previous.record.http,
+          cleanup: previous.record.cleanup.map((item) => ({
+            ...item,
+            startedAfterMs: item.startedAfterMs === null ? null : item.startedAfterMs + offset,
+          })),
+          detailsTruncated: previous.record.detailsTruncated,
+        };
+        entry.stage = previous.stage;
+        entry.stageStarted = previous.stageStarted;
+      }
+      if (hasSession)
+        entry.record = {
+          ...entry.record,
+          sessionId: previous.record.sessionId,
+          route: previous.record.route,
+        };
+    }
     if (previous?.record.outcome === "pending") {
       previous.record = { ...previous.record, outcome: "superseded" };
       publish(previous);
@@ -230,6 +285,8 @@ export function createConnectionLog(
           attempts: [
             ...entry.record.attempts.slice(-(DETAIL_LIMIT - 1)),
             {
+              id: ++attemptSequence,
+              startedAfterMs: now().monotonic - entry.started,
               stagesMs: { preparing: 0, opening: 0, synchronizing: 0 },
               route: null,
               outcome: "pending",
@@ -237,6 +294,7 @@ export function createConnectionLog(
             },
           ],
         };
+        entry.record = { ...entry.record, sessionId: null };
         entry.stage = null;
         closed.delete(event.environmentId);
       }
@@ -273,6 +331,7 @@ export function createConnectionLog(
             ...entry.record,
             outcome: event.outcome,
             error: event.error,
+            sessionId: event.outcome === "connected" ? (attempt?.id ?? null) : null,
             attempts: attempt
               ? [
                   ...entry.record.attempts.slice(0, -1),
@@ -282,6 +341,39 @@ export function createConnectionLog(
           };
           break;
         }
+        case "cleanup": {
+          const existing = entry.record.cleanup.find((item) => item.id === event.cleanupId);
+          const item = {
+            id: event.cleanupId,
+            resource: event.resource,
+            method: event.method ?? null,
+            startedAfterMs:
+              existing?.startedAfterMs ??
+              (event.milestone === "started" ? time - entry.started : null),
+            durationMs: event.durationMs,
+            outcome: event.outcome,
+          };
+          entry.record = {
+            ...entry.record,
+            cleanup: existing
+              ? entry.record.cleanup.map((value) => (value.id === item.id ? item : value))
+              : [...entry.record.cleanup.slice(-(DETAIL_LIMIT - 1)), item],
+            detailsTruncated:
+              entry.record.detailsTruncated ||
+              (!existing && entry.record.cleanup.length >= DETAIL_LIMIT),
+          };
+          break;
+        }
+        case "shell-sync":
+          entry.record = {
+            ...entry.record,
+            shell: {
+              liveAfterMs: event.milestone === "live" ? Math.max(0, time - entry.started) : null,
+              completion: event.completion,
+              outcome: event.milestone === "started" ? "waiting" : event.milestone,
+            },
+          };
+          break;
         case "probe":
           if (event.result === "started") entry.probeStarted = time;
           entry.record = {
@@ -401,6 +493,29 @@ const StoredRecord = Schema.Struct({
   backgroundMs: NullableNumber,
   route: Schema.NullOr(RouteSchema),
   oldSocket: Schema.Literals(["present", "closed", "absent", "unknown"]),
+  continuedFrom: Schema.optionalKey(
+    Schema.NullOr(Schema.String.check(Schema.isPattern(/^\d+-\d+$/))),
+  ),
+  sessionId: Schema.optionalKey(NullableNumber),
+  cleanup: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        id: Schema.Number,
+        resource: Schema.Literals(["session", "subscription"]),
+        method: Schema.NullOr(Schema.Literals(["shell", "thread", "other"])),
+        startedAfterMs: NullableNumber,
+        durationMs: NullableNumber,
+        outcome: Schema.NullOr(Schema.Literals(["completed", "failed", "interrupted"])),
+      }),
+    ).check(Schema.isMaxLength(DETAIL_LIMIT)),
+  ),
+  shell: Schema.optionalKey(
+    Schema.Struct({
+      liveAfterMs: NullableNumber,
+      completion: Schema.NullOr(Schema.Literals(["marker", "legacy"])),
+      outcome: Schema.Literals(["waiting", "live", "failed", "unknown"]),
+    }),
+  ),
   probe: Schema.NullOr(
     Schema.Struct({
       result: Schema.Literals(["started", "answered", "failed", "timeout", "interrupted"]),
@@ -409,6 +524,8 @@ const StoredRecord = Schema.Struct({
   ),
   attempts: Schema.Array(
     Schema.Struct({
+      id: Schema.optionalKey(NullableNumber),
+      startedAfterMs: Schema.optionalKey(NullableNumber),
       stagesMs: Schema.Struct({
         preparing: Schema.Number,
         opening: Schema.Number,
@@ -465,7 +582,23 @@ export function readConnectionLog(raw: string): ReadonlyArray<ConnectionLogRecor
       if (Option.isNone(decoded)) return [];
       const record = decoded.value;
       return [
-        { ...record, outcome: record.outcome === "pending" ? "process-ended" : record.outcome },
+        {
+          ...record,
+          continuedFrom: record.continuedFrom ?? null,
+          sessionId: record.sessionId ?? null,
+          attempts: record.attempts.map((attempt) => ({
+            ...attempt,
+            id: attempt.id ?? null,
+            startedAfterMs: attempt.startedAfterMs ?? null,
+          })),
+          cleanup: record.cleanup ?? [],
+          shell: record.shell ?? {
+            liveAfterMs: null,
+            completion: null,
+            outcome: "unknown" as const,
+          },
+          outcome: record.outcome === "pending" ? "process-ended" : record.outcome,
+        },
       ];
     });
   } catch {

@@ -20,6 +20,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import * as EnvironmentRegistry from "../connection/registry.ts";
+import * as Diagnostics from "../connection/diagnostics.ts";
 import { connectionProjectionPhase } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
@@ -89,6 +90,16 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   const snapshotLoader = yield* ShellSnapshotLoader.ShellSnapshotLoader;
   const wakeups = yield* Effect.serviceOption(ConnectionWakeups.ConnectionWakeups);
   const environmentId = supervisor.target.environmentId;
+  const diagnostics = yield* Diagnostics.ConnectionDiagnostics;
+  let diagnosticSyncActive = false;
+  let diagnosticCompletion: "marker" | "legacy" = "legacy";
+  const observeSync = (milestone: "started" | "live" | "failed") =>
+    diagnostics?.record({
+      environmentId,
+      kind: "shell-sync",
+      milestone,
+      completion: diagnosticCompletion,
+    });
   const cached = yield* cache.loadShell(environmentId).pipe(
     Effect.catch((error) =>
       Effect.logWarning("Could not load cached environment shell.").pipe(
@@ -176,6 +187,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   );
   const setStreamError = (error: unknown) =>
     Effect.sync(() => {
+      if (diagnosticSyncActive) {
+        diagnosticSyncActive = false;
+        observeSync("failed");
+      }
       if (activeSubscription !== undefined) {
         activeSubscription.synchronized = false;
         activeSubscription.failed = true;
@@ -272,6 +287,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       yield* Ref.set(latestLiveSnapshot, next.snapshot);
     }
     yield* SubscriptionRef.set(state, next);
+    if (diagnosticSyncActive && next.status === "live") {
+      diagnosticSyncActive = false;
+      observeSync("live");
+    }
     if (next.snapshot !== initial.snapshot && Option.isSome(next.snapshot)) {
       yield* Queue.offer(persistence, next.snapshot.value);
     }
@@ -384,6 +403,9 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         subscription.supportsCompletionMarker = supportsCompletionMarker;
         subscription.awaitingCompletion = supportsCompletionMarker;
         yield* setSynchronizing;
+        diagnosticSyncActive = diagnostics !== null;
+        diagnosticCompletion = supportsCompletionMarker ? "marker" : "legacy";
+        observeSync("started");
 
         // Config has no process identity. The lifecycle stream replays the
         // ready timestamp published once at startup, even on a fresh socket.
@@ -490,6 +512,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
             status: "live" as const,
             error: Option.none(),
           }));
+          if (diagnosticSyncActive) {
+            diagnosticSyncActive = false;
+            observeSync("live");
+          }
         }
         return {
           afterSequence: current.snapshot.value.snapshotSequence,
