@@ -87,6 +87,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
   readonly connector?: ReliableConnector;
   readonly nativeEvidence?: NativeConnectionEvidence;
   readonly requestedTransport: "websocket" | "webtransport";
+  readonly diagnostic?: (event: string, fields?: Readonly<Record<string, unknown>>) => void;
 }) {
   let start = 0;
   let measurementStartMs = 0;
@@ -106,6 +107,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     input.entry.workload === "short-probe" || input.entry.workload === "network-changed";
   const stamp = (name: string) => {
     if (start) stages.push({ name, atMs: performance.now() - start });
+    input.diagnostic?.("app-stage", { name, measuredMs: start ? performance.now() - start : null });
   };
   const observation = {
     session: (
@@ -114,6 +116,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
     ) => {
       stamp(`session-${event}`);
       if (event === "selected") {
+        input.diagnostic?.("app-transport-selected", { transport });
         selectedTransport = transport;
         if (start) selections.push({ transport, atMs: performance.now() - start });
       }
@@ -160,7 +163,26 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
       perMessageDeflate: true,
     });
     activeSocket = socket;
+    const connection = sockets;
+    socket.once("close", (code) => input.diagnostic?.("app-websocket-close", { connection, code }));
+    socket.once("error", (error) =>
+      input.diagnostic?.("app-websocket-error", {
+        connection,
+        name: error.name,
+        message: error.message,
+      }),
+    );
     socket.once("upgrade", (response) => {
+      if (input.diagnostic) {
+        const progress = () =>
+          input.diagnostic?.("socket-progress", {
+            connection,
+            bytesRead: response.socket.bytesRead,
+            bytesWritten: response.socket.bytesWritten,
+          });
+        response.socket.on("data", progress);
+        response.socket.once("close", progress);
+      }
       activeSocketPort = response.socket.localPort;
       if (
         input.entry.scheme === "https" &&
@@ -388,14 +410,21 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
               completedMs: completed - start,
               rttMs: completed - began,
             });
+            input.diagnostic?.("app-probe-result", {
+              startedMs: began - start,
+              completedMs: completed - start,
+              rttMs: completed - began,
+            });
           }),
         { concurrency: "unbounded" },
       ).pipe(Effect.forkChild);
       if (operation === "bulk-overlap") {
+        input.diagnostic?.("app-bulk-start", { operation });
         const projection = yield* session.client[ORCHESTRATION_V2_WS_METHODS.getThreadProjection]({
           threadId: operationThreadId,
         });
         totalMs = performance.now() - start;
+        input.diagnostic?.("app-bulk-complete", { totalMs });
         if (
           projection.messages.length !== expected.messages ||
           projection.visibleTurnItems.length !== expected.messages
@@ -411,6 +440,7 @@ export const runReconnect = Effect.fnUntraced(function* (input: {
             return yield* Effect.die("Corrupt deliberate bulk projection");
         }
       } else {
+        input.diagnostic?.("app-bulk-start", { operation });
         let received = 0;
         yield* session.client[WS_METHODS.terminalObserve]({
           threadId: operationThreadId,

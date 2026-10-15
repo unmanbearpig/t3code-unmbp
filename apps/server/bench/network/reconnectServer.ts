@@ -4,6 +4,7 @@ import * as NodeHttp from "node:http";
 import * as NodeHttps from "node:https";
 import * as NodeCrypto from "node:crypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import {
@@ -69,6 +70,7 @@ import * as ServerSettings from "../../src/serverSettings.ts";
 import * as ServerRuntimeStartup from "../../src/serverRuntimeStartup.ts";
 import * as WebTransportAvailability from "../../src/transport/WebTransportAvailability.ts";
 import * as WebTransportListener from "../../src/transport/WebTransportListener.ts";
+import * as WebTransportBackend from "../../src/transport/WebTransportBackend.ts";
 import * as Ws from "../../src/ws.ts";
 import { withTerminalOutputWindow } from "../../src/terminal/OutputProtocol.ts";
 import { wallClockMs } from "./protocol.ts";
@@ -78,6 +80,8 @@ import {
   THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,
 } from "../../src/orchestration-v2/threadHistoryPaging.ts";
 import { makeResourceControl } from "./resourceUsage.ts";
+import { makeReconnectDiagnostics } from "./reconnectDiagnostics.ts";
+import { installNativeDiagnostics } from "./reconnectNativeDiagnostics.ts";
 import {
   subscribeOrchestrationV2Thread,
   subscribeOrchestrationV2Shell,
@@ -97,6 +101,53 @@ const [scheme, portText, certPath, keyPath, scratch, workload] = process.argv.sl
 if (!scratch || !certPath || !keyPath || !portText || !["http", "https"].includes(scheme!))
   throw new Error("reconnectServer.ts http|https port cert key scratch");
 const port = Number(portText);
+const trace =
+  process.env.RPC_RECONNECT_TRACE === "1" ? makeReconnectDiagnostics("server") : undefined;
+const diagnosticBackend = Layer.effect(
+  WebTransportBackend.WebTransportBackend,
+  Effect.gen(function* () {
+    const backend = yield* WebTransportBackend.WebTransportBackend;
+    const platform = yield* HostProcess.Platform;
+    const arch = yield* HostProcess.Architecture;
+    return {
+      load: backend.load.pipe(
+        Effect.tap(() =>
+          trace
+            ? Effect.promise(() => installNativeDiagnostics(trace, platform, arch))
+            : Effect.void,
+        ),
+        Effect.map(({ Http3Server }) => ({
+          Http3Server: new Proxy(Http3Server, {
+            construct(target, args, newTarget) {
+              const server: InstanceType<typeof Http3Server> = Reflect.construct(
+                target,
+                args,
+                newTarget,
+              );
+              return new Proxy(server, {
+                get(native, property) {
+                  const method: unknown = Reflect.get(native, property, native);
+                  if (property === "sessionStream" && typeof method === "function")
+                    return (...parameters: readonly unknown[]) =>
+                      trace!.sessionSource(Reflect.apply(method, native, parameters));
+                  return typeof method === "function" ? method.bind(native) : method;
+                },
+              });
+            },
+          }),
+        })),
+      ),
+    };
+  }),
+).pipe(Layer.provide(WebTransportBackend.layer));
+const quicListener = trace
+  ? Layer.effectDiscard(
+      Effect.gen(function* () {
+        const listener = yield* WebTransportListener.WebTransportListener;
+        yield* listener.listen.pipe(Effect.forkScoped);
+      }),
+    ).pipe(Layer.provide(WebTransportListener.layer), Layer.provide(diagnosticBackend))
+  : WebTransportListener.layerListening;
 export const reconnectConfig = {
   ...operationServerConfig,
   environment: {
@@ -330,6 +381,7 @@ function observeTerminalProtocol(
     run: (write) =>
       protocol.run((clientId, message) =>
         Effect.suspend(() => {
+          trace?.event("app-authenticated-session-run");
           if (message._tag === "Request" && message.tag === WS_METHODS.terminalObserve) {
             terminalProtocol.requests++;
             pending.set(`${clientId}:${message.id}`, 0);
@@ -373,7 +425,14 @@ const applicationSession = Layer.effect(
       run: (input) =>
         Effect.suspend(() => {
           const guarded = makeRpcSessionProtocol(observeTerminalProtocol(input.protocol));
-          const shutdown = guarded.close.pipe(Effect.andThen(input.close ?? Effect.void));
+          const shutdown = guarded.close.pipe(
+            Effect.andThen(input.close ?? Effect.void),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                trace?.event("app-authenticated-session-shutdown");
+              }),
+            ),
+          );
           return lifetime.run(input.session, input.origin ?? {}, input.analyticsProps ?? {}, () => {
             const connection = Effect.gen(function* () {
               yield* RpcServer.make(ServerWsRpcGroup, WS_RPC_SERVER_OPTIONS).pipe(
@@ -559,7 +618,7 @@ await Effect.runPromise(
       // Fixture command readiness follows seeding. Listener publication still
       // comes only from the production listener after native startup completes.
       const listening = yield* Layer.buildWithScope(
-        WebTransportListener.layerListening.pipe(
+        quicListener.pipe(
           Layer.provide(Layer.succeedContext(Context.merge(context, applicationContext))),
           Layer.provide(serverConfig),
           Layer.provide(
@@ -587,6 +646,7 @@ await Effect.runPromise(
                 });
           let nextConnection = 0;
           const connections = new WeakMap<object, number>();
+          const tracedConnections = new WeakSet<object>();
           const record = (
             request: NodeHttp.IncomingMessage,
             response?: NodeHttp.ServerResponse,
@@ -601,6 +661,27 @@ await Effect.runPromise(
             };
             serverRequests.push(row);
             const socket = request.socket;
+            if (trace && !tracedConnections.has(socket)) {
+              tracedConnections.add(socket);
+              const progress = () =>
+                trace.event("socket-progress", {
+                  connection: row.connection,
+                  bytesRead: socket.bytesRead,
+                  bytesWritten: socket.bytesWritten,
+                });
+              socket.on("data", progress);
+              socket.once("close", (hadError) => {
+                progress();
+                trace.event("app-tcp-close", { connection: row.connection, hadError });
+              });
+              socket.once("error", (error) =>
+                trace.event("app-tcp-error", {
+                  connection: row.connection,
+                  name: error.name,
+                  message: error.message,
+                }),
+              );
+            }
             const before = socket.bytesWritten;
             response?.once("finish", () => {
               row.bytes = socket.bytesWritten - before;
@@ -657,7 +738,11 @@ await Effect.runPromise(
       for (;;) {
         const raw = yield* Queue.take(requests);
         if (typeof raw === "object" && raw !== null && "inspect" in raw) {
-          process.send?.({ serverRequests, terminalProtocol });
+          process.send?.({
+            serverRequests,
+            terminalProtocol,
+            ...(trace ? { transportTrace: trace.snapshot() } : {}),
+          });
           continue;
         }
         const request = decodeRequest(raw);

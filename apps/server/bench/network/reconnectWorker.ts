@@ -3,6 +3,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
+import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { OperationControlResponse } from "./operationsFixture.ts";
 import { ResourceResponse, startProcessMeasurement } from "./resourceUsage.ts";
@@ -12,6 +13,11 @@ import { TerminalProtocol } from "./reconnectComparison.ts";
 import { runReconnect } from "./reconnectClient.ts";
 import { serverPort } from "./reconnectNetwork.ts";
 import { receive, startController, stopChild } from "./reconnectProcess.ts";
+import {
+  diagnosticError,
+  makeReconnectDiagnostics,
+  redactDiagnostic,
+} from "./reconnectDiagnostics.ts";
 const decodeResource = Schema.decodeUnknownSync(ResourceResponse);
 const decodeReady = Schema.decodeUnknownSync(
   Schema.toCodecJson(
@@ -23,6 +29,14 @@ const decodeReady = Schema.decodeUnknownSync(
   ),
 );
 const decodeControl = Schema.decodeUnknownSync(Schema.toCodecJson(OperationControlResponse));
+class BenchmarkCaseDeadline extends Schema.TaggedError<BenchmarkCaseDeadline>()(
+  "BenchmarkCaseDeadline",
+  { timeoutMs: Schema.Number },
+) {
+  override get message() {
+    return "Benchmark case deadline expired";
+  }
+}
 const [entryFile, cert, key, scratch, queue, mode = "websocket"] = process.argv.slice(2);
 if (!entryFile || !cert || !key || !scratch || !queue) throw new Error("Missing worker arguments");
 const entry = Schema.decodeSync(Schema.fromJsonString(ReconnectCase))(
@@ -35,6 +49,16 @@ const server = NodeChildProcess.fork(
 );
 let controller: Awaited<ReturnType<typeof startController>> | undefined;
 let native: Awaited<ReturnType<typeof makeBenchmarkConnector>> | undefined;
+let clientMeter: ReturnType<typeof startProcessMeasurement> | undefined;
+let failureCause: unknown;
+let caseDeadline = false;
+const trace =
+  process.env.RPC_RECONNECT_TRACE === "1" ? makeReconnectDiagnostics("client") : undefined;
+const inspectServer = async () => {
+  const inspected = receive(server, 5000);
+  server.send({ inspect: true });
+  return await inspected;
+};
 const cleanup = async () => {
   native?.dispose();
   await stopChild(controller?.child);
@@ -60,7 +84,7 @@ try {
             const platform = yield* HostProcess.Platform;
             const arch = yield* HostProcess.Architecture;
             return yield* Effect.promise(() =>
-              makeBenchmarkConnector(NodeFS.readFileSync(cert, "utf8"), platform, arch),
+              makeBenchmarkConnector(NodeFS.readFileSync(cert, "utf8"), platform, arch, trace),
             );
           }),
         )
@@ -72,7 +96,7 @@ try {
     return decodeResource(await response).metrics;
   };
   await resourceRequest("netbench-resource-start");
-  const clientMeter = startProcessMeasurement();
+  clientMeter = startProcessMeasurement();
   const result = await Effect.runPromise(
     Effect.scoped(
       runReconnect({
@@ -85,8 +109,25 @@ try {
         startController: controller.start,
         requestedTransport: mode,
         ...(native ? { connector: native.connector, nativeEvidence: native.evidence } : {}),
+        ...(trace ? { diagnostic: trace.event } : {}),
       }),
-    ).pipe(Effect.timeout(entry.timeoutMs)),
+    ).pipe(
+      Effect.timeoutOrElse({
+        duration: entry.timeoutMs,
+        orElse: () => {
+          caseDeadline = true;
+          return Effect.fail(new BenchmarkCaseDeadline({ timeoutMs: entry.timeoutMs }));
+        },
+      }),
+      Effect.tapCause((cause) =>
+        Effect.sync(() => {
+          failureCause = {
+            pretty: redactDiagnostic(Cause.pretty(cause)),
+            errors: Cause.prettyErrors(cause).map((error) => diagnosticError(error)),
+          };
+        }),
+      ),
+    ),
   );
   const clientResources = clientMeter.stop();
   if (
@@ -107,6 +148,7 @@ try {
   server.send({ inspect: true });
   const diagnostics = Schema.decodeUnknownSync(
     Schema.Struct({
+      transportTrace: Schema.optionalKey(Schema.Unknown),
       terminalProtocol: TerminalProtocol,
       serverRequests: Schema.Array(
         Schema.Struct({
@@ -129,6 +171,7 @@ try {
     throw new Error("Actual terminal wire Ack/output window was not exercised correctly");
   process.send?.({
     type: "result",
+    ...(trace ? { diagnostics: { client: trace.snapshot(), server: diagnostics } } : {}),
     result: {
       ...result,
       nativeEvidence: native ? { ...native.evidence } : null,
@@ -146,7 +189,34 @@ try {
     signalNs: controller.signalNs(),
   });
 } catch (error) {
-  process.send?.({ type: "failure", error: String(error) });
+  const clientResources = clientMeter?.stop();
+  const serverDiagnostics = trace
+    ? await inspectServer().catch((inspectError: unknown) => ({
+        inspectError: diagnosticError(inspectError),
+      }))
+    : undefined;
+  const client = trace?.snapshot();
+  process.send?.({
+    type: "failure",
+    error: redactDiagnostic(String(error)),
+    diagnostics: {
+      complete: false,
+      cause: failureCause ?? diagnosticError(error),
+      timeoutOwner: caseDeadline ? "benchmark-case-limit" : "operation-or-production",
+      caseTimeoutMs: entry.timeoutMs,
+      nativeEvidence: native ? { ...native.evidence } : null,
+      ...(clientResources ? { clientResources } : {}),
+      ...(client
+        ? {
+            client,
+            completedProbeSamples: client.milestones.filter(
+              (item) => item.event === "app-probe-result",
+            ),
+          }
+        : {}),
+      ...(serverDiagnostics ? { server: serverDiagnostics } : {}),
+    },
+  });
   process.exitCode = 1;
 } finally {
   await cleanup();

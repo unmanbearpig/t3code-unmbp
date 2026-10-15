@@ -9,6 +9,8 @@ import {
   type ReliableConnector,
   type ReliableSession,
 } from "@t3tools/shared/rpcWebTransport";
+import type { makeReconnectDiagnostics } from "./reconnectDiagnostics.ts";
+import { installNativeDiagnostics } from "./reconnectNativeDiagnostics.ts";
 
 let backend: Promise<typeof import("@fails-components/webtransport")> | undefined;
 /** Node's package export condition differs between static imports and the verified disk loader. */
@@ -49,8 +51,10 @@ export async function makeBenchmarkConnector(
   certPem: string,
   platform: NodeJS.Platform,
   arch: string,
+  trace?: ReturnType<typeof makeReconnectDiagnostics>,
 ) {
   const { WebTransport } = await loadBenchmarkWebTransportBackend(platform, arch);
+  if (trace) await installNativeDiagnostics(trace, platform, arch);
   const hash = new Uint8Array(
     NodeCrypto.createHash("sha256").update(new NodeCrypto.X509Certificate(certPem).raw).digest(),
   );
@@ -85,17 +89,19 @@ export async function makeBenchmarkConnector(
         };
         const raw = new WebTransport(url, options);
         void raw.closed.catch(() => undefined);
-        const underlying = wrapStandardWebTransportSession(raw);
+        const underlying = wrapStandardWebTransportSession(trace ? trace.session(raw) : raw);
         let opens = 0;
         const session: ReliableSession = {
           closed: underlying.closed,
           openBidirectionalStream: async (operationSignal) => {
             const stream = await underlying.openBidirectionalStream(operationSignal);
+            trace?.adapter(stream, opens);
             if (opens++ === 0) evidence.controlStreamsOpened++;
             else evidence.requestStreamsOpened++;
             return stream;
           },
           close: (code) => {
+            trace?.event("adapter-owner-close", { code });
             if (sessions.delete(session)) evidence.closedByOwner++;
             underlying.close(code);
           },

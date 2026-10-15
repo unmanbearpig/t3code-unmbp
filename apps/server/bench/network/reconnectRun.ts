@@ -14,11 +14,16 @@ import { ReconnectResult, summarize, type ReconnectRow } from "./reconnectCompar
 
 const decodeWorker = Schema.decodeUnknownSync(
   Schema.Union([
-    Schema.Struct({ type: Schema.Literal("failure"), error: Schema.String }),
+    Schema.Struct({
+      type: Schema.Literal("failure"),
+      error: Schema.String,
+      diagnostics: Schema.optionalKey(Schema.Unknown),
+    }),
     Schema.Struct({
       type: Schema.Literal("result"),
       result: ReconnectResult,
       controller: Schema.Unknown,
+      diagnostics: Schema.optionalKey(Schema.Unknown),
     }),
   ]),
 );
@@ -235,6 +240,7 @@ try {
       NodeChildProcess.execFileSync("ip", ["-json", "link", "show"], { encoding: "utf8" }),
     ),
     resourceWindow: "whole-client-case-including-short-resume-warmup",
+    diagnosticTrace: process.env.RPC_RECONNECT_TRACE === "1",
     limits:
       "Node fixture; no browser/mobile/DERP/battery claim; rate/RTT calibration and packet impairment self-test precede measurements",
   });
@@ -289,6 +295,7 @@ try {
           ...provenance,
           manifestHash: hash,
           case: entry,
+          ...(result.diagnostics === undefined ? {} : { diagnostics: result.diagnostics }),
           ...(result.type === "result"
             ? { result: result.result, controller: result.controller }
             : { error: result.error }),

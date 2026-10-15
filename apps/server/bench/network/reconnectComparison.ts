@@ -78,6 +78,7 @@ export interface ReconnectRow {
   readonly result?: ReconnectResult;
   readonly error?: string;
   readonly controller?: unknown;
+  readonly diagnostics?: unknown;
 }
 export function distribution(values: readonly number[]) {
   if (!values.length) return null;
