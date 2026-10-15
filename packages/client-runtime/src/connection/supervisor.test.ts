@@ -155,6 +155,7 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
     attempt: number,
     target: ConnectionTarget,
   ) => Effect.Effect<PreparedConnection, ConnectionAttemptError>;
+  readonly release?: (attempt: number) => Effect.Effect<void>;
   readonly ready?: (attempt: number) => Effect.Effect<void, ConnectionAttemptError>;
   readonly probe?: (attempt: number) => Effect.Effect<void, ConnectionAttemptError>;
   readonly initialConfig?: (attempt: number) => Effect.Effect<ServerConfig, ConnectionAttemptError>;
@@ -194,13 +195,13 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
     options?.checkRoute?.(route) ?? Effect.succeed<ConnectionDriver.RouteCheck>("unchecked");
 
   const connectRoute = Effect.fn("TestConnectionDriver.connectRoute")(function* (
-    target: ConnectionTarget,
+    prepared: PreparedConnection,
     reportProgress: (progress: ConnectionDriver.ConnectionDriverProgress) => Effect.Effect<void>,
   ) {
-    const prepared = yield* prepare(target);
     yield* reportProgress({ stage: "opening", prepared });
 
     const attempt = yield* Ref.updateAndGet(sessionCount, (count) => count + 1);
+    expect(yield* Ref.get(releaseCount)).toBe(attempt - 1);
     const closed = yield* Deferred.make<never, ConnectionTransientError>();
     yield* Ref.update(closedSessions, (sessions) => [...sessions, closed]);
 
@@ -215,7 +216,10 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
         probe: options?.probe?.(attempt) ?? Effect.void,
         closed: Deferred.await(closed),
       } satisfies RpcSession.RpcSession),
-      () => Ref.update(releaseCount, (count) => count + 1),
+      () =>
+        Ref.update(releaseCount, (count) => count + 1).pipe(
+          Effect.andThen(options?.release?.(attempt) ?? Effect.void),
+        ),
     );
 
     yield* reportProgress({ stage: "synchronizing", prepared });
@@ -229,7 +233,9 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
   ) {
     yield* reportProgress({ stage: "preparing" });
     return yield* ConnectionDriver.connectOverRoutes(entry, checkRoute, (route) =>
-      connectRoute(route.target, reportProgress),
+      prepare(route.target).pipe(
+        Effect.flatMap((prepared) => connectRoute(prepared, reportProgress)),
+      ),
     );
   });
 
@@ -252,6 +258,13 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
     Layer.succeed(
       ConnectionDriver.ConnectionDriver,
       ConnectionDriver.ConnectionDriver.of({
+        prepare: (entry) =>
+          ConnectionDriver.prepareOverRoutes(
+            entry,
+            checkRoute,
+            (route) => prepare(route.target),
+            connectRoute,
+          ),
         connect,
         checkRoute: (_entry, route) => checkRoute(route),
         preflight: (_entry, route) =>
@@ -1146,9 +1159,355 @@ describe("EnvironmentSupervisor", () => {
       yield* Deferred.await(probeCalled);
 
       expect(yield* Ref.get(probeCount)).toBe(1);
+      expect(yield* Ref.get(harness.prepareCount)).toBe(1);
       expect(yield* Ref.get(harness.sessionCount)).toBe(1);
       expect(yield* Ref.get(harness.releaseCount)).toBe(0);
       expect((yield* SubscriptionRef.get(supervisor.state)).phase).toBe("connected");
+    }),
+  );
+
+  it.effect.each(["application-active-probe", "network-changed", "retry"] as const)(
+    "discards completed preparation after a healthy %s probe",
+    (signal) =>
+      Effect.gen(function* () {
+        const prepared = yield* Deferred.make<void>();
+        const answer = yield* Deferred.make<void, ConnectionAttemptError>();
+        const nextProbe = yield* Deferred.make<void>();
+        const probes = yield* Ref.make(0);
+        const harness = yield* makeHarness({
+          prepare: (attempt) =>
+            (attempt === 2 ? Deferred.succeed(prepared, undefined) : Effect.void).pipe(
+              Effect.as(PREPARED_CONNECTION),
+            ),
+          probe: () =>
+            Ref.updateAndGet(probes, (count) => count + 1).pipe(
+              Effect.flatMap((count) =>
+                count === 1 ? Deferred.await(answer) : Deferred.succeed(nextProbe, undefined),
+              ),
+              Effect.asVoid,
+            ),
+        });
+        const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+          initiallyDesired: true,
+        }).pipe(Effect.provide(harness.dependencies));
+        yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+        yield* signal === "retry" ? supervisor.retryNow : harness.wake(signal);
+        yield* Deferred.await(prepared);
+        expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+        expect(yield* Ref.get(harness.releaseCount)).toBe(0);
+        expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared))).toBe(
+          PREPARED_CONNECTION,
+        );
+        yield* Deferred.succeed(answer, undefined);
+        // Processing the next signal proves the healthy probe finished discarding.
+        yield* harness.wake("application-active");
+        yield* Deferred.await(nextProbe);
+        yield* TestClock.adjust("0 millis");
+        expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+        expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+
+        // An unrelated later close must prepare again, with normal backoff.
+        yield* harness.closeLatestSession();
+        yield* awaitState(supervisor.state, (state) => state.phase === "backoff");
+        yield* TestClock.adjust("2 seconds");
+        yield* awaitState(
+          supervisor.state,
+          (state) => state.phase === "connected" && state.generation === 2,
+        );
+        expect(yield* Ref.get(harness.prepareCount)).toBe(3);
+      }),
+  );
+
+  it.effect.each(["application-active-probe", "network-changed", "retry"] as const)(
+    "reuses route checks and preparation after a failed %s probe",
+    (signal) =>
+      Effect.gen(function* () {
+        const prepared = yield* Deferred.make<void>();
+        const answer = yield* Deferred.make<void, ConnectionAttemptError>();
+        const checks = yield* Ref.make(0);
+        const initialChecks = yield* Deferred.make<void>();
+        const speculativeChecks = yield* Deferred.make<void>();
+        const harness = yield* makeHarness({
+          checkRoute: () =>
+            Ref.updateAndGet(checks, (count) => count + 1).pipe(
+              Effect.flatMap((count) =>
+                Effect.gen(function* () {
+                  const completed = count <= 2 ? initialChecks : speculativeChecks;
+                  if (count % 2 === 0) yield* Deferred.succeed(completed, undefined);
+                  yield* Deferred.await(completed);
+                }),
+              ),
+              Effect.as("answered"),
+            ),
+          prepare: (attempt, target) =>
+            (attempt === 2 ? Deferred.succeed(prepared, undefined) : Effect.void).pipe(
+              Effect.as({
+                ...preparedFor(target),
+                socketUrl: `wss://environment.example.test/ws?attempt=${attempt}`,
+              }),
+            ),
+          probe: () => Deferred.await(answer),
+        });
+        const supervisor = yield* EnvironmentSupervisor.make(LAN_THEN_RELAY_ENTRY, {
+          initiallyDesired: true,
+        }).pipe(Effect.provide(harness.dependencies));
+        yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+        yield* signal === "retry" ? supervisor.retryNow : harness.wake(signal);
+        yield* Deferred.await(prepared);
+        expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+        yield* Deferred.fail(answer, transient());
+        yield* awaitState(
+          supervisor.state,
+          (state) => state.phase === "connected" && state.generation === 2,
+        );
+        expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+        expect(yield* Ref.get(checks)).toBe(4);
+        expect(
+          Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).socketUrl,
+        ).toContain("attempt=2");
+      }),
+  );
+
+  it.effect("cancels unfinished preparation when the probe is healthy", () =>
+    Effect.gen(function* () {
+      const preparing = yield* Deferred.make<void>();
+      const cancelled = yield* Deferred.make<void>();
+      const answer = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        prepare: (attempt) =>
+          attempt === 2
+            ? Deferred.succeed(preparing, undefined).pipe(
+                Effect.andThen(Effect.never),
+                Effect.ensuring(Deferred.succeed(cancelled, undefined)),
+              )
+            : Effect.succeed(PREPARED_CONNECTION),
+        probe: () => Deferred.await(answer),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.wake("application-active-probe");
+      yield* Deferred.await(preparing);
+      yield* Deferred.succeed(answer, undefined);
+      yield* Deferred.await(cancelled);
+      expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+      expect(yield* Ref.get(harness.releaseCount)).toBe(0);
+    }),
+  );
+
+  it.effect("keeps a healthy session when speculative preparation fails", () =>
+    Effect.gen(function* () {
+      const preparationFailed = yield* Deferred.make<void>();
+      const answer = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        prepare: (attempt) =>
+          attempt === 2
+            ? Effect.fail(blocked()).pipe(
+                Effect.ensuring(Deferred.succeed(preparationFailed, undefined)),
+              )
+            : Effect.succeed(PREPARED_CONNECTION),
+        probe: () => Deferred.await(answer),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.wake("application-active-probe");
+      yield* Deferred.await(preparationFailed);
+      yield* Deferred.succeed(answer, undefined);
+      yield* TestClock.adjust("3 seconds");
+      expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+      expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+      expect((yield* SubscriptionRef.get(supervisor.state)).phase).toBe("connected");
+    }),
+  );
+
+  it.effect("continues unfinished preparation after the probe fails", () =>
+    Effect.gen(function* () {
+      const preparing = yield* Deferred.make<void>();
+      const finishPreparation = yield* Deferred.make<void>();
+      const answer = yield* Deferred.make<void, ConnectionAttemptError>();
+      const harness = yield* makeHarness({
+        prepare: (attempt) =>
+          attempt === 2
+            ? Deferred.succeed(preparing, undefined).pipe(
+                Effect.andThen(Deferred.await(finishPreparation)),
+                Effect.as(PREPARED_CONNECTION),
+              )
+            : Effect.succeed(PREPARED_CONNECTION),
+        probe: () => Deferred.await(answer),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.wake("application-active-probe");
+      yield* Deferred.await(preparing);
+      yield* Deferred.fail(answer, transient());
+      yield* awaitState(supervisor.state, (state) => state.phase === "connecting");
+      expect(yield* Ref.get(harness.releaseCount)).toBe(1);
+      expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+      yield* Deferred.succeed(finishPreparation, undefined);
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+      expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+    }),
+  );
+
+  it.effect.each(["credentials-changed", "network-status", "network-changed"] as const)(
+    "invalidates preparation on %s during a probe",
+    (change) =>
+      Effect.gen(function* () {
+        const preparing = yield* Deferred.make<void>();
+        const cancelled = yield* Deferred.make<void>();
+        const answer = yield* Deferred.make<void, ConnectionAttemptError>();
+        const harness = yield* makeHarness({
+          prepare: (attempt) =>
+            attempt === 2
+              ? Deferred.succeed(preparing, undefined).pipe(
+                  Effect.andThen(Effect.never),
+                  Effect.ensuring(Deferred.succeed(cancelled, undefined)),
+                )
+              : Effect.succeed({
+                  ...PREPARED_CONNECTION,
+                  socketUrl: `wss://environment.example.test/ws?credential=${attempt}`,
+                }),
+          probe: () => Deferred.await(answer),
+        });
+        const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+          initiallyDesired: true,
+        }).pipe(Effect.provide(harness.dependencies));
+        yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+        yield* harness.wake("application-active-probe");
+        yield* Deferred.await(preparing);
+        yield* change === "network-status"
+          ? harness.setNetworkStatus("unknown")
+          : harness.wake(change);
+        yield* Deferred.await(cancelled);
+        expect(yield* Ref.get(harness.releaseCount)).toBe(0);
+        yield* Deferred.fail(answer, transient());
+        yield* awaitState(
+          supervisor.state,
+          (state) => state.phase === "connected" && state.generation === 2,
+        );
+        expect(yield* Ref.get(harness.prepareCount)).toBe(3);
+        expect(
+          Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).socketUrl,
+        ).toContain("credential=3");
+      }),
+  );
+
+  it.effect("keeps normal backoff when speculative preparation and the probe fail", () =>
+    Effect.gen(function* () {
+      const preparationFailed = yield* Deferred.make<void>();
+      const answer = yield* Deferred.make<void, ConnectionAttemptError>();
+      const harness = yield* makeHarness({
+        prepare: (attempt) =>
+          attempt === 2 || attempt === 3
+            ? Effect.fail(transient()).pipe(
+                Effect.ensuring(Deferred.succeed(preparationFailed, undefined)),
+              )
+            : Effect.succeed(PREPARED_CONNECTION),
+        probe: () => Deferred.await(answer),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.wake("application-active-probe");
+      yield* Deferred.await(preparationFailed);
+      yield* Deferred.fail(answer, transient());
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "backoff" && state.attempt === 1,
+      );
+      yield* TestClock.adjust("1999 millis");
+      expect(yield* Ref.get(harness.prepareCount)).toBe(3);
+      yield* TestClock.adjust("1 milli");
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+      expect(yield* Ref.get(harness.prepareCount)).toBe(4);
+    }),
+  );
+
+  it.effect("falls back after a prepared route fails to open and releases each socket", () =>
+    Effect.gen(function* () {
+      const prepared = yield* Deferred.make<void>();
+      const answer = yield* Deferred.make<void, ConnectionAttemptError>();
+      const harness = yield* makeHarness({
+        checkRoute: () => Effect.succeed("answered"),
+        prepare: (attempt, target) =>
+          (attempt === 2 ? Deferred.succeed(prepared, undefined) : Effect.void).pipe(
+            Effect.as(preparedFor(target)),
+          ),
+        ready: (attempt) => (attempt === 2 ? Effect.fail(transient()) : Effect.void),
+        probe: () => Deferred.await(answer),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(LAN_THEN_RELAY_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.wake("application-active-probe");
+      yield* Deferred.await(prepared);
+      yield* Deferred.fail(answer, transient());
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+      expect(yield* Ref.get(harness.prepareCount)).toBe(3);
+      expect(yield* Ref.get(harness.sessionCount)).toBe(3);
+      expect(yield* Ref.get(harness.releaseCount)).toBe(2);
+      expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target).toBe(
+        RELAY_TARGET,
+      );
+    }),
+  );
+
+  it.effect("expires preparation while the old session is being released", () =>
+    Effect.gen(function* () {
+      const prepared = yield* Deferred.make<void>();
+      const releasing = yield* Deferred.make<void>();
+      const finishRelease = yield* Deferred.make<void>();
+      const answer = yield* Deferred.make<void, ConnectionAttemptError>();
+      const harness = yield* makeHarness({
+        prepare: (attempt) =>
+          (attempt === 2 ? Deferred.succeed(prepared, undefined) : Effect.void).pipe(
+            Effect.as({
+              ...PREPARED_CONNECTION,
+              socketUrl: `wss://environment.example.test/ws?attempt=${attempt}`,
+            }),
+          ),
+        release: (attempt) =>
+          attempt === 1
+            ? Deferred.succeed(releasing, undefined).pipe(
+                Effect.andThen(Deferred.await(finishRelease)),
+              )
+            : Effect.void,
+        probe: () => Deferred.await(answer),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.wake("application-active-probe");
+      yield* Deferred.await(prepared);
+      yield* Deferred.fail(answer, transient());
+      yield* Deferred.await(releasing);
+      yield* TestClock.adjust("10 seconds");
+      yield* Deferred.succeed(finishRelease, undefined);
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+      expect(yield* Ref.get(harness.prepareCount)).toBe(3);
+      expect(
+        Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).socketUrl,
+      ).toContain("attempt=3");
     }),
   );
 
@@ -1361,7 +1720,10 @@ describe("EnvironmentSupervisor", () => {
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
       yield* harness.wake("application-active-probe");
-      yield* TestClock.adjust("3 seconds");
+      yield* TestClock.adjust("2999 millis");
+      expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+      expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+      yield* TestClock.adjust("1 milli");
       // The timed-out wake probe reconnects immediately without a backoff
       // sleep: no further clock advance is needed.
       yield* awaitState(
@@ -1370,6 +1732,7 @@ describe("EnvironmentSupervisor", () => {
       );
 
       expect(yield* Ref.get(harness.sessionCount)).toBe(2);
+      expect(yield* Ref.get(harness.prepareCount)).toBe(2);
     }).pipe(Effect.provide(TestClock.layer())),
   );
 

@@ -745,6 +745,8 @@ export const make = Effect.gen(function* () {
                       )
                     : Option.none(),
                 );
+                // Invalidate probe preparation made with the revoked bearer.
+                yield* scope.supervisor.retryNow;
               }
             }
           }

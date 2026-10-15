@@ -310,6 +310,33 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   // Monotonic deadline per route that answered a check but failed to connect.
   const routeCooldowns = yield* Ref.make<ReadonlyMap<string, bigint>>(new Map());
 
+  const supervisorScope = yield* Scope.Scope;
+  const preparationRevision = yield* Ref.make(0);
+  const reconnectPreparation = yield* Ref.make<
+    | {
+        readonly entry: ConnectionCatalogEntry;
+        readonly revision: number;
+        readonly fiber: Fiber.Fiber<
+          Exit.Exit<ConnectionDriver.ConnectionPreparation, ConnectionAttemptError>
+        >;
+      }
+    | undefined
+  >(undefined);
+  const discardPreparation = Effect.gen(function* () {
+    const pending = yield* Ref.getAndSet(reconnectPreparation, undefined);
+    if (pending !== undefined) yield* Fiber.interrupt(pending.fiber);
+  });
+  const startPreparation = Effect.gen(function* () {
+    if ((yield* Ref.get(reconnectPreparation)) !== undefined) return;
+    const latest = yield* Ref.get(currentEntry);
+    const revision = yield* Ref.get(preparationRevision);
+    const fiber = yield* Effect.scoped(driver.prepare(latest)).pipe(
+      Effect.exit,
+      Effect.forkIn(supervisorScope),
+    );
+    yield* Ref.set(reconnectPreparation, { entry: latest, revision, fiber });
+  });
+
   const attemptEntry = Effect.gen(function* () {
     const latest = yield* Ref.get(currentEntry);
     const routes = connectionRoutes(latest);
@@ -338,6 +365,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     const updated = yield* learn({ activeRoute, reported });
     if (Option.isSome(updated)) {
       yield* Ref.set(currentEntry, updated.value);
+      yield* discardPreparation;
       // A learned route may rank above the one in use.
       yield* requestBetterRouteCheck(lease);
     }
@@ -405,6 +433,20 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   });
 
   const signal = Effect.fn("EnvironmentSupervisor.signal")(function* (next: SupervisorSignal) {
+    // Invalidate at enqueue time, even if a probe completes before consuming
+    // this signal. The next socket must use the current routes and credential.
+    if (
+      next._tag === "DisconnectRequested" ||
+      next._tag === "RetryRequested" ||
+      next._tag === "NetworkChanged" ||
+      (next._tag === "Wakeup" &&
+        (next.reason === "credentials-changed" ||
+          next.reason === "network-changed" ||
+          next.reason === "application-active-reconnect"))
+    ) {
+      yield* Ref.update(preparationRevision, (revision) => revision + 1);
+      yield* discardPreparation;
+    }
     yield* Queue.offer(signals, next);
   });
 
@@ -437,12 +479,40 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     lastFailure: ConnectionAttemptError | null,
     synchronizedRoutes: Ref.Ref<number>,
   ) {
-    return yield* driver.connect(yield* attemptEntry, (progress) =>
-      (progress.stage === "synchronizing"
+    const latest = yield* attemptEntry;
+    const pending = yield* Ref.getAndSet(reconnectPreparation, undefined);
+    const progress = (next: ConnectionDriver.ConnectionDriverProgress) =>
+      (next.stage === "synchronizing"
         ? Ref.update(synchronizedRoutes, (count) => count + 1)
         : Effect.void
-      ).pipe(Effect.andThen(reportProgress(attempt, generation, lastFailure, progress))),
-    );
+      ).pipe(Effect.andThen(reportProgress(attempt, generation, lastFailure, next)));
+    if (pending !== undefined) {
+      return yield* Effect.gen(function* () {
+        if (
+          pending.entry !== latest ||
+          pending.revision !== (yield* Ref.get(preparationRevision))
+        ) {
+          yield* Fiber.interrupt(pending.fiber);
+          return yield* driver.connect(latest, progress);
+        }
+        const result = yield* Fiber.join(pending.fiber);
+        if (
+          pending.entry === latest &&
+          pending.entry === (yield* Ref.get(currentEntry)) &&
+          pending.revision === (yield* Ref.get(preparationRevision))
+        ) {
+          if (Exit.isSuccess(result)) {
+            yield* progress({ stage: "preparing" });
+            return yield* result.value.connect(progress);
+          }
+          // Speculation may fail before a brief outage ends. Only a real
+          // connection attempt is allowed to consume a retry rung.
+          return yield* driver.connect(latest, progress);
+        }
+        return yield* driver.connect(yield* attemptEntry, progress);
+      }).pipe(Effect.ensuring(Fiber.interrupt(pending.fiber)));
+    }
+    return yield* driver.connect(latest, progress);
   });
 
   const traceRelayEstablishment = (
@@ -600,6 +670,14 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     }
   };
 
+  // Routine desktop focus and offline reports usually keep working sockets;
+  // avoid their HTTP cost. Mobile short resumes, network moves, and explicit
+  // retries are worth preparing while the quick probe runs.
+  const shouldPrepare = (next: SupervisorSignal) =>
+    next._tag === "RetryRequested" ||
+    (next._tag === "Wakeup" &&
+      (next.reason === "application-active-probe" || next.reason === "network-changed"));
+
   // Holds a connected lease until it must end, and returns whether to restart
   // the retry ladder. Returning to the app, an explicit retry, and the network
   // reporting offline all probe the live session instead of replacing it, so a
@@ -641,6 +719,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       if (probeTimeout === undefined) {
         continue;
       }
+      if (shouldPrepare(next)) yield* startPreparation;
       yield* Ref.set(probeUnanswered, true);
       const probe = yield* Effect.forkChild(lease.session.probe);
       // Monotonic nanoseconds, so a wall-clock correction cannot move the deadline.
@@ -666,6 +745,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         if (probeEvent._tag === "ProbeCompleted") {
           if (Exit.isSuccess(probeEvent.exit)) {
             yield* Ref.set(probeUnanswered, false);
+            yield* discardPreparation;
           }
           yield* probeEvent.exit;
           break;
@@ -675,6 +755,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           yield* Fiber.interrupt(probe);
           return endDuringProbe === "reset";
         }
+        if (shouldPrepare(probeEvent.signal)) yield* startPreparation;
         // A retry or an offline report during a desktop foreground probe wants
         // its quicker answer, so it shortens the running probe.
         const signalTimeout = probeTimeoutFor(probeEvent.signal);
@@ -919,6 +1000,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       }
       const currentIntent = yield* Ref.get(intent);
       if (!currentIntent.desired) {
+        yield* discardPreparation;
         resetRetryLadder();
         latestFailure = null;
         yield* clearLease;
@@ -927,6 +1009,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         continue;
       }
       if (currentIntent.network === "offline" && !replacing) {
+        yield* discardPreparation;
         yield* clearLease;
         yield* setState(offlineState(currentIntent, generation, failureCount + 1, latestFailure));
         const applicationActivated = yield* waitForSignal;
@@ -945,6 +1028,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       // Consumed on every iteration so a stale marker can never leak into a
       // later, unrelated failure.
       const failedProbe = yield* Ref.getAndSet(probeUnanswered, false);
+      if (!failedProbe) yield* discardPreparation;
       if (outcome.established) {
         generation = nextGeneration;
         if (outcome.stable) {
