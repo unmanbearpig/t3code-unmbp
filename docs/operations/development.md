@@ -50,6 +50,14 @@ npm_config_build_from_source=true npm_config_curl_config_bin=/usr/bin/curl-confi
   vp rebuild node-libcurl
 ```
 
+This suite compares prototype transport stacks. Snapshot requests use libcurl
+and pass through Caddy on both the H1 and H3 paths, then reach the production Node
+handler over a Unix socket. Caddy's H3 server uses Go's quic-go; WebTransport RPC
+uses a separate native C++ QUIC implementation. These timings include those
+implementations and do not establish the performance of a production T3 HTTP/3
+integration. The production Node HTTP endpoint without Caddy is not an HTTP
+snapshot control in this matrix. Caddy is launched only by the benchmark.
+
 The first run downloads checksum-verified Caddy 2.11.7 into
 `~/codex-tmp/network-bench-tools`; later runs reuse it. Other Linux architectures
 can supply that version through `NETBENCH_CADDY`.
@@ -169,7 +177,8 @@ with production WebSocket deflate when judging the proposed implementation; the
 synthetic transport suite retains its uncompressed controls. Uncached thread
 snapshots use HTTPS/HTTP/1.1 for the WebSocket variants and HTTP/3 for WebTransport.
 Both use libcurl, the same fixture certificate, Caddy, and production compression
-over a Unix socket, so the proxy introduces no additional counted TCP hop. The client
+over a Unix socket. This avoids an additional counted TCP hop, but Caddy's HTTP,
+TLS and QUIC implementations remain part of the measured path. The client
 forces the protocol and verifies it at both ends; HTTP/3 never silently falls back.
 Each case owns its connection pool. HTTP handshake, first-byte, and total request
 times are saved alongside the complete operation time. Warm cases first load the
@@ -183,7 +192,7 @@ improvements while continuing to verify the complete delivered state.
 The HTTP/3 snapshot and WebTransport RPC use separate QUIC connections. This suite
 measures that implementation, not a browser sharing one QUIC connection. It remains
 an experimental benchmark path; production clients still use their existing transports.
-For a protocol-only snapshot comparison, keep the RPC transport unchanged and rerun
+For a snapshot comparison within this Caddy fixture, keep the RPC transport unchanged and rerun
 a manual experiment with `--http-protocol h1` and `--http-protocol h3`.
 Manual `--http-encoding br`, `--http-pool warm` opens, independent `--seed-list` runs, and
 `--tcp-initcwnd 32` attribution controls are recorded separately. The TCP window
