@@ -769,6 +769,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
     readonly threadId: ThreadId;
     readonly afterSequence?: number;
     readonly requestCompletionMarker?: boolean;
+    readonly legacyCatchUpPacing?: boolean;
     readonly acceptBoundedSnapshot?: boolean;
     readonly acceptCompactTurnItems?: boolean;
   }) {
@@ -873,7 +874,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
             projection: projectThreadProjectionForWire(snapshot.projection),
           };
       return Stream.concat(
-        rpcInitialItems([snapshotItem], completionMarker),
+        rpcInitialItems([snapshotItem], completionMarker, input.legacyCatchUpPacing === true),
         eventStreamFrom(snapshotSequence),
       );
     });
@@ -949,7 +950,10 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
       if (plan.mode === "snapshot") {
         return yield* snapshotThenLive();
       }
-      return Stream.concat(rpcInitialItems(replay, completionMarker), eventStreamFrom(highWater));
+      return Stream.concat(
+        rpcInitialItems(replay, completionMarker, input.legacyCatchUpPacing === true),
+        eventStreamFrom(highWater),
+      );
     }
 
     return yield* snapshotThenLive();
@@ -960,6 +964,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
   function* (input: {
     readonly afterSequence?: number;
     readonly requestCompletionMarker?: boolean;
+    readonly legacyCatchUpPacing?: boolean;
   }) {
     const sql = yield* SqlClient.SqlClient;
     const threadManagement = yield* ThreadManagementService.ThreadManagementService;
@@ -1119,7 +1124,12 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
     const initialSnapshotItems = (loaded: {
       readonly snapshot: OrchestrationV2ShellSnapshot;
       readonly resolvedRepositoryIdentityRoots: ReadonlyArray<string>;
-    }) => rpcInitialItems(shellStreamItemsFromInitialSnapshot(loaded), completionMarker);
+    }) =>
+      rpcInitialItems(
+        shellStreamItemsFromInitialSnapshot(loaded),
+        completionMarker,
+        input.legacyCatchUpPacing === true,
+      );
     // Initial items and any requested completion marker always drain first.
     // Enrichment merges only with the post-prefix tail so a ready marked
     // refresh cannot interleave before the authoritative initial frame.
@@ -1156,7 +1166,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
           // highWater, so a dropped row never hides later events.
         }),
       );
-      if (completionMarker !== undefined) {
+      if (completionMarker !== undefined && input.legacyCatchUpPacing !== true) {
         // Projected shells can be much larger than their stored events. Bound
         // accumulation before retaining another item, then take a fresh snapshot.
         const replayItems: Array<OrchestrationV2ShellStreamItem> = [];
@@ -1190,7 +1200,13 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
       }
       return composeShellStreamWithEnrichment({
         initial: rpcInitialItems(initial),
-        tail: Stream.concat(replay, liveFrom(highWater)),
+        tail: Stream.concat(
+          Stream.concat(
+            replay,
+            completionMarker === undefined ? Stream.empty : Stream.make(completionMarker),
+          ),
+          liveFrom(highWater),
+        ),
         enrichment: enrichmentRefreshes,
       });
     }).pipe(
@@ -1747,6 +1763,7 @@ const layerAuthenticatedHandlers = (
             },
             settings,
             shellResumeCompletionMarker: true,
+            legacyCatchUpPacing: true,
             threadResumeCompletionMarker: true,
             threadSnapshotPagination: true,
             threadFind: true,

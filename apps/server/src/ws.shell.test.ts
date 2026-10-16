@@ -43,7 +43,13 @@ const modes = [
   "cold-replay",
 ] as const;
 const cases = modes.flatMap((mode) =>
-  [true, false, undefined].map((requestCompletionMarker) => ({ mode, requestCompletionMarker })),
+  [true, false, undefined].flatMap((requestCompletionMarker) =>
+    [true, false, undefined].map((legacyCatchUpPacing) => ({
+      mode,
+      requestCompletionMarker,
+      legacyCatchUpPacing,
+    })),
+  ),
 );
 
 describe("shell subscription initial RPC chunks", () => {
@@ -140,8 +146,8 @@ describe("shell subscription initial RPC chunks", () => {
     }),
   );
   it.effect.each(cases)(
-    "$mode, completion marker $requestCompletionMarker",
-    ({ mode, requestCompletionMarker }) =>
+    "$mode, completion marker $requestCompletionMarker, legacy pacing $legacyCatchUpPacing",
+    ({ mode, requestCompletionMarker, legacyCatchUpPacing }) =>
       Effect.gen(function* () {
         const changes = yield* Effect.acquireRelease(
           PubSub.unbounded<ProjectEnrichmentService.ProjectEnrichmentChange>(),
@@ -233,6 +239,7 @@ describe("shell subscription initial RPC chunks", () => {
           subscribeOrchestrationV2Shell({
             ...(mode === "snapshot" || mode === "cold-snapshot" ? {} : { afterSequence: 0 }),
             ...(requestCompletionMarker === undefined ? {} : { requestCompletionMarker }),
+            ...(legacyCatchUpPacing === undefined ? {} : { legacyCatchUpPacing }),
           }),
         ).pipe(
           Stream.take(prefix.length + replayCount + (requestCompletionMarker ? 1 : 0) + 2),
@@ -249,7 +256,7 @@ describe("shell subscription initial RPC chunks", () => {
         const live = liveEvents.map((event) => delta(event.sequence));
         const completion = requestCompletionMarker ? [{ kind: "synchronized" }] : [];
         expect(chunks.flat()).toEqual([...prefix, ...replay, ...completion, ...live]);
-        if (requestCompletionMarker) {
+        if (requestCompletionMarker && !legacyCatchUpPacing) {
           expect(chunks).toEqual([[...prefix, ...replay, ...completion], live]);
         } else {
           expect(chunks).toEqual([
@@ -257,6 +264,7 @@ describe("shell subscription initial RPC chunks", () => {
             ...Array.from({ length: Math.ceil(replayCount / 512) }, (_, i) =>
               replay.slice(i * 512, (i + 1) * 512),
             ),
+            ...completion.map((item) => [item]),
             live,
           ]);
         }
