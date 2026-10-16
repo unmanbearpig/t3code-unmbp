@@ -49,6 +49,9 @@ describe("on-device connection log storage", () => {
         openDatabaseAsync.mockResolvedValue(database);
         yield* Effect.gen(function* () {
           const log = yield* ConnectionLog.MobileConnectionLog;
+          expect(log.experimentEnabled()).toBe(false);
+          yield* log.setExperimentEnabled(true);
+          expect(log.experimentEnabled()).toBe(true);
           for (let i = 0; i < 2005; i++) {
             log.record({
               kind: "wakeup",
@@ -124,11 +127,51 @@ describe("on-device connection log storage", () => {
           expect(
             sqlite.prepare("SELECT payload FROM client_cache WHERE kind = 'connection-log'").all(),
           ).toHaveLength(2000);
+          log.record({
+            kind: "wakeup",
+            environmentId: "environment",
+            reason: "application-active-probe",
+            hasSession: false,
+            desired: true,
+          });
+          log.record({ kind: "attempt-start", environmentId: "environment" });
+          log.record({
+            kind: "attempt-end",
+            environmentId: "environment",
+            outcome: "connected",
+            error: null,
+          });
+          log.record({
+            kind: "shell-sync",
+            environmentId: "environment",
+            milestone: "live",
+            completion: "marker",
+          });
+          const trial = log.read().at(-1)!;
+          expect(trial.experiment).toBe(true);
+          expect(["old", "new"]).toContain(trial.arm);
+          expect(log.prompt()?.id).toBe(trial.id);
+          log.guess(trial.id, "old");
+          expect(log.prompt()).toBeNull();
+          log.record({
+            kind: "http",
+            environmentId: "environment",
+            path: "/:redacted",
+            durationMs: 1,
+            status: 200,
+            outcome: "response",
+          });
+          expect(log.read().at(-1)?.guess).toBe("old");
+          yield* Queue.take(writes).pipe(
+            Effect.repeat({ until: (payload) => JSON.parse(payload).guess === "old" }),
+          );
         }).pipe(Effect.provide(logLayer));
         yield* Effect.gen(function* () {
           const log = yield* ConnectionLog.MobileConnectionLog;
           expect(log.read()).toHaveLength(2000);
           expect(log.storageAvailable()).toBe(true);
+          expect(log.experimentEnabled()).toBe(true);
+          expect(log.read().at(-1)?.guess).toBe("old");
           const restored = log.read().find((record) => record.shell.outcome === "live");
           expect(restored?.shell.completion).toBe("marker");
           expect(restored?.cleanup).toMatchObject([
@@ -136,6 +179,7 @@ describe("on-device connection log storage", () => {
           ]);
           log.clear();
           expect(log.read()).toEqual([]);
+          expect(log.experimentEnabled()).toBe(true);
           expect(yield* Queue.take(writes)).toBe("cleared");
         }).pipe(Effect.provide(logLayer));
         expect(
