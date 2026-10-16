@@ -1,3 +1,4 @@
+import { AttemptReconnectArm } from "../connection/reconnectExperiment.ts";
 import {
   AuthAdministrativeScopes,
   AuthStandardClientScopes,
@@ -1764,3 +1765,41 @@ describe("RemoteEnvironmentAuthorization", () => {
     }),
   );
 });
+
+it.effect(
+  "old arm fetches separate authorization and compatibility descriptors and uses a ticket",
+  () =>
+    Effect.gen(function* () {
+      const harness = yield* makeConnectionHarness({
+        primaryBearerToken: "native-token",
+        responses: [
+          Response.json(DESCRIPTOR),
+          websocketTicket("old-ticket"),
+          Response.json(DESCRIPTOR),
+        ],
+      });
+      const primaryRoute: ConnectionRoute = {
+        target: new PrimaryConnectionTarget({
+          environmentId: ENVIRONMENT_ID,
+          label: "Phone",
+          ...ENDPOINT,
+        }),
+        profile: Option.none(),
+      };
+      yield* Effect.gen(function* () {
+        const driver = yield* ConnectionDriver.ConnectionDriver;
+        yield* driver
+          .connect(connectionEntry([primaryRoute]), () => Effect.void)
+          .pipe(Effect.scoped);
+      }).pipe(
+        Effect.provide(harness.layer.pipe(Layer.provide(layerWebSocketWithHeaders))),
+        Effect.provideService(AttemptReconnectArm, "old"),
+      );
+      expect(requestSequence(harness)).toEqual([
+        `GET ${ENDPOINT.httpBaseUrl}/.well-known/t3/environment`,
+        `POST ${ENDPOINT.httpBaseUrl}/api/auth/websocket-ticket`,
+        `GET ${ENDPOINT.httpBaseUrl}/.well-known/t3/environment`,
+      ]);
+      expect(harness.opened[0]?.socketUrl).toContain("wsTicket=old-ticket");
+    }),
+);

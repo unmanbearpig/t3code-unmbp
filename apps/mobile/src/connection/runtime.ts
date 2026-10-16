@@ -34,7 +34,8 @@ type ConnectionLayerSource =
   | typeof ConnectionPlatform.layer
   | typeof BackgroundActivity.layerObserver
   | typeof BackgroundActivity.layerReporter
-  | typeof MobileConnectionLog.layerObserver;
+  | typeof MobileConnectionLog.layerObserver
+  | typeof MobileConnectionLog.layerExperiment;
 
 const layerProvidedClientConnection = layerSnapshotLoader.pipe(
   Layer.provideMerge(
@@ -46,6 +47,7 @@ const layerProvidedClientConnection = layerSnapshotLoader.pipe(
       layerProvidedConnectionPlatform,
       BackgroundActivity.layerObserver,
       MobileConnectionLog.layerObserver.pipe(Layer.provide(Runtime.layer)),
+      MobileConnectionLog.layerExperiment.pipe(Layer.provide(Runtime.layer)),
     ),
   ),
 );

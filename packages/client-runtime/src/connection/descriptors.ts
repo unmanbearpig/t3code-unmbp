@@ -1,3 +1,4 @@
+import { AttemptReconnectArm } from "./reconnectExperiment.ts";
 import type { ExecutionEnvironmentDescriptor } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
@@ -33,6 +34,8 @@ const make = Effect.gen(function* () {
 const layer = Layer.effect(ConnectionDescriptors, make);
 
 export const fetch = Effect.fn("ConnectionDescriptors.fetch")(function* (httpBaseUrl: string) {
+  if ((yield* AttemptReconnectArm) === "old")
+    return yield* fetchRemoteEnvironmentDescriptor({ httpBaseUrl });
   const descriptors = yield* Effect.serviceOption(ConnectionDescriptors);
   return yield* Option.isSome(descriptors)
     ? descriptors.value.get(httpBaseUrl)
@@ -44,6 +47,7 @@ export const withConnectionDescriptors = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R | HttpClient.HttpClient> =>
   Effect.gen(function* () {
+    if ((yield* AttemptReconnectArm) === "old") return yield* effect;
     const current = yield* Effect.serviceOption(ConnectionDescriptors);
     if (Option.isSome(current)) return yield* effect;
     return yield* effect.pipe(Effect.provide(layer));

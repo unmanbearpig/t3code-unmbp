@@ -14,7 +14,7 @@ const logLayer = ConnectionLog.layer.pipe(Layer.provide(MobileDatabase.layer));
 
 describe("on-device connection log storage", () => {
   it.effect(
-    "persists at most 200 records, restores them on a fresh service and clears the stored log",
+    "persists at most 2000 records, restores them on a fresh service and clears the stored log",
     () =>
       Effect.gen(function* () {
         const writes = yield* Queue.unbounded<string>();
@@ -31,7 +31,7 @@ describe("on-device connection log storage", () => {
             const result = sqlite.prepare(sql).run(...args);
             if (sql.includes("INSERT INTO client_cache") && args[1] === "connection-log")
               lastPayload = String(args[4]);
-            if (sql.includes("OFFSET 200")) Queue.offerUnsafe(writes, lastPayload);
+            if (sql.includes("OFFSET 2000")) Queue.offerUnsafe(writes, lastPayload);
             if (sql.includes("DELETE FROM client_cache WHERE environment_id = ? AND kind = ?"))
               Queue.offerUnsafe(writes, "cleared");
             return result;
@@ -49,7 +49,14 @@ describe("on-device connection log storage", () => {
         openDatabaseAsync.mockResolvedValue(database);
         yield* Effect.gen(function* () {
           const log = yield* ConnectionLog.MobileConnectionLog;
-          for (let i = 0; i < 205; i++) {
+          for (let i = 0; i < 2005; i++) {
+            log.record({
+              kind: "wakeup",
+              environmentId: "environment",
+              reason: "network-changed",
+              hasSession: false,
+              desired: true,
+            });
             log.record({ kind: "attempt-start", environmentId: "environment" });
             log.record({
               kind: "attempt-end",
@@ -57,7 +64,7 @@ describe("on-device connection log storage", () => {
               outcome: "failed",
               error: "network",
             });
-            if (i === 204) {
+            if (i === 2004) {
               log.record({
                 kind: "shell-sync",
                 environmentId: "environment",
@@ -76,7 +83,7 @@ describe("on-device connection log storage", () => {
               });
             }
           }
-          expect(log.read()).toHaveLength(200);
+          expect(log.read()).toHaveLength(2000);
           yield* Queue.take(writes).pipe(
             Effect.repeat({
               until: (payload) => {
@@ -86,7 +93,7 @@ describe("on-device connection log storage", () => {
                   record !== null &&
                   "id" in record &&
                   typeof record.id === "string" &&
-                  record.id.endsWith("-205")
+                  record.id.endsWith("-2005")
                 );
               },
             }),
@@ -94,10 +101,17 @@ describe("on-device connection log storage", () => {
           const stored = sqlite
             .prepare("SELECT payload FROM client_cache WHERE kind = 'connection-log'")
             .all();
-          expect(stored).toHaveLength(200);
+          expect(stored).toHaveLength(2000);
           expect(JSON.stringify(stored)).not.toContain("environmentId");
           // Force separate disk appends so the SQL cap is exercised as well as coalescing.
           for (let i = 0; i < 5; i++) {
+            log.record({
+              kind: "wakeup",
+              environmentId: "environment",
+              reason: "network-changed",
+              hasSession: false,
+              desired: true,
+            });
             log.record({ kind: "attempt-start", environmentId: "environment" });
             log.record({
               kind: "attempt-end",
@@ -109,11 +123,11 @@ describe("on-device connection log storage", () => {
           }
           expect(
             sqlite.prepare("SELECT payload FROM client_cache WHERE kind = 'connection-log'").all(),
-          ).toHaveLength(200);
+          ).toHaveLength(2000);
         }).pipe(Effect.provide(logLayer));
         yield* Effect.gen(function* () {
           const log = yield* ConnectionLog.MobileConnectionLog;
-          expect(log.read()).toHaveLength(200);
+          expect(log.read()).toHaveLength(2000);
           expect(log.storageAvailable()).toBe(true);
           const restored = log.read().find((record) => record.shell.outcome === "live");
           expect(restored?.shell.completion).toBe("marker");

@@ -1,3 +1,4 @@
+import { ReconnectExperiment } from "../connection/reconnectExperiment.ts";
 import {
   ORCHESTRATION_V2_WS_METHODS,
   type EnvironmentId,
@@ -91,6 +92,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   const wakeups = yield* Effect.serviceOption(ConnectionWakeups.ConnectionWakeups);
   const environmentId = supervisor.target.environmentId;
   const diagnostics = yield* Diagnostics.ConnectionDiagnostics;
+  const experiment = yield* ReconnectExperiment;
   let diagnosticSyncActive = false;
   let diagnosticCompletion: "marker" | "legacy" = "legacy";
   const observeSync = (milestone: "started" | "live" | "failed") =>
@@ -425,7 +427,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           });
           if (previous?.session === session && previous.serverStartedAt !== undefined) {
             subscription.serverStartedAt = previous.serverStartedAt;
-          } else if (previous?.synchronized === true) {
+          } else if (previous?.synchronized === true && experiment?.arm(environmentId) !== "old") {
             yield* readStartupProof;
           } else {
             // Cold/interrupted bases require HTTP regardless of startup identity.
@@ -440,6 +442,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         // enrichment cannot establish that provenance. Identity/version changes
         // and legacy servers take the HTTP path even on the same session.
         let canResume =
+          experiment?.arm(environmentId) !== "old" &&
           supportsCompletionMarker &&
           previous?.synchronized === true &&
           subscription.serverStartedAt !== undefined &&

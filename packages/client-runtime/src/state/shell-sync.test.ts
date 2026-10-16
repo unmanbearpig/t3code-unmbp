@@ -1,3 +1,4 @@
+import { ReconnectExperiment } from "../connection/reconnectExperiment.ts";
 import {
   EnvironmentId,
   ORCHESTRATION_V2_WS_METHODS,
@@ -1998,3 +1999,21 @@ describe("environment shell synchronization", () => {
     }),
   );
 });
+
+it.effect(
+  "old arm refreshes a synchronized warm shell over HTTP and still measures the completion marker",
+  () =>
+    Effect.gen(function* () {
+      const harness = yield* makeWarmReconnectHarness().pipe(
+        Effect.provideService(ReconnectExperiment, { begin: () => undefined, arm: () => "old" }),
+      );
+      const first = yield* Queue.take(harness.requests);
+      yield* harness.complete(first);
+      yield* harness.disconnect(first);
+      yield* harness.reconnect();
+      const next = yield* Queue.take(harness.requests);
+      expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
+      expect(next.input.requestCompletionMarker).toBe(true);
+      yield* harness.complete(next);
+    }),
+);

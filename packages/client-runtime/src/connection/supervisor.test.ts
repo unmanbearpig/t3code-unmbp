@@ -1,3 +1,4 @@
+import { ReconnectExperiment } from "./reconnectExperiment.ts";
 import * as Diagnostics from "./diagnostics.ts";
 import * as Queue from "effect/Queue";
 import { AuthStandardClientScopes, EnvironmentId, type ServerConfig } from "@t3tools/contracts";
@@ -2221,3 +2222,25 @@ describe("EnvironmentSupervisor routes", () => {
     }),
   );
 });
+
+it.effect("old arm restarts even a fresh attempt on long-resume activation", () =>
+  Effect.gen(function* () {
+    const preparing = yield* Deferred.make<void>();
+    const harness = yield* makeHarness({
+      prepare: (attempt) =>
+        attempt === 1
+          ? Deferred.succeed(preparing, undefined).pipe(Effect.andThen(Effect.never))
+          : Effect.succeed(PREPARED_CONNECTION),
+    });
+    const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+      initiallyDesired: true,
+    }).pipe(
+      Effect.provide(harness.dependencies),
+      Effect.provideService(ReconnectExperiment, { begin: () => undefined, arm: () => "old" }),
+    );
+    yield* Deferred.await(preparing);
+    yield* harness.wake("application-active-reconnect");
+    yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+    expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+  }).pipe(Effect.provide(TestClock.layer())),
+);

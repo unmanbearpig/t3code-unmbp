@@ -1,3 +1,4 @@
+import { AttemptReconnectArm, ReconnectExperiment } from "../connection/reconnectExperiment.ts";
 import {
   type ServerConfig,
   type ServerConfigStreamEvent,
@@ -196,6 +197,8 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
   };
 
   const connect = Effect.fnUntraced(function* (connection: PreparedConnection) {
+    const oldArm = (yield* AttemptReconnectArm) === "old";
+    const experiment = yield* ReconnectExperiment;
     const networkHint =
       connection.target._tag === "RelayConnectionTarget" ? ` ${NETWORK_BLOCKING_HINT}` : "";
     const mapRpcError = (error: Parameters<typeof mapSessionRpcError>[0]) =>
@@ -210,7 +213,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     let socketOpened = false;
     const authorization = connection.httpAuthorization;
     const usesBearerUpgradeHeaders =
-      authorization?._tag === "Bearer" && Option.isSome(constructorWithHeaders);
+      !oldArm && authorization?._tag === "Bearer" && Option.isSome(constructorWithHeaders);
     // Native WebSocket failures omit the HTTP rejection. Share one diagnostic
     // across readiness, config and closure consumers, only before an upgrade opens.
     // Its fiber belongs to the session so canceling a waiter cannot issue it twice.
@@ -252,7 +255,11 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     // socket writer's open latch cannot succeed, including an RPC interrupt
     // already waiting there when the transport drops.
     const transportClosed = yield* Deferred.make<void>();
-    const stopTransportWrites = Deferred.succeed(transportClosed, undefined).pipe(Effect.asVoid);
+    const stopTransportWrites = Effect.suspend(() =>
+      (experiment?.arm(connection.environmentId) ?? (oldArm ? "old" : "new")) === "old"
+        ? Effect.void
+        : Deferred.succeed(transportClosed, undefined).pipe(Effect.asVoid),
+    );
     const writeWhileLive = (write: Effect.Effect<void, Socket.SocketError>) =>
       Deferred.isDone(transportClosed).pipe(
         Effect.flatMap((closed) =>
@@ -390,6 +397,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
                 socketOpened = true;
               }
             : undefined,
+          oldArm,
         );
         const layerSocket = Layer.effect(
           Socket.Socket,

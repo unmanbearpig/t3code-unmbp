@@ -1,3 +1,4 @@
+import { AttemptReconnectArm, ReconnectExperiment } from "./reconnectExperiment.ts";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -277,6 +278,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const connectivity = yield* Connectivity.Connectivity;
   const driver = yield* ConnectionDriver.ConnectionDriver;
   const diagnostics = yield* Diagnostics.ConnectionDiagnostics;
+  const experiment = yield* ReconnectExperiment;
+  let nextReconnect = true;
   const record = (event: Diagnostics.ConnectionDiagnosticDetail) =>
     diagnostics?.record({ ...event, environmentId: target.environmentId });
   const wakeups = yield* ConnectionWakeups.ConnectionWakeups;
@@ -534,7 +537,12 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
             // sleep and make a pre-suspension attempt look fresh. Treat a
             // backward wall-clock jump conservatively as stale too.
             const age = (yield* Clock.currentTimeMillis) - attemptStartedAt;
-            if (age < 0 || age >= FRESH_ATTEMPT_WINDOW_MS) return true;
+            if (
+              experiment?.arm(target.environmentId) === "old" ||
+              age < 0 ||
+              age >= FRESH_ATTEMPT_WINDOW_MS
+            )
+              return true;
             yield* Ref.set(resumedDuringAttempt, true);
             break;
           }
@@ -938,6 +946,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         yield* waitForSignal;
         continue;
       }
+      experiment?.begin(target.environmentId, nextReconnect);
+      nextReconnect = false;
       if (currentIntent.network === "offline" && !replacing) {
         yield* clearLease;
         yield* setState(offlineState(currentIntent, generation, failureCount + 1, latestFailure));
@@ -954,7 +964,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         runAttempt(attempt, nextGeneration, latestFailure, pendingRetry, replacing),
         diagnostics,
         target.environmentId,
+      ).pipe(
+        Effect.provideService(AttemptReconnectArm, experiment?.arm(target.environmentId) ?? "new"),
       );
+      nextReconnect = outcome.established;
       replacing = false;
       // Consumed on every iteration so a stale marker can never leak into a
       // later, unrelated failure.
@@ -1050,6 +1063,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   yield* wakeups.changes.pipe(
     Stream.runForEach((reason) =>
       Effect.gen(function* () {
+        if (reason !== "credentials-changed") {
+          const current = yield* SubscriptionRef.get(state);
+          experiment?.begin(target.environmentId, current.phase !== "connecting");
+          nextReconnect = false;
+        }
         record({
           kind: "wakeup",
           reason,

@@ -1,3 +1,4 @@
+import { AttemptReconnectArm } from "../connection/reconnectExperiment.ts";
 import {
   type ClientConnectionMethod,
   EnvironmentId,
@@ -213,7 +214,9 @@ export const make = Effect.gen(function* () {
       };
       // Preflight validates the credential before retiring a healthy route.
       const connection =
-        Option.isSome(webSocketConstructorWithHeaders) && input.purpose !== "preflight"
+        Option.isSome(webSocketConstructorWithHeaders) &&
+        (yield* AttemptReconnectArm) !== "old" &&
+        input.purpose !== "preflight"
           ? { socketUrl: remoteWebSocketUrl(socketInput) }
           : yield* resolveRemoteWebSocketConnection(socketInput).pipe(
               Effect.mapError(mapRemoteEnvironmentError),

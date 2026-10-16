@@ -32,7 +32,19 @@ import { mobileApplicationActiveWakeup } from "./app-state-wakeups";
 import * as NativeWebTransport from "./nativeWebTransport";
 import * as ConnectionStorage from "./storage";
 
+let updateLogNetwork: ((type: "wifi" | "cellular" | "other") => void) | undefined;
+function recordNetwork(state: Network.NetworkState) {
+  updateLogNetwork?.(
+    state.type === Network.NetworkStateType.WIFI
+      ? "wifi"
+      : state.type === Network.NetworkStateType.CELLULAR
+        ? "cellular"
+        : "other",
+  );
+}
+
 function networkStatus(state: Network.NetworkState): "unknown" | "offline" | "online" {
+  recordNetwork(state);
   if (state.isConnected === false) {
     return "offline";
   }
@@ -96,6 +108,7 @@ const networkPathChanges = Stream.callback<"network-changed">((queue) =>
       let active = true;
       let previous: Network.NetworkStateType | undefined;
       const record = (state: Network.NetworkState) => {
+        recordNetwork(state);
         const type = state.isConnected === true ? state.type : undefined;
         if (previous !== undefined && type !== undefined && type !== previous) {
           Queue.offerUnsafe(queue, "network-changed");
@@ -126,57 +139,64 @@ const networkPathChanges = Stream.callback<"network-changed">((queue) =>
 const layerWakeups = Layer.unwrap(
   Effect.gen(function* () {
     const log = yield* MobileConnectionLog.MobileConnectionLog;
-    return Wakeups.layer({
-      changes: Stream.mergeAll(
-        [
-          Stream.callback<"application-active-probe" | "application-active-reconnect">((queue) =>
-            Effect.acquireRelease(
-              Effect.sync(() => {
-                let backgroundedAtMs = AppState.currentState === "background" ? Date.now() : null;
-                return AppState.addEventListener("change", (state) => {
-                  if (state === "background") {
-                    backgroundedAtMs = Date.now();
-                    return;
-                  }
-                  if (state === "active") {
-                    const at = Date.now();
-                    const wakeup = mobileApplicationActiveWakeup(backgroundedAtMs, at);
-                    log.wakeup({
-                      launch: backgroundedAtMs === null ? "running" : "resume",
-                      wakeup,
-                      backgroundMs:
-                        backgroundedAtMs === null ? null : Math.max(0, at - backgroundedAtMs),
-                      at,
-                      monotonic: performance.now(),
-                    });
-                    Queue.offerUnsafe(queue, wakeup);
-                    backgroundedAtMs = null;
-                  }
-                });
+    updateLogNetwork = log.network;
+    // Seed before any environment attempt; this read is common to both arms.
+    yield* Effect.promise(() =>
+      Network.getNetworkStateAsync()
+        .then(recordNetwork)
+        .catch(() => undefined),
+    );
+    const changes = yield* Stream.mergeAll(
+      [
+        Stream.callback<"application-active-probe" | "application-active-reconnect">((queue) =>
+          Effect.acquireRelease(
+            Effect.sync(() => {
+              let backgroundedAtMs = AppState.currentState === "background" ? Date.now() : null;
+              return AppState.addEventListener("change", (state) => {
+                if (state === "background") {
+                  backgroundedAtMs = Date.now();
+                  log.background();
+                  return;
+                }
+                if (state === "active") {
+                  const at = Date.now();
+                  const wakeup = mobileApplicationActiveWakeup(backgroundedAtMs, at);
+                  log.wakeup({
+                    launch: backgroundedAtMs === null ? "running" : "resume",
+                    wakeup,
+                    backgroundMs:
+                      backgroundedAtMs === null ? null : Math.max(0, at - backgroundedAtMs),
+                    at,
+                    monotonic: performance.now(),
+                  });
+                  Queue.offerUnsafe(queue, wakeup);
+                  backgroundedAtMs = null;
+                }
+              });
+            }),
+            (subscription) => Effect.sync(() => subscription.remove()),
+          ).pipe(Effect.asVoid),
+        ),
+        managedRelayAccountChanges(appAtomRegistry).pipe(
+          Stream.map(() => "credentials-changed" as const),
+        ),
+        networkPathChanges.pipe(
+          Stream.tap((wakeup) =>
+            Effect.sync(() =>
+              log.wakeup({
+                launch: "running",
+                wakeup,
+                backgroundMs: null,
+                at: Date.now(),
+                monotonic: performance.now(),
               }),
-              (subscription) => Effect.sync(() => subscription.remove()),
-            ).pipe(Effect.asVoid),
-          ),
-          managedRelayAccountChanges(appAtomRegistry).pipe(
-            Stream.map(() => "credentials-changed" as const),
-          ),
-          networkPathChanges.pipe(
-            Stream.tap((wakeup) =>
-              Effect.sync(() =>
-                log.wakeup({
-                  launch: "running",
-                  wakeup,
-                  backgroundMs: null,
-                  at: Date.now(),
-                  monotonic: performance.now(),
-                }),
-              ),
             ),
           ),
-        ],
-        { concurrency: "unbounded" },
-      ),
-    });
+        ),
+      ],
+      { concurrency: "unbounded" },
+    ).pipe(Stream.share({ capacity: "unbounded" }));
+    return Wakeups.layer({ changes });
   }),
 ).pipe(Layer.provide(Runtime.layer));
 

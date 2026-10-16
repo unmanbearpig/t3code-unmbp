@@ -7,6 +7,7 @@ import { AppText as Text } from "../../components/AppText";
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import * as Runtime from "../../lib/runtime";
 import { SettingsActionRow } from "../settings/components/SettingsActionRow";
+import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import * as ConnectionLog from "./connection-log";
 import { formatConnectionLog } from "./connection-log-model";
@@ -39,7 +40,9 @@ function LoadedConnectionLog(props: {
   const records = useSyncExternalStore(log.subscribe, log.read, log.read);
   const [selected, setSelected] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
-  const recent = records.slice(-20);
+  const enabled = useSyncExternalStore(log.subscribe, log.experimentEnabled, log.experimentEnabled);
+  const [saving, setSaving] = useState(false);
+  const recent = records.slice(-50);
   // Hermes lacks toReversed; slice already made a copy.
   recent.reverse();
   const report = () => formatConnectionLog(log.read(), { ...props.app, platform: Platform.OS });
@@ -62,6 +65,18 @@ function LoadedConnectionLog(props: {
   };
   return (
     <SettingsSection title={`Connections (${records.length})`}>
+      <SettingsSwitchRow
+        label="Randomized reconnect A/B"
+        value={enabled}
+        disabled={saving}
+        onValueChange={(value) => {
+          setSaving(true);
+          void Runtime.runtime
+            .runPromise(log.setExperimentEnabled(value))
+            .catch(() => Alert.alert("Couldn't save reconnect experiment"))
+            .finally(() => setSaving(false));
+        }}
+      />
       <SettingsActionRow
         icon="doc.on.doc"
         label="Copy connection log"

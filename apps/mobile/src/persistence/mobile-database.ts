@@ -23,6 +23,7 @@ export const ClientCacheKind = Schema.Literals([
   "vcs-refs",
   "project-favicon",
   "connection-log",
+  "reconnect-experiment",
   "pull-request",
 ]);
 export type ClientCacheKind = typeof ClientCacheKind.Type;
@@ -350,7 +351,7 @@ const makeAvailable = Effect.gen(function* () {
                      SELECT cache_key FROM client_cache
                      WHERE environment_id = ? AND kind = 'connection-log'
                      ORDER BY updated_at DESC, CAST(substr(cache_key, instr(cache_key, '-') + 1) AS INTEGER) DESC
-                     LIMIT -1 OFFSET 200
+                     LIMIT -1 OFFSET 2000
                    )`,
                   environmentId,
                   environmentId,

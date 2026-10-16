@@ -12,10 +12,10 @@ export const makeWebSocketLayer = Effect.gen(function* () {
     ClientCapabilities.WebSocketConstructorWithHeaders,
   );
 
-  return (connection: PreparedConnection, onOpen?: () => void) => {
+  return (connection: PreparedConnection, onOpen?: () => void, oldArm = false) => {
     const authorization = connection.httpAuthorization;
     const makeWebSocket =
-      authorization?._tag === "Bearer" && Option.isSome(constructorWithHeaders)
+      !oldArm && authorization?._tag === "Bearer" && Option.isSome(constructorWithHeaders)
         ? (url: string) =>
             constructorWithHeaders.value(url, {
               Authorization: `Bearer ${authorization.token}`,

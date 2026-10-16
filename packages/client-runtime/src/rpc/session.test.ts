@@ -1,3 +1,4 @@
+import { AttemptReconnectArm } from "../connection/reconnectExperiment.ts";
 import {
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
@@ -2300,3 +2301,26 @@ describe("RpcSessionFactory transport selection", () => {
     }).pipe(Effect.scoped),
   );
 });
+
+it.effect("old arm uses the ticket socket without bearer upgrade headers", () =>
+  Effect.gen(function* () {
+    const { factory, sockets } = yield* makeFactory().pipe(
+      Effect.provideService(ClientCapabilities.WebSocketConstructorWithHeaders, () => {
+        throw new Error("Old arm must use its ticket constructor");
+      }),
+    );
+    const session = yield* factory
+      .connect({
+        ...PREPARED,
+        socketUrl: "wss://environment.example.test/ws?wsTicket=old-ticket",
+        httpAuthorization: { _tag: "Bearer", token: "secret" },
+      })
+      .pipe(Effect.provideService(AttemptReconnectArm, "old"));
+    const ready = yield* Effect.forkChild(session.ready);
+    const socket = yield* awaitSocket(sockets);
+    expect(socket.url).toContain("wsTicket=old-ticket");
+    socket.open();
+    yield* completeInitialConfig(socket);
+    yield* Fiber.join(ready);
+  }),
+);

@@ -22,3 +22,5 @@ export { orchestrationProtocolCompatibilityError } from "./compatibility.ts";
 export { OutdatedHostUpdateError } from "./outdatedHostUpdate.ts";
 
 export * as ConnectionDiagnostics from "./diagnostics.ts";
+
+export * as ReconnectExperiment from "./reconnectExperiment.ts";

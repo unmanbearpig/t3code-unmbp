@@ -387,12 +387,19 @@ describe("connection log assembly", () => {
 
   it("bounds storage, updates a record in place, caps detail and keeps clear from resurrecting records", () => {
     const h = harness();
-    for (let i = 0; i < 205; i++) {
+    for (let i = 0; i < 2005; i++) {
       h.at(i);
+      h.log.record({
+        kind: "wakeup",
+        environmentId,
+        reason: "network-changed",
+        hasSession: false,
+        desired: true,
+      });
       h.log.record({ kind: "attempt-start", environmentId });
       h.log.record({ kind: "attempt-end", environmentId, outcome: "failed", error: "network" });
     }
-    expect(h.records()).toHaveLength(200);
+    expect(h.records()).toHaveLength(2000);
     expect(h.records()[0]?.id).toBe("1800000000005-6");
     for (let i = 0; i < 45; i++)
       h.log.record({
@@ -403,7 +410,7 @@ describe("connection log assembly", () => {
         status: null,
         outcome: "failed",
       });
-    expect(h.records()).toHaveLength(200);
+    expect(h.records()).toHaveLength(2000);
     expect(h.latest().http).toHaveLength(40);
     expect(h.latest().detailsTruncated).toBe(true);
     h.log.clear();
@@ -424,8 +431,8 @@ it("restores only bounded, validated, redacted records and marks unfinished proc
   const h = harness();
   h.log.record({ kind: "attempt-start", environmentId });
   const record = { ...h.latest(), token: "secret", fullUrl: "https://secret?token=secret" };
-  const restored = readConnectionLog(JSON.stringify(Array.from({ length: 205 }, () => record)));
-  expect(restored).toHaveLength(200);
+  const restored = readConnectionLog(JSON.stringify(Array.from({ length: 2005 }, () => record)));
+  expect(restored).toHaveLength(2000);
   expect(restored[0]?.outcome).toBe("process-ended");
   expect(JSON.stringify(restored)).not.toMatch(/secret|fullUrl|token/);
   expect(
@@ -540,4 +547,92 @@ it("finishes idle wakeups without claiming a reconnect and preserves a completed
   h.log.record({ kind: "session-closed", environmentId });
   h.log.record({ kind: "state", environmentId, phase: "backoff", error: "network" });
   expect(h.latest()).toMatchObject({ outcome: "connected", error: null });
+});
+
+it("keeps randomized arms through retries and pre-active continuation, and starts cold timing at JS entry", () => {
+  let arm: "old" | "new" = "old";
+  let time = 100;
+  let records: ReadonlyArray<ConnectionLogRecord> = [];
+  const log = createConnectionLog(
+    () => ({ wall: 1800000000000 + time, monotonic: time }),
+    (record) => {
+      records = appendConnectionLog(records, record);
+    },
+    () => ({ arm, experiment: true, networkType: "wifi" }),
+    { wall: 1800000000000, monotonic: 0 },
+  );
+  log.ensureTrial(environmentId, true);
+  log.record({ kind: "attempt-start", environmentId });
+  expect(records.at(-1)).toMatchObject({ arm: "old", timingOrigin: "js-launch", durationMs: 100 });
+  log.record({ kind: "attempt-end", environmentId, outcome: "failed", error: "network" });
+  arm = "new";
+  time = 200;
+  log.record({ kind: "attempt-start", environmentId });
+  expect(records).toHaveLength(1);
+  expect(records.at(-1)?.arm).toBe("old");
+  log.wakeup({
+    launch: "resume",
+    wakeup: "application-active-reconnect",
+    backgroundMs: 20000,
+    at: 1800000000200,
+    monotonic: 200,
+  });
+  expect(records.at(-1)).toMatchObject({ arm: "old", timingOrigin: "wakeup", durationMs: 0 });
+  log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
+  time = 250;
+  log.record({ kind: "shell-sync", environmentId, milestone: "live", completion: "marker" });
+  expect(records.at(-1)?.shell.liveAfterMs).toBe(50);
+  log.network("cellular");
+  expect(records.at(-1)?.networkChanged).toBe(false);
+  log.record({ kind: "shell-sync", environmentId, milestone: "live", completion: "marker" });
+  time = 300;
+  log.wakeup({
+    launch: "resume",
+    wakeup: "application-active-probe",
+    backgroundMs: 1000,
+    at: 1800000000300,
+    monotonic: 300,
+  });
+  expect(records.at(-1)).toMatchObject({ arm: "new", backgroundMs: 1000 });
+});
+
+it("freezes primary catch-up timings and records interruption before background completion", () => {
+  const h = harness();
+  h.log.visible({ environmentId, threadId });
+  h.log.record({ kind: "attempt-start", environmentId });
+  h.at(100);
+  h.log.record({ kind: "shell-sync", environmentId, milestone: "live", completion: "marker" });
+  h.log.record({
+    kind: "thread-sync",
+    environmentId,
+    threadId,
+    mode: "replay",
+    milestone: "live",
+    completion: "marker",
+  });
+  h.at(1000);
+  h.log.record({ kind: "shell-sync", environmentId, milestone: "started", completion: "marker" });
+  h.log.record({
+    kind: "thread-sync",
+    environmentId,
+    threadId,
+    mode: "replay",
+    milestone: "live",
+    completion: "marker",
+  });
+  expect(h.latest().shell.liveAfterMs).toBe(100);
+  expect(h.latest().visibleThread.liveAfterMs).toBe(100);
+  h.log.wakeup({
+    launch: "resume",
+    wakeup: "application-active-reconnect",
+    backgroundMs: 20000,
+    at: 1800000001000,
+    monotonic: 1000,
+  });
+  h.at(1050);
+  h.log.background();
+  h.at(1100);
+  h.log.record({ kind: "shell-sync", environmentId, milestone: "live", completion: "marker" });
+  expect(h.latest().interruptedAfterMs).toBe(50);
+  expect(h.latest().shell.liveAfterMs).toBeNull();
 });

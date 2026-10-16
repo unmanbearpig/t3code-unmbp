@@ -1,3 +1,4 @@
+import { ReconnectGuessBanner } from "./features/diagnostics/ReconnectGuessBanner";
 import { PermissionUpdateNotice } from "./components/PermissionUpdateNotice";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
@@ -103,6 +104,7 @@ function AppContent() {
               {/* Anchored-menu overlays render here — in-window, so the
                 keyboard stays up while a dropdown is open. */}
               <OverlayPortalHost />
+              <ReconnectGuessBanner />
             </VoiceInputProvider>
           </SafeAreaProvider>
         </KeyboardProvider>

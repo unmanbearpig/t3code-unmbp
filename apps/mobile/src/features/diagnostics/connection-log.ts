@@ -1,3 +1,4 @@
+import { ReconnectExperiment as ConnectionDiagnosticsExperiment } from "@t3tools/client-runtime/connection";
 import { ConnectionDiagnostics } from "@t3tools/client-runtime/connection";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -5,6 +6,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 
+import { mobileJsLaunch } from "./launch-clock";
 import * as MobileDatabase from "../../persistence/mobile-database";
 import {
   appendConnectionLog,
@@ -21,6 +23,7 @@ export class MobileConnectionLog extends Context.Service<
   MobileConnectionLog,
   {
     readonly record: (event: ConnectionDiagnostics.ConnectionDiagnosticEvent) => void;
+    readonly background: () => void;
     readonly wakeup: (context: MobileWakeupContext) => void;
     readonly visible: (
       thread: { readonly environmentId: string; readonly threadId: string } | null,
@@ -29,6 +32,20 @@ export class MobileConnectionLog extends Context.Service<
     readonly subscribe: (listener: () => void) => () => void;
     readonly clear: () => void;
     readonly storageAvailable: () => boolean;
+    readonly experimentEnabled: () => boolean;
+    readonly setExperimentEnabled: (
+      enabled: boolean,
+    ) => Effect.Effect<void, MobileDatabase.MobileDatabaseError>;
+    readonly begin: (environmentId: string, reset: boolean) => void;
+    readonly arm: (environmentId: string) => "old" | "new";
+    readonly network: (type: "wifi" | "cellular" | "other") => void;
+    readonly prompt: () => {
+      readonly id: string;
+      readonly environment: number;
+      readonly expiresAt: number;
+    } | null;
+    readonly guess: (id: string, guess: "old" | "new" | "skip") => void;
+    readonly dismissPrompt: (id: string) => void;
   }
 >()("@t3tools/mobile/MobileConnectionLog") {}
 
@@ -38,6 +55,19 @@ const make = Effect.gen(function* () {
   const listeners = new Set<() => void>();
   let records: ReadonlyArray<ConnectionLogRecord> = [];
   let storageAvailable = true;
+  let networkType: ConnectionLogRecord["networkType"] = "other";
+  let experimentEnabled = yield* database
+    .loadCache(STORAGE_ENVIRONMENT, "reconnect-experiment", "enabled")
+    .pipe(
+      Effect.map((stored) => stored._tag === "Some" && stored.value === "true"),
+      Effect.orElseSucceed(() => false),
+    );
+  let prompt: {
+    readonly id: string;
+    readonly environment: number;
+    readonly expiresAt: number;
+  } | null = null;
+  const prompted = new Set<string>();
   const stored = yield* database.listCache("connection-log").pipe(
     Effect.catch(() => {
       storageAvailable = false;
@@ -57,8 +87,23 @@ const make = Effect.gen(function* () {
   const notify = () => {
     for (const listener of listeners) listener();
   };
-  const changed = (record: ConnectionLogRecord) => {
+  const changed = (next: ConnectionLogRecord) => {
+    const previous = records.find((value) => value.id === next.id);
+    const record = { ...next, guess: previous?.guess ?? next.guess };
     records = appendConnectionLog(records, record);
+    if (
+      experimentEnabled &&
+      record.experiment &&
+      !prompted.has(record.id) &&
+      ["connected", "healthy"].includes(record.outcome) &&
+      record.shell.outcome === "live" &&
+      record.interruptedAfterMs === null &&
+      ["live", "not-visible"].includes(record.visibleThread.outcome)
+    ) {
+      prompted.add(record.id);
+      if (prompted.size > CONNECTION_LOG_LIMIT) prompted.delete(prompted.values().next().value!);
+      prompt = { id: record.id, environment: record.environment, expiresAt: Date.now() + 10_000 };
+    }
     pending.set(record.id, record);
     if (pending.size > CONNECTION_LOG_LIMIT) pending.delete(pending.keys().next().value!);
     Queue.offerUnsafe(writes, undefined);
@@ -67,6 +112,12 @@ const make = Effect.gen(function* () {
   const assembler = createConnectionLog(
     () => ({ wall: Date.now(), monotonic: performance.now() }),
     changed,
+    () => ({
+      experiment: experimentEnabled,
+      arm: experimentEnabled && Math.random() < 0.5 ? "old" : "new",
+      networkType,
+    }),
+    mobileJsLaunch,
   );
   yield* Queue.take(writes).pipe(
     Effect.andThen(
@@ -106,6 +157,51 @@ const make = Effect.gen(function* () {
   );
   return MobileConnectionLog.of({
     ...assembler,
+    begin: assembler.ensureTrial,
+    background: () => {
+      assembler.background();
+      prompt = null;
+      notify();
+    },
+    experimentEnabled: () => experimentEnabled,
+    setExperimentEnabled: (enabled) =>
+      database
+        .saveCache(
+          STORAGE_ENVIRONMENT,
+          "reconnect-experiment",
+          "enabled",
+          1,
+          JSON.stringify(enabled),
+        )
+        .pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              experimentEnabled = enabled;
+              if (!enabled) prompt = null;
+              notify();
+            }),
+          ),
+        ),
+    network: (type) => {
+      networkType = type;
+      assembler.network(type);
+    },
+    prompt: () => prompt,
+    dismissPrompt: (id) => {
+      if (prompt?.id === id) {
+        prompt = null;
+        notify();
+      }
+    },
+    guess: (id, guess) => {
+      const record = records.find((value) => value.id === id);
+      if (!record || !record.experiment || record.guess !== null) return;
+      changed({ ...record, guess });
+      if (prompt?.id === id) {
+        prompt = null;
+        notify();
+      }
+    },
     read: () => records,
     storageAvailable: () => storageAvailable,
     subscribe: (listener) => {
@@ -116,6 +212,8 @@ const make = Effect.gen(function* () {
     },
     clear: () => {
       assembler.clear();
+      prompt = null;
+      prompted.clear();
       records = [];
       pending.clear();
       clearRequested = true;
@@ -130,4 +228,10 @@ export const layer = Layer.effect(MobileConnectionLog, make);
 export const layerObserver = Layer.effect(
   ConnectionDiagnostics.ConnectionDiagnostics,
   Effect.map(MobileConnectionLog, (log) => ({ record: log.record })),
+);
+
+export const layerExperiment = Layer.effect(
+  // The mobile log chooses the arm before the shared runtime starts work.
+  ConnectionDiagnosticsExperiment.ReconnectExperiment,
+  Effect.map(MobileConnectionLog, (log) => ({ begin: log.begin, arm: log.arm })),
 );

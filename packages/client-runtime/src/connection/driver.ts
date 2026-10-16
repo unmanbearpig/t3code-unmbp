@@ -1,3 +1,4 @@
+import { AttemptReconnectArm } from "./reconnectExperiment.ts";
 import * as Cause from "effect/Cause";
 import * as Diagnostics from "./diagnostics.ts";
 import * as Context from "effect/Context";
@@ -194,9 +195,10 @@ export const make = Effect.gen(function* () {
     diagnostics?.record({ kind: "stage", environmentId: target.environmentId, stage: "preparing" });
     yield* reportProgress({ stage: "preparing" });
     const descriptorScope = yield* Scope.make();
+    const oldArm = (yield* AttemptReconnectArm) === "old";
     return yield* connectOverRoutes(
       entry,
-      (route) => checkRoute(entry, route, descriptorScope),
+      (route) => checkRoute(entry, route, oldArm ? undefined : descriptorScope),
       Effect.fnUntraced(function* (route) {
         diagnostics?.record({
           kind: "stage",

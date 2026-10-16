@@ -5,12 +5,19 @@ import type { ConnectionDiagnostics } from "@t3tools/client-runtime/connection";
 type Event = ConnectionDiagnostics.ConnectionDiagnosticEvent;
 type Route = ConnectionDiagnostics.DiagnosticRoute;
 
-export const CONNECTION_LOG_LIMIT = 200;
+export const CONNECTION_LOG_LIMIT = 2_000;
 const DETAIL_LIMIT = 40;
 
 export interface ConnectionLogRecord {
   readonly id: string;
   readonly timestamp: string;
+  readonly experiment: boolean;
+  readonly arm: "old" | "new";
+  readonly networkType: "wifi" | "cellular" | "other";
+  readonly networkChanged: boolean;
+  readonly interruptedAfterMs: number | null;
+  readonly guess: "old" | "new" | "skip" | null;
+  readonly timingOrigin: "js-launch" | "wakeup" | "attempt";
   readonly environment: number;
   readonly launch: "cold" | "resume" | "running";
   readonly wakeup: string;
@@ -72,6 +79,12 @@ export interface MobileWakeupContext {
 export function createConnectionLog(
   now: () => { readonly wall: number; readonly monotonic: number },
   changed: (record: ConnectionLogRecord) => void,
+  metadata: () => Pick<ConnectionLogRecord, "experiment" | "arm" | "networkType"> = () => ({
+    experiment: false,
+    arm: "new",
+    networkType: "other",
+  }),
+  launchTime?: { readonly wall: number; readonly monotonic: number },
 ) {
   let sequence = 0;
   let attemptSequence = 0;
@@ -88,6 +101,7 @@ export function createConnectionLog(
       stage: "preparing" | "opening" | "synchronizing" | null;
       stageStarted: number;
       wakeupAt: number | null;
+      visibleThreadId: string | null;
     }
   >();
   const closed = new Set<string>();
@@ -102,10 +116,30 @@ export function createConnectionLog(
   const begin = (environmentId: string, wakeup: string, hasSession?: boolean) => {
     const time = now();
     const fromWakeup = contexts.get(wakeup) ?? null;
+    const previous = active.get(environmentId);
+    const continuing = previous?.record.attempts.at(-1)?.outcome === "pending";
+    const origin = fromWakeup
+      ? { wall: fromWakeup.at, monotonic: fromWakeup.monotonic }
+      : !seen.has(environmentId) && launchTime
+        ? launchTime
+        : time;
+    const sampled = metadata();
+    const selection = continuing && previous ? previous.record : sampled;
     const entry = {
       record: {
         id: `${time.wall}-${++sequence}`,
-        timestamp: new Date(fromWakeup ? fromWakeup.at : time.wall).toISOString(),
+        timestamp: new Date(origin.wall).toISOString(),
+        experiment: selection.experiment,
+        arm: selection.arm,
+        networkType: sampled.networkType,
+        networkChanged: false,
+        guess: null,
+        interruptedAfterMs: null,
+        timingOrigin: fromWakeup
+          ? "wakeup"
+          : !seen.has(environmentId) && launchTime
+            ? "js-launch"
+            : "attempt",
         environment: seen.get(environmentId) ?? ++environmentSequence,
         launch:
           fromWakeup?.launch === "resume" ? "resume" : seen.has(environmentId) ? "running" : "cold",
@@ -140,13 +174,13 @@ export function createConnectionLog(
         outcome: "pending",
         error: null,
       } as ConnectionLogRecord,
-      started: fromWakeup ? fromWakeup.monotonic : time.monotonic,
+      started: origin.monotonic,
       probeStarted: null as number | null,
       stage: null as "preparing" | "opening" | "synchronizing" | null,
       stageStarted: time.monotonic,
       wakeupAt: fromWakeup ? fromWakeup.at : null,
+      visibleThreadId: visible?.environmentId === environmentId ? visible.threadId : null,
     };
-    const previous = active.get(environmentId);
     if (previous) {
       const continuing = previous.record.attempts.at(-1)?.outcome === "pending";
       const releasing = previous.record.cleanup.some((item) => item.outcome === null);
@@ -180,7 +214,13 @@ export function createConnectionLog(
           route: previous.record.route,
         };
     }
-    if (previous?.record.outcome === "pending") {
+    if (
+      previous &&
+      (previous.record.outcome === "pending" ||
+        (["connected", "healthy"].includes(previous.record.outcome) &&
+          (previous.record.shell.outcome !== "live" ||
+            previous.record.visibleThread.outcome === "waiting")))
+    ) {
       previous.record = { ...previous.record, outcome: "superseded" };
       publish(previous);
     }
@@ -221,13 +261,57 @@ export function createConnectionLog(
       contexts.clear();
       recentSync.clear();
     },
+    ensureTrial: (environmentId: string, reset: boolean) => {
+      const existing = active.get(environmentId);
+      if (
+        !existing ||
+        (reset && ["connected", "healthy", "idle"].includes(existing.record.outcome))
+      )
+        begin(environmentId, "reconnect");
+    },
+    arm: (environmentId: string): "old" | "new" => active.get(environmentId)?.record.arm ?? "new",
+    background: () => {
+      for (const entry of active.values()) {
+        if (
+          entry.record.shell.outcome !== "live" ||
+          entry.record.visibleThread.outcome === "waiting"
+        ) {
+          entry.record = {
+            ...entry.record,
+            interruptedAfterMs: Math.max(0, now().monotonic - entry.started),
+          };
+          publish(entry);
+        }
+      }
+    },
+    network: (networkType: ConnectionLogRecord["networkType"]) => {
+      for (const entry of active.values()) {
+        if (
+          (entry.record.shell.outcome !== "live" ||
+            entry.record.visibleThread.outcome === "waiting") &&
+          entry.record.networkType !== networkType &&
+          !entry.record.networkChanged
+        ) {
+          entry.record = { ...entry.record, networkChanged: true };
+          publish(entry);
+        }
+      }
+    },
     wakeup: (next: MobileWakeupContext) => {
       contexts.set(next.wakeup, next);
+      // Choose before any wakeup subscriber can start a shell/thread refresh.
+      for (const [environmentId, entry] of active)
+        begin(environmentId, next.wakeup, entry.record.sessionId !== null);
     },
     visible: (next: typeof visible) => {
       visible = next;
       const entry = next === null ? undefined : active.get(next.environmentId);
-      if (entry && entry.record.visibleThread.outcome === "not-visible") {
+      if (
+        entry &&
+        entry.record.launch === "cold" &&
+        entry.record.visibleThread.outcome === "not-visible"
+      ) {
+        entry.visibleThreadId = next?.threadId ?? null;
         const recent =
           next === null ? undefined : recentSync.get(`${next.environmentId}:${next.threadId}`);
         entry.record = {
@@ -276,7 +360,7 @@ export function createConnectionLog(
         return;
       }
       if (event.kind === "attempt-start") {
-        if (!entry || entry.record.outcome !== "pending")
+        if (!entry || ["connected", "healthy", "idle"].includes(entry.record.outcome))
           entry = begin(event.environmentId, "reconnect");
         if (entry.record.attempts.length >= DETAIL_LIMIT)
           entry.record = { ...entry.record, detailsTruncated: true };
@@ -365,6 +449,8 @@ export function createConnectionLog(
           break;
         }
         case "shell-sync":
+          if (entry.record.shell.outcome === "live" || entry.record.interruptedAfterMs !== null)
+            return;
           entry.record = {
             ...entry.record,
             shell: {
@@ -406,7 +492,11 @@ export function createConnectionLog(
           };
           break;
         case "thread-sync":
-          if (visible?.environmentId !== event.environmentId || visible.threadId !== event.threadId)
+          if (
+            entry.visibleThreadId !== event.threadId ||
+            entry.record.visibleThread.outcome === "live" ||
+            entry.record.interruptedAfterMs !== null
+          )
             return;
           entry.record = {
             ...entry.record,
@@ -440,7 +530,21 @@ export function formatConnectionLog(
   records: ReadonlyArray<ConnectionLogRecord>,
   app: { readonly version: string; readonly build: string; readonly platform: string },
 ): string {
-  return JSON.stringify({ format: "t3-mobile-connection-log", version: 1, app, records }, null, 2);
+  return JSON.stringify(
+    {
+      format: "t3-mobile-connection-log",
+      version: 2,
+      experiment: {
+        comparison: "B+C+L+S",
+        shared: ["M", "I", "G"],
+        coldOrigin: "JavaScript entry",
+      },
+      app,
+      records,
+    },
+    null,
+    2,
+  );
 }
 
 const RouteSchema = Schema.Struct({
@@ -480,6 +584,13 @@ const DiagnosticError = Schema.NullOr(
 );
 const StoredRecord = Schema.Struct({
   id: Schema.String.check(Schema.isPattern(/^\d+-\d+$/)),
+  experiment: Schema.optionalKey(Schema.Boolean),
+  arm: Schema.optionalKey(Schema.Literals(["old", "new"])),
+  networkType: Schema.optionalKey(Schema.Literals(["wifi", "cellular", "other"])),
+  networkChanged: Schema.optionalKey(Schema.Boolean),
+  interruptedAfterMs: Schema.optionalKey(NullableNumber),
+  guess: Schema.optionalKey(Schema.NullOr(Schema.Literals(["old", "new", "skip"]))),
+  timingOrigin: Schema.optionalKey(Schema.Literals(["js-launch", "wakeup", "attempt"])),
   timestamp: Schema.String.check(Schema.isPattern(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/)),
   environment: Schema.Number,
   launch: Schema.Literals(["cold", "resume", "running"]),
@@ -584,6 +695,13 @@ export function readConnectionLog(raw: string): ReadonlyArray<ConnectionLogRecor
       return [
         {
           ...record,
+          experiment: record.experiment ?? false,
+          arm: record.arm ?? "new",
+          networkType: record.networkType ?? "other",
+          networkChanged: record.networkChanged ?? false,
+          guess: record.guess ?? null,
+          interruptedAfterMs: record.interruptedAfterMs ?? null,
+          timingOrigin: record.timingOrigin ?? "attempt",
           continuedFrom: record.continuedFrom ?? null,
           sessionId: record.sessionId ?? null,
           attempts: record.attempts.map((attempt) => ({
