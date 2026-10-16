@@ -2215,8 +2215,8 @@ it.effect.each(["old", "new"] as const)(
       const h = yield* makeHarness({ cached: BASE_PROJECTION, completionMarker: true }).pipe(
         Effect.provideService(ReconnectExperiment, { begin: () => undefined, arm: () => arm }),
       );
-      yield* offer(h.inputs, synchronized());
-      yield* waitForState(h.observed, (state) => state.status === "live");
+      yield* Queue.offer(h.inputs, synchronized());
+      yield* awaitThreadState(h.observed, (state) => state.status === "live");
       expect(yield* Ref.get(h.lastRequestCompletionMarker)).toBe(true);
       expect(yield* Ref.get(h.lastLegacyCatchUpPacing)).toBe(arm === "old" ? true : undefined);
     }),
