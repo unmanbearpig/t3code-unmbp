@@ -11,6 +11,7 @@ const DETAIL_LIMIT = 40;
 export interface ConnectionLogRecord {
   readonly recordVersion: 1 | 2 | 3;
   readonly eventId: string | null;
+  readonly eventEnvironmentCount: number;
   readonly eventAssignment: "random" | "continuation";
   readonly legacyPacingSupported: boolean | null;
   readonly id: string;
@@ -141,7 +142,8 @@ export function createConnectionLog(
         recordVersion: 3,
         eventId: selection.id,
         eventAssignment: selection.assignment,
-        legacyPacingSupported: null,
+        eventEnvironmentCount: Math.max(environments.length, 1),
+        legacyPacingSupported: previous?.record.legacyPacingSupported ?? null,
         id: `${time.wall}-${++sequence}`,
         timestamp: new Date(origin.wall).toISOString(),
         experiment: selection.experiment,
@@ -655,6 +657,7 @@ const StoredRecord = Schema.Struct({
   eventId: Schema.optionalKey(
     Schema.NullOr(Schema.String.check(Schema.isPattern(/^\d+-event-\d+$/))),
   ),
+  eventEnvironmentCount: Schema.optionalKey(Schema.Number),
   eventAssignment: Schema.optionalKey(Schema.Literals(["random", "continuation"])),
   legacyPacingSupported: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
   id: Schema.String.check(Schema.isPattern(/^\d+-\d+$/)),
@@ -771,6 +774,7 @@ export function readConnectionLog(raw: string): ReadonlyArray<ConnectionLogRecor
           ...record,
           recordVersion: record.recordVersion ?? (record.experiment === undefined ? 1 : 2),
           eventId: record.eventId ?? null,
+          eventEnvironmentCount: record.eventEnvironmentCount ?? 1,
           eventAssignment: record.eventAssignment ?? "random",
           legacyPacingSupported: record.legacyPacingSupported ?? null,
           experiment: record.experiment ?? false,

@@ -726,3 +726,25 @@ it("retains the old record version when reading historical per-environment trial
     eventId: null,
   });
 });
+
+it("carries known pacing capability and cohort size into a reconnect that can fail before config", () => {
+  const h = harness();
+  h.log.environments([environmentId, "other"]);
+  h.log.ensureTrial(environmentId, true);
+  h.log.record({ kind: "replay-capability", environmentId, legacyPacingSupported: true });
+  h.at(100);
+  h.log.wakeup({
+    launch: "resume",
+    wakeup: "application-active-reconnect",
+    backgroundMs: 20000,
+    at: 1800000000100,
+    monotonic: 100,
+  });
+  expect(
+    h
+      .records()
+      .find(
+        (record) => record.environment === 1 && record.wakeup === "application-active-reconnect",
+      ),
+  ).toMatchObject({ legacyPacingSupported: true, eventEnvironmentCount: 2 });
+});
