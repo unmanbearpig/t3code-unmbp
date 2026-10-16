@@ -376,8 +376,9 @@ const makeAvailable = Effect.gen(function* () {
                 );
               }
             };
-            if (kind === "connection-log") await database.withExclusiveTransactionAsync(save);
-            else await save(database);
+            // Expo's exclusive transactions use another connection and lock out
+            // concurrent cache writes. Saving and pruning can each commit on the shared connection.
+            await save(database);
           },
           catch: databaseError("save-cache"),
         }).pipe(Effect.asVoid),
