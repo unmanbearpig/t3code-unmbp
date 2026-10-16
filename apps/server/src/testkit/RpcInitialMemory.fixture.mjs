@@ -23,6 +23,7 @@ const refs = [];
 const fibers = [];
 const checkpoints = [];
 const deliveredCounts = [];
+const deliveredBatches = [];
 
 function history() {
   const value = JSON.parse(JSON.stringify({ text: NodeCrypto.randomBytes(bytes).toString("hex") }));
@@ -32,6 +33,7 @@ function history() {
 
 function start(ready) {
   const index = deliveredCounts.push(0) - 1;
+  deliveredBatches.push([]);
   const live = Stream.fromEffect(Deferred.succeed(ready, undefined)).pipe(
     Stream.drain,
     Stream.concat(Stream.never),
@@ -80,19 +82,22 @@ function start(ready) {
   return stream.pipe(
     Effect.flatMap((stream) =>
       stream.pipe(
-        Stream.runForEach((item) =>
+        Stream.runForEachArray((items) =>
           Effect.sync(() => {
-            if (mode === "prefix") {
-              NodeAssert.equal(item.text.length, bytes * 2);
-            } else if (delivered === 0) {
-              NodeAssert.equal(item.kind, mode === "replay" ? "event" : "snapshot");
-              const value = mode === "replay" ? item.event.payload : item.projection.messages[0];
-              NodeAssert.equal(value.text.length, bytes * 2);
-            } else {
-              NodeAssert.equal(item.kind, "synchronized");
+            deliveredBatches[index].push(items.map((item) => item.kind ?? "prefix"));
+            for (const item of items) {
+              if (mode === "prefix") {
+                NodeAssert.equal(item.text.length, bytes * 2);
+              } else if (delivered === 0) {
+                NodeAssert.equal(item.kind, mode === "replay" ? "event" : "snapshot");
+                const value = mode === "replay" ? item.event.payload : item.projection.messages[0];
+                NodeAssert.equal(value.text.length, bytes * 2);
+              } else {
+                NodeAssert.equal(item.kind, "synchronized");
+              }
+              delivered++;
+              deliveredCounts[index] = delivered;
             }
-            delivered++;
-            deliveredCounts[index] = delivered;
           }),
         ),
         Effect.forkDetach,
@@ -124,7 +129,7 @@ const result = await Effect.runPromise(
       }
     }
     for (const fiber of fibers) yield* Fiber.interrupt(fiber);
-    return { checkpoints };
+    return { checkpoints, deliveredBatches };
   }),
 );
 console.log(JSON.stringify(result));
