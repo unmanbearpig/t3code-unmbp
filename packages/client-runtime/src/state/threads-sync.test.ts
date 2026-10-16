@@ -1,3 +1,4 @@
+import { ReconnectExperiment } from "../connection/reconnectExperiment.ts";
 import * as Diagnostics from "../connection/diagnostics.ts";
 import {
   EnvironmentId,
@@ -122,6 +123,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
   const loaderCalls = yield* Ref.make(0);
   const lastSubscribeAfterSequence = yield* Ref.make<number | undefined>(undefined);
   const lastRequestCompletionMarker = yield* Ref.make(false);
+  const lastLegacyCatchUpPacing = yield* Ref.make<boolean | undefined>(undefined);
   const lastAcceptBoundedSnapshot = yield* Ref.make<true | undefined>(undefined);
   const lastAcceptCompactTurnItems = yield* Ref.make<true | undefined>(undefined);
   const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
@@ -140,6 +142,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
     [ORCHESTRATION_V2_WS_METHODS.subscribeThread]: (input: {
       readonly afterSequence?: number;
       readonly requestCompletionMarker?: true;
+      readonly legacyCatchUpPacing?: boolean;
       readonly acceptBoundedSnapshot?: true;
       readonly acceptCompactTurnItems?: true;
     }) =>
@@ -149,6 +152,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
           Effect.andThen(
             Ref.set(lastRequestCompletionMarker, input.requestCompletionMarker === true),
           ),
+          Effect.andThen(Ref.set(lastLegacyCatchUpPacing, input.legacyCatchUpPacing)),
           Effect.andThen(Ref.set(lastAcceptBoundedSnapshot, input.acceptBoundedSnapshot)),
           Effect.andThen(Ref.set(lastAcceptCompactTurnItems, input.acceptCompactTurnItems)),
           Effect.as(streamFrom(inputs)),
@@ -265,6 +269,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
     loaderCalls,
     lastSubscribeAfterSequence,
     lastRequestCompletionMarker,
+    lastLegacyCatchUpPacing,
     lastAcceptBoundedSnapshot,
     lastAcceptCompactTurnItems,
     supervisorState,
@@ -2202,3 +2207,17 @@ describe("EnvironmentThreads", () => {
     }),
   );
 });
+
+it.effect.each(["old", "new"] as const)(
+  "requests legacy thread pacing only for the %s arm",
+  (arm) =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ cached: BASE_PROJECTION, completionMarker: true }).pipe(
+        Effect.provideService(ReconnectExperiment, { begin: () => undefined, arm: () => arm }),
+      );
+      yield* offer(h.inputs, synchronized());
+      yield* waitForState(h.observed, (state) => state.status === "live");
+      expect(yield* Ref.get(h.lastRequestCompletionMarker)).toBe(true);
+      expect(yield* Ref.get(h.lastLegacyCatchUpPacing)).toBe(arm === "old" ? true : undefined);
+    }),
+);

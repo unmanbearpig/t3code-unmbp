@@ -98,6 +98,7 @@ export type ConnectionDiagnosticDetail =
       readonly hasSession: boolean;
       readonly desired: boolean;
     }
+  | { readonly kind: "replay-capability"; readonly legacyPacingSupported: boolean }
   | { readonly kind: "attempt-start" }
   | {
       readonly kind: "stage";

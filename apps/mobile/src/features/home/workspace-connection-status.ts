@@ -34,7 +34,9 @@ function workspaceConnectionStatusLabel(state: WorkspaceState): string {
 /** Header-title presentation of the connection state, or null while connected. */
 export function workspaceConnectionStatusPresentation(
   state: WorkspaceState,
+  experimentEnabled = false,
 ): WorkspaceConnectionStatusPresentation | null {
+  if (experimentEnabled) return null;
   if (!shouldShowWorkspaceConnectionStatus(state)) return null;
   return {
     label: workspaceConnectionStatusLabel(state),

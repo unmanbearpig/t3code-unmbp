@@ -1,3 +1,4 @@
+import { ReconnectExperiment } from "./reconnectExperiment.ts";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -207,6 +208,7 @@ interface EnvironmentServiceScope {
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const registryScope = yield* Scope.Scope;
+  const experiment = yield* ReconnectExperiment;
   const storage = yield* Persistence.ConnectionTargetStore;
   const registrations = yield* Persistence.ConnectionRegistrationStore;
   const cache = yield* Persistence.EnvironmentCacheStore;
@@ -269,6 +271,17 @@ export const make = Effect.gen(function* () {
   );
   const entries =
     yield* SubscriptionRef.make<ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>>(initialEntries);
+  const reportEnvironments = (current: ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>) =>
+    experiment?.environments?.(
+      [...current.values()]
+        .filter((entry) => entry.enabled)
+        .map((entry) => entry.target.environmentId),
+    );
+  reportEnvironments(initialEntries);
+  yield* SubscriptionRef.changes(entries).pipe(
+    Stream.runForEach((current) => Effect.sync(() => reportEnvironments(current))),
+    Effect.forkScoped,
+  );
   const networkStatus = yield* SubscriptionRef.make(yield* connectivity.status);
   const serviceScopes = yield* SubscriptionRef.make<
     ReadonlyMap<EnvironmentId, EnvironmentServiceScope>

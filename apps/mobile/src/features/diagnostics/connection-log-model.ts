@@ -9,6 +9,10 @@ export const CONNECTION_LOG_LIMIT = 2_000;
 const DETAIL_LIMIT = 40;
 
 export interface ConnectionLogRecord {
+  readonly recordVersion: 1 | 2 | 3;
+  readonly eventId: string | null;
+  readonly eventAssignment: "random" | "continuation";
+  readonly legacyPacingSupported: boolean | null;
   readonly id: string;
   readonly timestamp: string;
   readonly experiment: boolean;
@@ -88,6 +92,15 @@ export function createConnectionLog(
 ) {
   let sequence = 0;
   let attemptSequence = 0;
+  let eventSequence = 0;
+  const newEvent = (continuation?: Pick<ConnectionLogRecord, "experiment" | "arm">) => ({
+    id: `${now().wall}-event-${++eventSequence}`,
+    ...metadata(),
+    ...(continuation ? { experiment: continuation.experiment, arm: continuation.arm } : {}),
+    assignment: continuation ? ("continuation" as const) : ("random" as const),
+  });
+  let trialEvent: ReturnType<typeof newEvent> | undefined;
+  let environments: ReadonlyArray<string> = [];
   const contexts = new Map<string, MobileWakeupContext>();
   let visible: { environmentId: string; threadId: string } | null = null;
   const seen = new Map<string, number>();
@@ -117,21 +130,23 @@ export function createConnectionLog(
     const time = now();
     const fromWakeup = contexts.get(wakeup) ?? null;
     const previous = active.get(environmentId);
-    const continuing = previous?.record.attempts.at(-1)?.outcome === "pending";
     const origin = fromWakeup
       ? { wall: fromWakeup.at, monotonic: fromWakeup.monotonic }
       : !seen.has(environmentId) && launchTime
         ? launchTime
         : time;
-    const sampled = metadata();
-    const selection = continuing && previous ? previous.record : sampled;
+    const selection = (trialEvent ??= newEvent());
     const entry = {
       record: {
+        recordVersion: 3,
+        eventId: selection.id,
+        eventAssignment: selection.assignment,
+        legacyPacingSupported: null,
         id: `${time.wall}-${++sequence}`,
         timestamp: new Date(origin.wall).toISOString(),
         experiment: selection.experiment,
         arm: selection.arm,
-        networkType: sampled.networkType,
+        networkType: selection.networkType,
         networkChanged: false,
         guess: null,
         interruptedAfterMs: null,
@@ -255,10 +270,38 @@ export function createConnectionLog(
     entry.stageStarted = time;
   };
   return {
+    environments: (ids: ReadonlyArray<string>) => {
+      environments = ids;
+    },
+    completedEvent: () => {
+      if (!trialEvent) return null;
+      const entries = environments.length
+        ? environments.map((id) => active.get(id))
+        : [...active.values()];
+      const rows = entries.map((entry) => entry?.record);
+      if (
+        !rows.length ||
+        rows.some(
+          (record) =>
+            !record ||
+            record.eventId !== trialEvent?.id ||
+            (!["idle", "blocked", "offline"].includes(record.outcome) &&
+              (!["connected", "healthy"].includes(record.outcome) ||
+                record.interruptedAfterMs !== null ||
+                record.shell.outcome !== "live" ||
+                !["live", "not-visible"].includes(record.visibleThread.outcome))),
+        )
+      )
+        return null;
+      return rows.some((record) => record?.experiment && record.shell.completion === "marker")
+        ? trialEvent.id
+        : null;
+    },
     clear: () => {
       active.clear();
       closed.clear();
       contexts.clear();
+      trialEvent = undefined;
       recentSync.clear();
     },
     ensureTrial: (environmentId: string, reset: boolean) => {
@@ -298,10 +341,22 @@ export function createConnectionLog(
       }
     },
     wakeup: (next: MobileWakeupContext) => {
+      // An attempt's arm also owns its finalizers. Carry that assignment across
+      // a wakeup while it is unfinished; every environment joins the same arm.
+      const continuing = [...active.values()].find(
+        (entry) =>
+          entry.record.attempts.at(-1)?.outcome === "pending" ||
+          (["connected", "healthy"].includes(entry.record.outcome) &&
+            (entry.record.shell.outcome === "waiting" ||
+              entry.record.visibleThread.outcome === "waiting")),
+      );
+      trialEvent = newEvent(continuing?.record);
       contexts.set(next.wakeup, next);
       // Choose before any wakeup subscriber can start a shell/thread refresh.
-      for (const [environmentId, entry] of active)
-        begin(environmentId, next.wakeup, entry.record.sessionId !== null);
+      for (const environmentId of new Set([...environments, ...active.keys()])) {
+        const entry = active.get(environmentId);
+        begin(environmentId, next.wakeup, entry?.record.sessionId !== null && entry !== undefined);
+      }
     },
     visible: (next: typeof visible) => {
       visible = next;
@@ -346,12 +401,20 @@ export function createConnectionLog(
       }
       if (event.kind === "wakeup") {
         if (event.reason === "credentials-changed") return;
+        if (entry && entry.record.eventId === trialEvent?.id && contexts.has(event.reason)) {
+          if (!event.desired) {
+            entry.record = { ...entry.record, outcome: "idle" };
+            publish(entry);
+          }
+          return;
+        }
         if (
           entry?.wakeupAt !== null &&
           entry?.wakeupAt === contexts.get(event.reason)?.at &&
           entry?.record.wakeup === event.reason
         )
           return;
+        if (!contexts.has(event.reason)) trialEvent = newEvent();
         entry = begin(event.environmentId, event.reason, event.hasSession);
         if (!event.desired) {
           entry.record = { ...entry.record, outcome: "idle" };
@@ -385,6 +448,9 @@ export function createConnectionLog(
       if (!entry) return;
       const time = now().monotonic;
       switch (event.kind) {
+        case "replay-capability":
+          entry.record = { ...entry.record, legacyPacingSupported: event.legacyPacingSupported };
+          break;
         case "state":
           // Later socket loss belongs to the next reconnect, not a completed resume.
           if (entry.record.outcome === "connected" || entry.record.outcome === "healthy") return;
@@ -533,10 +599,12 @@ export function formatConnectionLog(
   return JSON.stringify(
     {
       format: "t3-mobile-connection-log",
-      version: 2,
+      version: 3,
       experiment: {
-        comparison: "B+C+L+S",
-        shared: ["M", "I", "G"],
+        comparison: "B+C+M+I+L+S",
+        shared: ["G"],
+        unit: "wakeup event",
+        legacyRecords: "recordVersion 1/2 retain the prior per-environment comparison",
         coldOrigin: "JavaScript entry",
       },
       app,
@@ -583,6 +651,12 @@ const DiagnosticError = Schema.NullOr(
   ]),
 );
 const StoredRecord = Schema.Struct({
+  recordVersion: Schema.optionalKey(Schema.Literals([1, 2, 3])),
+  eventId: Schema.optionalKey(
+    Schema.NullOr(Schema.String.check(Schema.isPattern(/^\d+-event-\d+$/))),
+  ),
+  eventAssignment: Schema.optionalKey(Schema.Literals(["random", "continuation"])),
+  legacyPacingSupported: Schema.optionalKey(Schema.NullOr(Schema.Boolean)),
   id: Schema.String.check(Schema.isPattern(/^\d+-\d+$/)),
   experiment: Schema.optionalKey(Schema.Boolean),
   arm: Schema.optionalKey(Schema.Literals(["old", "new"])),
@@ -695,6 +769,10 @@ export function readConnectionLog(raw: string): ReadonlyArray<ConnectionLogRecor
       return [
         {
           ...record,
+          recordVersion: record.recordVersion ?? (record.experiment === undefined ? 1 : 2),
+          eventId: record.eventId ?? null,
+          eventAssignment: record.eventAssignment ?? "random",
+          legacyPacingSupported: record.legacyPacingSupported ?? null,
           experiment: record.experiment ?? false,
           arm: record.arm ?? "new",
           networkType: record.networkType ?? "other",

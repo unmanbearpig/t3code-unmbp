@@ -40,11 +40,13 @@ export type FloatingWorkingStatus =
  * the pill is free to report sync and working state instead.
  */
 export function connectionFloatingStatus(input: {
+  readonly hideReconnectStatus?: boolean;
   readonly connectionError: string | null;
   readonly connectionState: EnvironmentConnectionPhase;
   readonly environmentLabel: string | null;
   readonly onReconnect: () => void;
 }): FloatingWorkingStatus | null {
+  if (input.hideReconnectStatus) return null;
   const environmentLabel = input.environmentLabel ?? "Environment";
   const unavailable = (label: string): FloatingWorkingStatus => ({
     kind: "connection",

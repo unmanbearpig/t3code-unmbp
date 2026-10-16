@@ -1,3 +1,4 @@
+import { useReconnectExperimentEnabled } from "../diagnostics/use-reconnect-experiment";
 import type { NativeStackNavigationOptions } from "@react-navigation/native-stack";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Animated, Platform, Pressable, View } from "react-native";
@@ -31,7 +32,8 @@ const FADE_IN_MS = 250;
  */
 function useDelayedConnectionStatus(): WorkspaceConnectionStatusPresentation | null {
   const { state } = useWorkspaceState();
-  const presentation = workspaceConnectionStatusPresentation(state);
+  const experimentEnabled = useReconnectExperimentEnabled();
+  const presentation = workspaceConnectionStatusPresentation(state, experimentEnabled);
   const hasStatus = presentation !== null;
   const [visible, setVisible] = useState(false);
 

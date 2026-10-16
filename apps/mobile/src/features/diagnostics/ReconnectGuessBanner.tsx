@@ -40,9 +40,7 @@ function LoadedBanner({ log }: { readonly log: ConnectionLog.MobileConnectionLog
       style={{ position: "absolute", top: insets.top + 8, left: 16, right: 16 }}
     >
       <View className="flex-row items-center gap-2 rounded-xl border border-border-subtle bg-surface p-3">
-        <AppText className="flex-1 text-sm text-foreground">
-          Reconnect · {prompt.environment}
-        </AppText>
+        <AppText className="flex-1 text-sm text-foreground">Reconnect</AppText>
         {(["old", "new", "skip"] as const).map((guess) => (
           <Pressable
             key={guess}

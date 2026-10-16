@@ -636,3 +636,93 @@ it("freezes primary catch-up timings and records interruption before background 
   expect(h.latest().interruptedAfterMs).toBe(50);
   expect(h.latest().shell.liveAfterMs).toBeNull();
 });
+
+it("assigns one arm and event to the entire cold launch and each fresh wakeup", () => {
+  let time = 0;
+  let draws = 0;
+  const rows = new Map<string, ConnectionLogRecord>();
+  const log = createConnectionLog(
+    () => ({ wall: 1800000000000 + time, monotonic: time }),
+    (row) => rows.set(row.id, row),
+    () => ({ experiment: true, arm: ++draws % 2 ? "old" : "new", networkType: "wifi" }),
+    { wall: 1800000000000, monotonic: 0 },
+  );
+  log.environments(["a", "b"]);
+  for (const environmentId of ["a", "b"]) {
+    log.ensureTrial(environmentId, true);
+    log.record({ kind: "attempt-start", environmentId });
+  }
+  expect(draws).toBe(1);
+  expect(new Set([...rows.values()].map((row) => row.eventId)).size).toBe(1);
+  expect([...rows.values()].map((row) => row.arm)).toEqual(["old", "old"]);
+  const finish = (environmentId: string) => {
+    log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
+    log.record({ kind: "shell-sync", environmentId, milestone: "live", completion: "marker" });
+  };
+  finish("a");
+  expect(log.completedEvent()).toBeNull();
+  finish("b");
+  const coldEvent = log.completedEvent();
+  expect(coldEvent).toBeTruthy();
+  time = 1000;
+  log.wakeup({
+    launch: "resume",
+    wakeup: "application-active-reconnect",
+    backgroundMs: 20000,
+    at: 1800000001000,
+    monotonic: time,
+  });
+  expect(draws).toBe(2);
+  expect(log.arm("a")).toBe("new");
+  expect(log.arm("b")).toBe("new");
+  expect(log.completedEvent()).toBeNull();
+  finish("a");
+  finish("b");
+  expect(log.completedEvent()).not.toBe(coldEvent);
+});
+
+it("keeps every environment on the in-flight arm when a wakeup continues an attempt", () => {
+  let time = 0;
+  let draws = 0;
+  const rows = new Map<string, ConnectionLogRecord>();
+  const log = createConnectionLog(
+    () => ({ wall: 1800000000000 + time, monotonic: time }),
+    (row) => rows.set(row.id, row),
+    () => ({ experiment: true, arm: ++draws % 2 ? "old" : "new", networkType: "wifi" }),
+  );
+  log.environments(["a", "b"]);
+  log.ensureTrial("a", true);
+  log.record({ kind: "attempt-start", environmentId: "a" });
+  time = 10;
+  log.wakeup({
+    launch: "resume",
+    wakeup: "application-active-reconnect",
+    backgroundMs: 20000,
+    at: 1800000000010,
+    monotonic: time,
+  });
+  expect(log.arm("a")).toBe("old");
+  expect(log.arm("b")).toBe("old");
+  const latest = [...rows.values()].slice(-2);
+  expect(new Set(latest.map((row) => row.eventId)).size).toBe(1);
+  expect(latest.every((row) => row.eventAssignment === "continuation")).toBe(true);
+  log.record({ kind: "attempt-end", environmentId: "b", outcome: "failed", error: "network" });
+  log.record({ kind: "attempt-start", environmentId: "b" });
+  expect(log.arm("b")).toBe("old");
+});
+
+it("retains the old record version when reading historical per-environment trials", () => {
+  const h = harness();
+  h.log.ensureTrial(environmentId, true);
+  const {
+    recordVersion: _v,
+    eventId: _e,
+    eventAssignment: _a,
+    legacyPacingSupported: _p,
+    ...old
+  } = h.latest();
+  expect(readConnectionLog(JSON.stringify([old]))[0]).toMatchObject({
+    recordVersion: 2,
+    eventId: null,
+  });
+});

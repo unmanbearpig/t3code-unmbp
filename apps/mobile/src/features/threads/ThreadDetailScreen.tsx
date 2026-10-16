@@ -128,6 +128,7 @@ import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
 } from "./floating-working-control";
+import { useReconnectExperimentEnabled } from "../diagnostics/use-reconnect-experiment";
 import { connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
 import {
   derivePendingUserInputMaxHeight,
@@ -463,11 +464,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   )
     ? 0
     : Math.max(insets.bottom, 12);
+  const experimentEnabled = useReconnectExperimentEnabled();
   const contentPresentationKind = props.contentPresentation.kind;
   // The raw sync status enters "synchronizing" on every full fetch, cached or
   // not. Whether messages are already on screen decides the pill label: no
   // data yet → "Loading messages", cached data reconciling → "Syncing".
   const realThreadSyncLabel = (() => {
+    if (experimentEnabled) return null;
     switch (props.threadSyncStatus) {
       case "empty":
       case "cached":
@@ -492,6 +495,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   );
   const floatingStatus = ((): FloatingWorkingStatus | null => {
     const connectionStatus = connectionFloatingStatus({
+      hideReconnectStatus: experimentEnabled,
       connectionError: props.connectionError,
       connectionState: props.connectionStateLabel,
       environmentLabel: props.environmentLabel,

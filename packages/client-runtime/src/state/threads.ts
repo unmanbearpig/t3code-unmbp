@@ -1,3 +1,4 @@
+import { ReconnectExperiment } from "../connection/reconnectExperiment.ts";
 import * as Diagnostics from "../connection/diagnostics.ts";
 import {
   ORCHESTRATION_V2_WS_METHODS,
@@ -174,6 +175,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
 ) {
   const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
   const diagnostics = yield* Diagnostics.ConnectionDiagnostics;
+  const experiment = yield* ReconnectExperiment;
   let diagnosticMode: "replay" | "snapshot" = "replay";
   let diagnosticCompletion: "marker" | "legacy" = "legacy";
   let diagnosticSyncActive = false;
@@ -831,10 +833,16 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           return yield* Effect.never;
         }
 
-        const supportsCompletionMarker = yield* session.initialConfig.pipe(
-          Effect.map((config) => config.threadResumeCompletionMarker === true),
-          Effect.orElseSucceed(() => false),
-        );
+        const config = yield* session.initialConfig.pipe(Effect.option);
+        const supportsCompletionMarker =
+          Option.isSome(config) && config.value.threadResumeCompletionMarker === true;
+        if (experiment)
+          diagnostics?.record({
+            kind: "replay-capability",
+            environmentId,
+            legacyPacingSupported:
+              Option.isSome(config) && config.value.legacyCatchUpPacing === true,
+          });
         diagnosticMode = Option.isSome(current.data) ? "replay" : "snapshot";
         diagnosticCompletion = supportsCompletionMarker ? "marker" : "legacy";
         diagnosticSyncActive = true;
@@ -921,7 +929,14 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         return {
           threadId,
           ...(canResume ? { afterSequence: sequence } : {}),
-          ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
+          ...(supportsCompletionMarker
+            ? {
+                requestCompletionMarker: true as const,
+                ...(experiment?.arm(environmentId) === "old"
+                  ? { legacyCatchUpPacing: true as const }
+                  : {}),
+              }
+            : {}),
           ...(acceptBoundedSnapshot
             ? { acceptBoundedSnapshot: true as const, acceptCompactTurnItems: true as const }
             : {}),

@@ -2013,7 +2013,10 @@ it.effect(
       yield* harness.reconnect();
       const next = yield* Queue.take(harness.requests);
       expect(yield* Ref.get(harness.loaderCalls)).toBe(2);
-      expect(next.input.requestCompletionMarker).toBe(true);
+      expect(next.input).toMatchObject({
+        requestCompletionMarker: true,
+        legacyCatchUpPacing: true,
+      });
       yield* harness.complete(next);
     }),
 );

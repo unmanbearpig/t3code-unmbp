@@ -150,8 +150,8 @@ describe("on-device connection log storage", () => {
           const trial = log.read().at(-1)!;
           expect(trial.experiment).toBe(true);
           expect(["old", "new"]).toContain(trial.arm);
-          expect(log.prompt()?.id).toBe(trial.id);
-          log.guess(trial.id, "old");
+          expect(log.prompt()?.id).toBe(trial.eventId);
+          log.guess(trial.eventId!, "old");
           expect(log.prompt()).toBeNull();
           log.record({
             kind: "http",
@@ -198,3 +198,65 @@ describe("on-device connection log storage", () => {
     }).pipe(Effect.provide(logLayer));
   });
 });
+
+it.effect(
+  "prompts once after the event's environments finish and stores one guess on every row",
+  () =>
+    Effect.gen(function* () {
+      const log = yield* ConnectionLog.MobileConnectionLog;
+      yield* log.setExperimentEnabled(true);
+      log.environments(["a", "b"]);
+      for (const environmentId of ["a", "b"]) {
+        log.begin(environmentId, true);
+        log.record({ kind: "attempt-start", environmentId });
+        log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
+      }
+      log.record({
+        kind: "shell-sync",
+        environmentId: "a",
+        milestone: "live",
+        completion: "marker",
+      });
+      expect(log.prompt()).toBeNull();
+      log.record({
+        kind: "shell-sync",
+        environmentId: "b",
+        milestone: "live",
+        completion: "marker",
+      });
+      const eventId = log.prompt()!.id;
+      expect(log.read().every((record) => record.eventId === eventId)).toBe(true);
+      expect(new Set(log.read().map((record) => record.arm)).size).toBe(1);
+      log.guess(eventId, "new");
+      expect(log.prompt()).toBeNull();
+      expect(log.read().map((record) => record.guess)).toEqual(["new", "new"]);
+      log.record({
+        kind: "shell-sync",
+        environmentId: "a",
+        milestone: "live",
+        completion: "marker",
+      });
+      expect(log.prompt()).toBeNull();
+      log.wakeup({
+        launch: "resume",
+        wakeup: "application-active-probe",
+        backgroundMs: 1000,
+        at: Date.now(),
+        monotonic: performance.now(),
+      });
+      expect(log.prompt()).toBeNull();
+    }).pipe(
+      Effect.provide(
+        ConnectionLog.layer.pipe(
+          Layer.provide(
+            Layer.mock(MobileDatabase.MobileDatabase)({
+              loadCache: () => Effect.succeedNone,
+              listCache: () => Effect.succeed([]),
+              saveCache: () => Effect.void,
+              clearCacheKind: () => Effect.void,
+            }),
+          ),
+        ),
+      ),
+    ),
+);

@@ -36,12 +36,12 @@ export class MobileConnectionLog extends Context.Service<
     readonly setExperimentEnabled: (
       enabled: boolean,
     ) => Effect.Effect<void, MobileDatabase.MobileDatabaseError>;
+    readonly environments: (ids: ReadonlyArray<string>) => void;
     readonly begin: (environmentId: string, reset: boolean) => void;
     readonly arm: (environmentId: string) => "old" | "new";
     readonly network: (type: "wifi" | "cellular" | "other") => void;
     readonly prompt: () => {
       readonly id: string;
-      readonly environment: number;
       readonly expiresAt: number;
     } | null;
     readonly guess: (id: string, guess: "old" | "new" | "skip") => void;
@@ -64,7 +64,6 @@ const make = Effect.gen(function* () {
     );
   let prompt: {
     readonly id: string;
-    readonly environment: number;
     readonly expiresAt: number;
   } | null = null;
   const prompted = new Set<string>();
@@ -89,20 +88,16 @@ const make = Effect.gen(function* () {
   };
   const changed = (next: ConnectionLogRecord) => {
     const previous = records.find((value) => value.id === next.id);
-    const record = { ...next, guess: previous?.guess ?? next.guess };
+    const eventGuess = records.find(
+      (value) => value.eventId !== null && value.eventId === next.eventId && value.guess !== null,
+    )?.guess;
+    const record = { ...next, guess: previous?.guess ?? eventGuess ?? next.guess };
     records = appendConnectionLog(records, record);
-    if (
-      experimentEnabled &&
-      record.experiment &&
-      !prompted.has(record.id) &&
-      ["connected", "healthy"].includes(record.outcome) &&
-      record.shell.outcome === "live" &&
-      record.interruptedAfterMs === null &&
-      ["live", "not-visible"].includes(record.visibleThread.outcome)
-    ) {
-      prompted.add(record.id);
+    const eventId = assembler.completedEvent();
+    if (experimentEnabled && eventId && !prompted.has(eventId)) {
+      prompted.add(eventId);
       if (prompted.size > CONNECTION_LOG_LIMIT) prompted.delete(prompted.values().next().value!);
-      prompt = { id: record.id, environment: record.environment, expiresAt: Date.now() + 10_000 };
+      prompt = { id: eventId, expiresAt: Date.now() + 10_000 };
     }
     pending.set(record.id, record);
     if (pending.size > CONNECTION_LOG_LIMIT) pending.delete(pending.keys().next().value!);
@@ -158,6 +153,11 @@ const make = Effect.gen(function* () {
   return MobileConnectionLog.of({
     ...assembler,
     begin: assembler.ensureTrial,
+    wakeup: (context) => {
+      prompt = null;
+      assembler.wakeup(context);
+      notify();
+    },
     background: () => {
       assembler.background();
       prompt = null;
@@ -194,9 +194,13 @@ const make = Effect.gen(function* () {
       }
     },
     guess: (id, guess) => {
-      const record = records.find((value) => value.id === id);
-      if (!record || !record.experiment || record.guess !== null) return;
-      changed({ ...record, guess });
+      const eventRecords = records.filter((value) => value.eventId === id);
+      if (
+        !eventRecords.length ||
+        eventRecords.some((record) => !record.experiment || record.guess !== null)
+      )
+        return;
+      for (const record of eventRecords) changed({ ...record, guess });
       if (prompt?.id === id) {
         prompt = null;
         notify();
@@ -233,5 +237,9 @@ export const layerObserver = Layer.effect(
 export const layerExperiment = Layer.effect(
   // The mobile log chooses the arm before the shared runtime starts work.
   ConnectionDiagnosticsExperiment.ReconnectExperiment,
-  Effect.map(MobileConnectionLog, (log) => ({ begin: log.begin, arm: log.arm })),
+  Effect.map(MobileConnectionLog, (log) => ({
+    begin: log.begin,
+    arm: log.arm,
+    environments: log.environments,
+  })),
 );

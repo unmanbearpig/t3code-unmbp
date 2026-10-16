@@ -64,3 +64,24 @@ describe("connectionFloatingStatus", () => {
     expect(onReconnect).toHaveBeenCalledOnce();
   });
 });
+
+it("hides connection and retry labels while the randomized trial is enabled", () => {
+  for (const connectionState of [
+    "connecting",
+    "reconnecting",
+    "offline",
+    "error",
+    "available",
+    "connected",
+  ] as const) {
+    expect(
+      connectionFloatingStatus({
+        hideReconnectStatus: true,
+        connectionState,
+        connectionError: "network",
+        environmentLabel: "test",
+        onReconnect: () => {},
+      }),
+    ).toBeNull();
+  }
+});

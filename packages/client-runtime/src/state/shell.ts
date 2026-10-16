@@ -395,6 +395,21 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         const config = yield* session.initialConfig.pipe(Effect.option);
         const supportsCompletionMarker =
           Option.isSome(config) && config.value.shellResumeCompletionMarker === true;
+        if (experiment)
+          diagnostics?.record({
+            kind: "replay-capability",
+            environmentId,
+            legacyPacingSupported:
+              Option.isSome(config) && config.value.legacyCatchUpPacing === true,
+          });
+        const completionOptions = supportsCompletionMarker
+          ? {
+              requestCompletionMarker: true as const,
+              ...(experiment?.arm(environmentId) === "old"
+                ? { legacyCatchUpPacing: true as const }
+                : {}),
+            }
+          : {};
         subscription.environment = Option.getOrUndefined(config)?.environment;
         subscription.supportsCompletionMarker = supportsCompletionMarker;
         subscription.awaitingCompletion = supportsCompletionMarker;
@@ -496,7 +511,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         // If the authoritative refresh failed, omit the cached cursor so the
         // socket fallback sends a complete snapshot for this new session.
         if (!canResume || Option.isNone(current.snapshot)) {
-          return supportsCompletionMarker ? { requestCompletionMarker: true as const } : {};
+          return completionOptions;
         }
         if (!supportsCompletionMarker) {
           // Without a completion marker there is no synchronized signal for a
@@ -513,7 +528,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         }
         return {
           afterSequence: current.snapshot.value.snapshotSequence,
-          ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
+          ...completionOptions,
         };
       }),
       (_session, stream) => {
