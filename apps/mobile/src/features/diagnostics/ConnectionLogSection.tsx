@@ -1,5 +1,4 @@
 import { File, Paths } from "expo-file-system";
-import * as Sharing from "expo-sharing";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Alert, Platform, Pressable, View } from "react-native";
 
@@ -11,6 +10,7 @@ import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import * as ConnectionLog from "./connection-log";
 import { formatConnectionLog } from "./connection-log-model";
+import { shareConnectionLog } from "./connection-log-sharing";
 
 export function ConnectionLogSection(props: {
   readonly app: { readonly version: string; readonly build: string };
@@ -48,18 +48,11 @@ function LoadedConnectionLog(props: {
   const report = () => formatConnectionLog(log.read(), { ...props.app, platform: Platform.OS });
   const share = async () => {
     setSharing(true);
-    const file = new File(Paths.cache, "t3-mobile-connections.json");
     try {
-      file.write(report());
-      await Sharing.shareAsync(file.uri, {
-        mimeType: "application/json",
-        UTI: "public.json",
-        dialogTitle: "Connection log",
-      });
+      await shareConnectionLog(report());
     } catch {
       Alert.alert("Couldn't share connection log");
     } finally {
-      // Keep one fixed cache file: Android receivers can read the URI after the sheet closes.
       setSharing(false);
     }
   };

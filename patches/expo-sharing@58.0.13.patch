@@ -1,3 +1,19 @@
+diff --git a/android/src/main/java/expo/modules/sharing/SharingModule.kt b/android/src/main/java/expo/modules/sharing/SharingModule.kt
+index 69ccba68e28af71a262c01bd54a202a7bd985909..f3661b11d62bf1889c4cd0bae8cf1b29af527c09 100644
+--- a/android/src/main/java/expo/modules/sharing/SharingModule.kt
++++ b/android/src/main/java/expo/modules/sharing/SharingModule.kt
+@@ -51,8 +51,11 @@ class SharingModule : Module() {
+         pendingPromise = promise
+         appContext.throwingActivity.startActivityForResult(intent, REQUEST_CODE)
+       } catch (e: InvalidArgumentException) {
++        pendingPromise = null
+         throw SharingInvalidArgsException(e.message, e)
+       } catch (e: Exception) {
++        // A failed launch will not deliver an activity result to release this request.
++        pendingPromise = null
+         throw SharingFailedException("Failed to share the file: ${e.message}", e)
+       }
+     }
 diff --git a/android/src/main/java/expo/modules/sharing/SharingRecords.kt b/android/src/main/java/expo/modules/sharing/SharingRecords.kt
 index 0b87b53f632e82f9b4c09c066d5a67e4ab2525a4..65f1c57faef3ba8caac9e137341f2b8312bb5f86 100644
 --- a/android/src/main/java/expo/modules/sharing/SharingRecords.kt
