@@ -511,7 +511,7 @@ it("keeps resume metadata when a network change arrives before the supervisor co
   expect(h.latest()).toMatchObject({ launch: "resume", backgroundMs: 300000 });
 });
 
-it("attaches a cold-launch thread that becomes live before its screen gains focus", () => {
+it("does not retroactively time a thread opened after the cold event started", () => {
   const h = harness();
   h.log.record({ kind: "attempt-start", environmentId });
   h.at(10);
@@ -526,9 +526,9 @@ it("attaches a cold-launch thread that becomes live before its screen gains focu
   h.at(20);
   h.log.visible({ environmentId, threadId });
   expect(h.latest().visibleThread).toMatchObject({
-    outcome: "live",
-    liveAfterMs: 10,
-    mode: "snapshot",
+    outcome: "not-visible",
+    liveAfterMs: null,
+    mode: null,
   });
 });
 
@@ -541,7 +541,7 @@ it("finishes idle wakeups without claiming a reconnect and preserves a completed
     hasSession: false,
     desired: false,
   });
-  expect(h.latest().outcome).toBe("idle");
+  expect(h.records()).toEqual([]);
   h.log.record({ kind: "attempt-start", environmentId });
   h.log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
   h.log.record({ kind: "session-closed", environmentId });
@@ -716,6 +716,7 @@ it("retains the old record version when reading historical per-environment trial
   h.log.ensureTrial(environmentId, true);
   const {
     recordVersion: _v,
+    event: _context,
     eventId: _e,
     eventAssignment: _a,
     legacyPacingSupported: _p,
@@ -724,6 +725,216 @@ it("retains the old record version when reading historical per-environment trial
   expect(readConnectionLog(JSON.stringify([old]))[0]).toMatchObject({
     recordVersion: 2,
     eventId: null,
+  });
+});
+
+it("keeps idle environments out of new wakeups and never interrupts idle rows", () => {
+  const h = harness();
+  h.log.environments([environmentId, "disabled"]);
+  h.log.ensureTrial(environmentId, true);
+  h.log.ensureTrial("disabled", true);
+  h.log.environments([environmentId]);
+  h.at(100);
+  h.log.background();
+  const idle = h.records().find((record) => record.environment === 2)!;
+  expect(idle).toMatchObject({ outcome: "idle", interruptedAfterMs: null });
+  h.log.wakeup({
+    launch: "resume",
+    wakeup: "application-active-probe",
+    backgroundMs: 100,
+    at: 1_800_000_000_100,
+    monotonic: 100,
+  });
+  expect(h.records().filter((record) => record.eventId === h.latest().eventId)).toHaveLength(1);
+  expect(h.latest().event).toMatchObject({ launch: "resume", environments: [1] });
+});
+
+it("shares immutable event metadata and a monotonic origin across a delayed cohort member", () => {
+  const h = harness();
+  h.log.environments([environmentId, "second"]);
+  h.log.wakeup({
+    launch: "resume",
+    wakeup: "application-active-reconnect",
+    backgroundMs: 300000,
+    at: 1_800_000_000_000,
+    monotonic: 0,
+  });
+  const context = h.latest().event;
+  h.at(5000);
+  for (const id of [environmentId, "second"]) {
+    h.log.record({ kind: "attempt-start", environmentId: id });
+    h.log.record({ kind: "attempt-end", environmentId: id, outcome: "connected", error: null });
+    h.log.record({
+      kind: "shell-sync",
+      environmentId: id,
+      milestone: "live",
+      completion: "marker",
+    });
+  }
+  const latest = h.records().slice(-2);
+  expect(latest.map((record) => record.event)).toEqual([context, context]);
+  expect(latest.map((record) => record.shell.liveAfterMs)).toEqual([5000, 5000]);
+  expect(latest.map((record) => record.launch)).toEqual(["resume", "resume"]);
+  expect(context).toMatchObject({
+    backgroundMs: 300000,
+    timingOrigin: "wakeup",
+    environments: [1, 2],
+  });
+});
+
+it("gives a newly enabled connection a separate event without changing the wakeup cohort", () => {
+  const h = harness();
+  h.log.environments([environmentId]);
+  h.log.wakeup({
+    launch: "resume",
+    wakeup: "application-active-reconnect",
+    backgroundMs: 20000,
+    at: 1_800_000_000_000,
+    monotonic: 0,
+  });
+  const wakeup = h.latest().event;
+  h.at(5773);
+  h.log.environments([environmentId, "later"]);
+  h.log.ensureTrial("later", true);
+  h.log.record({ kind: "attempt-start", environmentId: "later" });
+  h.at(8426);
+  h.log.record({ kind: "attempt-end", environmentId: "later", outcome: "connected", error: null });
+  h.log.record({
+    kind: "shell-sync",
+    environmentId: "later",
+    milestone: "live",
+    completion: "marker",
+  });
+  expect(h.latest().eventId).not.toBe(wakeup!.id);
+  expect(h.latest()).toMatchObject({
+    launch: "running",
+    timingOrigin: "attempt",
+    eventAssignment: "continuation",
+    shell: { liveAfterMs: 2653 },
+  });
+  expect(wakeup!.environments).toEqual([1]);
+});
+
+it("does not replace the pinned visible thread when navigation changes during catch-up", () => {
+  const h = harness();
+  h.log.visible({ environmentId, threadId });
+  h.log.record({ kind: "attempt-start", environmentId });
+  h.at(10);
+  h.log.visible({ environmentId, threadId: "other" });
+  for (const id of [threadId, "other"]) {
+    h.log.record({
+      kind: "thread-sync",
+      environmentId,
+      threadId: id,
+      mode: "replay",
+      milestone: "live",
+      completion: "marker",
+    });
+  }
+  expect(h.latest().visibleThread).toMatchObject({ outcome: "interrupted", liveAfterMs: null });
+  expect(h.latest().event!.visibleThreadEnvironment).toBe(1);
+  h.at(20);
+  h.log.record({ kind: "shell-sync", environmentId, milestone: "live", completion: "marker" });
+  expect(h.latest().shell.liveAfterMs).toBe(20);
+});
+
+it("round-trips version-four context while preserving historical record versions", () => {
+  const h = harness();
+  h.log.record({ kind: "attempt-start", environmentId });
+  h.log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
+  const current = h.latest();
+  const historical = { ...current, recordVersion: 3, event: undefined, id: "1800000000000-999" };
+  const loaded = readConnectionLog(JSON.stringify([historical, current]));
+  expect(loaded.map((record) => record.recordVersion)).toEqual([3, 4]);
+  expect(loaded[0]!.event).toBeNull();
+  expect(loaded[1]!.event).toEqual(current.event);
+  expect(
+    JSON.parse(formatConnectionLog(loaded, { version: "1", build: "2", platform: "android" }))
+      .version,
+  ).toBe(4);
+  expect(readConnectionLog(JSON.stringify([{ ...current, event: undefined }]))).toEqual([]);
+});
+
+it("does not erase a completed measurement when its environment is disabled later", () => {
+  const h = harness();
+  h.log.environments([environmentId]);
+  h.log.record({ kind: "attempt-start", environmentId });
+  h.log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
+  h.at(10);
+  h.log.record({ kind: "shell-sync", environmentId, milestone: "live", completion: "marker" });
+  const completed = h.latest();
+  h.log.environments([]);
+  h.log.wakeup({
+    launch: "resume",
+    wakeup: "application-active-probe",
+    backgroundMs: 20,
+    at: 1_800_000_000_030,
+    monotonic: 30,
+  });
+  h.log.record({
+    kind: "wakeup",
+    environmentId,
+    reason: "application-active-probe",
+    hasSession: false,
+    desired: false,
+  });
+  h.log.background();
+  expect(h.records()).toEqual([completed]);
+});
+
+it("keeps a pre-catalog wakeup origin when its first environment starts later", () => {
+  const h = harness();
+  h.log.wakeup({
+    launch: "resume",
+    wakeup: "application-active-probe",
+    backgroundMs: 500,
+    at: 1_800_000_000_000,
+    monotonic: 0,
+  });
+  h.at(100);
+  h.log.record({
+    kind: "wakeup",
+    environmentId,
+    reason: "application-active-probe",
+    hasSession: false,
+    desired: true,
+  });
+  h.log.record({ kind: "attempt-start", environmentId });
+  h.log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
+  h.at(200);
+  h.log.record({ kind: "shell-sync", environmentId, milestone: "live", completion: "marker" });
+  expect(h.latest()).toMatchObject({
+    launch: "resume",
+    timingOrigin: "wakeup",
+    shell: { liveAfterMs: 200 },
+    event: { environments: [1] },
+  });
+});
+
+it("measures from the monotonic origin even if the wall clock changes", () => {
+  let time = { wall: 1_800_000_000_000, monotonic: 0 };
+  let latest: ConnectionLogRecord | undefined;
+  const log = createConnectionLog(
+    () => time,
+    (row) => {
+      latest = row;
+    },
+  );
+  log.environments([environmentId]);
+  log.wakeup({
+    launch: "resume",
+    wakeup: "application-active-reconnect",
+    backgroundMs: 10000,
+    at: time.wall,
+    monotonic: time.monotonic,
+  });
+  log.record({ kind: "attempt-start", environmentId });
+  time = { wall: time.wall + 3_600_000, monotonic: 150 };
+  log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
+  log.record({ kind: "shell-sync", environmentId, milestone: "live", completion: "marker" });
+  expect(latest).toMatchObject({
+    timestamp: "2027-01-15T08:00:00.000Z",
+    shell: { liveAfterMs: 150 },
   });
 });
 

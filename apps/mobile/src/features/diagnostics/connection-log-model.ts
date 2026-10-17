@@ -8,8 +8,20 @@ type Route = ConnectionDiagnostics.DiagnosticRoute;
 export const CONNECTION_LOG_LIMIT = 2_000;
 const DETAIL_LIMIT = 40;
 
+export interface ConnectionLogEvent {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly timingOrigin: "js-launch" | "wakeup" | "attempt";
+  readonly launch: "cold" | "resume" | "running";
+  readonly wakeup: string;
+  readonly backgroundMs: number | null;
+  readonly environments: ReadonlyArray<number>;
+  readonly visibleThreadEnvironment: number | null;
+}
+
 export interface ConnectionLogRecord {
-  readonly recordVersion: 1 | 2 | 3;
+  readonly recordVersion: 1 | 2 | 3 | 4;
+  readonly event: ConnectionLogEvent | null;
   readonly eventId: string | null;
   readonly eventEnvironmentCount: number;
   readonly eventAssignment: "random" | "continuation";
@@ -65,7 +77,7 @@ export interface ConnectionLogRecord {
     readonly liveAfterMs: number | null;
     readonly completion: "marker" | "legacy" | null;
     readonly bytes: null;
-    readonly outcome: "waiting" | "live" | "failed" | "not-visible";
+    readonly outcome: "waiting" | "live" | "failed" | "interrupted" | "not-visible";
   };
   readonly durationMs: number;
   readonly outcome: string;
@@ -94,74 +106,139 @@ export function createConnectionLog(
   let sequence = 0;
   let attemptSequence = 0;
   let eventSequence = 0;
-  const newEvent = (continuation?: Pick<ConnectionLogRecord, "experiment" | "arm">) => ({
-    id: `${now().wall}-event-${++eventSequence}`,
-    ...metadata(),
-    ...(continuation ? { experiment: continuation.experiment, arm: continuation.arm } : {}),
-    assignment: continuation ? ("continuation" as const) : ("random" as const),
-  });
-  let trialEvent: ReturnType<typeof newEvent> | undefined;
   let environments: ReadonlyArray<string> = [];
-  const contexts = new Map<string, MobileWakeupContext>();
+  let environmentsKnown = false;
   let visible: { environmentId: string; threadId: string } | null = null;
   const seen = new Map<string, number>();
   let environmentSequence = 0;
+  const environmentNumber = (id: string) => {
+    let number = seen.get(id);
+    if (number === undefined) {
+      number = ++environmentSequence;
+      seen.set(id, number);
+    }
+    return number;
+  };
+  const newEvent = (
+    ids: ReadonlyArray<string>,
+    context?: MobileWakeupContext,
+    continuation?: Pick<ConnectionLogRecord, "experiment" | "arm">,
+    cold = false,
+    wakeup = "reconnect",
+  ) => {
+    const origin = context
+      ? { wall: context.at, monotonic: context.monotonic }
+      : cold && launchTime
+        ? launchTime
+        : now();
+    const cohort = [...new Set(ids)];
+    const pinned = visible && cohort.includes(visible.environmentId) ? visible : null;
+    const event: ConnectionLogEvent = {
+      id: `${now().wall}-event-${++eventSequence}`,
+      timestamp: new Date(origin.wall).toISOString(),
+      timingOrigin: context ? "wakeup" : cold && launchTime ? "js-launch" : "attempt",
+      launch: context?.launch ?? (cold ? "cold" : "running"),
+      wakeup: context?.wakeup ?? wakeup,
+      backgroundMs: context?.backgroundMs ?? null,
+      environments: cohort.map(environmentNumber),
+      visibleThreadEnvironment: pinned ? environmentNumber(pinned.environmentId) : null,
+    };
+    return {
+      ...metadata(),
+      ...(continuation ? { experiment: continuation.experiment, arm: continuation.arm } : {}),
+      assignment: continuation ? ("continuation" as const) : ("random" as const),
+      origin,
+      cohort,
+      pinned,
+      event,
+    };
+  };
+  let trialEvent: ReturnType<typeof newEvent> | undefined;
+  const contexts = new Map<string, ReturnType<typeof newEvent>>();
   const active = new Map<
     string,
     {
       record: ConnectionLogRecord;
+      trial: ReturnType<typeof newEvent>;
       started: number;
       probeStarted: number | null;
       stage: "preparing" | "opening" | "synchronizing" | null;
       stageStarted: number;
-      wakeupAt: number | null;
       visibleThreadId: string | null;
     }
   >();
   const closed = new Set<string>();
-  const recentSync = new Map<
-    string,
-    { event: Extract<Event, { kind: "thread-sync" }>; at: number }
-  >();
   const publish = (entry: ReturnType<typeof begin>) => {
     entry.record = { ...entry.record, durationMs: Math.max(0, now().monotonic - entry.started) };
     changed(entry.record);
   };
-  const begin = (environmentId: string, wakeup: string, hasSession?: boolean) => {
+  const begin = (
+    environmentId: string,
+    wakeup: string,
+    hasSession?: boolean,
+    selected?: ReturnType<typeof newEvent>,
+  ) => {
     const time = now();
-    const fromWakeup = contexts.get(wakeup) ?? null;
     const previous = active.get(environmentId);
-    const origin = fromWakeup
-      ? { wall: fromWakeup.at, monotonic: fromWakeup.monotonic }
-      : !seen.has(environmentId) && launchTime
-        ? launchTime
-        : time;
-    const selection = (trialEvent ??= newEvent());
+    if (!trialEvent)
+      trialEvent = newEvent(
+        environmentsKnown ? environments : [environmentId],
+        undefined,
+        undefined,
+        seen.size === 0,
+      );
+    // A native wakeup can precede catalog hydration. Its first participant
+    // supplies the otherwise empty cohort before any record is published.
+    const candidate = selected ?? trialEvent;
+    if (!environmentsKnown && candidate.cohort.length === 0) {
+      const initialized = {
+        ...candidate,
+        cohort: [environmentId],
+        event: { ...candidate.event, environments: [environmentNumber(environmentId)] },
+      };
+      if (trialEvent === candidate) trialEvent = initialized;
+      for (const [reason, context] of contexts) {
+        if (context === candidate) contexts.set(reason, initialized);
+      }
+      selected = initialized;
+    }
+    // Retries retain their event clock. A connection added after the captured
+    // cohort, or after its previous measurement finished, gets its own event.
+    const unfinished =
+      previous &&
+      previous.record.outcome !== "idle" &&
+      (previous.record.shell.outcome !== "live" ||
+        previous.record.visibleThread.outcome === "waiting");
+    const selection =
+      (selected?.cohort.includes(environmentId) ? selected : undefined) ??
+      (unfinished
+        ? previous.trial
+        : !previous && trialEvent.cohort.includes(environmentId)
+          ? trialEvent
+          : newEvent([environmentId], undefined, trialEvent, false, wakeup));
+    const { origin, event } = selection;
     const entry = {
+      trial: selection,
       record: {
-        recordVersion: 3,
-        eventId: selection.id,
+        recordVersion: 4,
+        event,
+        eventId: event.id,
         eventAssignment: selection.assignment,
-        eventEnvironmentCount: Math.max(environments.length, 1),
+        eventEnvironmentCount: event.environments.length,
         legacyPacingSupported: previous?.record.legacyPacingSupported ?? null,
         id: `${time.wall}-${++sequence}`,
-        timestamp: new Date(origin.wall).toISOString(),
+        timestamp: event.timestamp,
         experiment: selection.experiment,
         arm: selection.arm,
         networkType: selection.networkType,
         networkChanged: false,
         guess: null,
         interruptedAfterMs: null,
-        timingOrigin: fromWakeup
-          ? "wakeup"
-          : !seen.has(environmentId) && launchTime
-            ? "js-launch"
-            : "attempt",
-        environment: seen.get(environmentId) ?? ++environmentSequence,
-        launch:
-          fromWakeup?.launch === "resume" ? "resume" : seen.has(environmentId) ? "running" : "cold",
-        wakeup,
-        backgroundMs: fromWakeup ? fromWakeup.backgroundMs : null,
+        timingOrigin: event.timingOrigin,
+        environment: environmentNumber(environmentId),
+        launch: event.launch,
+        wakeup: event.wakeup,
+        backgroundMs: event.backgroundMs,
         route: null,
         oldSocket: closed.has(environmentId)
           ? "closed"
@@ -169,7 +246,7 @@ export function createConnectionLog(
             ? "present"
             : hasSession === false
               ? "absent"
-              : seen.has(environmentId)
+              : previous
                 ? "unknown"
                 : "absent",
         probe: null,
@@ -185,7 +262,7 @@ export function createConnectionLog(
           liveAfterMs: null,
           completion: null,
           bytes: null,
-          outcome: visible?.environmentId === environmentId ? "waiting" : "not-visible",
+          outcome: selection.pinned?.environmentId === environmentId ? "waiting" : "not-visible",
         },
         durationMs: 0,
         outcome: "pending",
@@ -195,8 +272,8 @@ export function createConnectionLog(
       probeStarted: null as number | null,
       stage: null as "preparing" | "opening" | "synchronizing" | null,
       stageStarted: time.monotonic,
-      wakeupAt: fromWakeup ? fromWakeup.at : null,
-      visibleThreadId: visible?.environmentId === environmentId ? visible.threadId : null,
+      visibleThreadId:
+        selection.pinned?.environmentId === environmentId ? selection.pinned.threadId : null,
     };
     if (previous) {
       const continuing = previous.record.attempts.at(-1)?.outcome === "pending";
@@ -273,20 +350,30 @@ export function createConnectionLog(
   };
   return {
     environments: (ids: ReadonlyArray<string>) => {
-      environments = ids;
+      environmentsKnown = true;
+      environments = [...new Set(ids)];
+      for (const [id, entry] of active) {
+        if (
+          !environments.includes(id) &&
+          entry.record.outcome !== "idle" &&
+          (entry.record.shell.outcome !== "live" ||
+            entry.record.visibleThread.outcome === "waiting")
+        ) {
+          entry.record = { ...entry.record, outcome: "idle" };
+          publish(entry);
+        }
+      }
     },
     completedEvent: () => {
       if (!trialEvent) return null;
-      const entries = environments.length
-        ? environments.map((id) => active.get(id))
-        : [...active.values()];
+      const entries = trialEvent.cohort.map((id) => active.get(id));
       const rows = entries.map((entry) => entry?.record);
       if (
         !rows.length ||
         rows.some(
           (record) =>
             !record ||
-            record.eventId !== trialEvent?.id ||
+            record.eventId !== trialEvent?.event.id ||
             (!["idle", "blocked", "offline"].includes(record.outcome) &&
               (!["connected", "healthy"].includes(record.outcome) ||
                 record.interruptedAfterMs !== null ||
@@ -296,7 +383,7 @@ export function createConnectionLog(
       )
         return null;
       return rows.some((record) => record?.experiment && record.shell.completion === "marker")
-        ? trialEvent.id
+        ? trialEvent.event.id
         : null;
     },
     clear: () => {
@@ -304,9 +391,9 @@ export function createConnectionLog(
       closed.clear();
       contexts.clear();
       trialEvent = undefined;
-      recentSync.clear();
     },
     ensureTrial: (environmentId: string, reset: boolean) => {
+      if (environmentsKnown && !environments.includes(environmentId)) return;
       const existing = active.get(environmentId);
       if (
         !existing ||
@@ -318,8 +405,10 @@ export function createConnectionLog(
     background: () => {
       for (const entry of active.values()) {
         if (
-          entry.record.shell.outcome !== "live" ||
-          entry.record.visibleThread.outcome === "waiting"
+          entry.record.outcome !== "idle" &&
+          entry.record.interruptedAfterMs === null &&
+          (entry.record.shell.outcome !== "live" ||
+            entry.record.visibleThread.outcome === "waiting")
         ) {
           entry.record = {
             ...entry.record,
@@ -332,6 +421,7 @@ export function createConnectionLog(
     network: (networkType: ConnectionLogRecord["networkType"]) => {
       for (const entry of active.values()) {
         if (
+          entry.record.outcome !== "idle" &&
           (entry.record.shell.outcome !== "live" ||
             entry.record.visibleThread.outcome === "waiting") &&
           entry.record.networkType !== networkType &&
@@ -345,83 +435,86 @@ export function createConnectionLog(
     wakeup: (next: MobileWakeupContext) => {
       // An attempt's arm also owns its finalizers. Carry that assignment across
       // a wakeup while it is unfinished; every environment joins the same arm.
-      const continuing = [...active.values()].find(
-        (entry) =>
-          entry.record.attempts.at(-1)?.outcome === "pending" ||
-          (["connected", "healthy"].includes(entry.record.outcome) &&
-            (entry.record.shell.outcome === "waiting" ||
-              entry.record.visibleThread.outcome === "waiting")),
-      );
-      trialEvent = newEvent(continuing?.record);
-      contexts.set(next.wakeup, next);
+      const cohort = environmentsKnown ? environments : [...active.keys()];
+      const continuing = cohort
+        .map((id) => active.get(id))
+        .find(
+          (entry) =>
+            entry !== undefined &&
+            entry.record.outcome !== "idle" &&
+            (entry.record.attempts.at(-1)?.outcome === "pending" ||
+              (["connected", "healthy"].includes(entry.record.outcome) &&
+                (entry.record.shell.outcome === "waiting" ||
+                  entry.record.visibleThread.outcome === "waiting"))),
+        );
+      trialEvent = newEvent(cohort, next, continuing?.record);
+      contexts.set(next.wakeup, trialEvent);
       // Choose before any wakeup subscriber can start a shell/thread refresh.
-      for (const environmentId of new Set([...environments, ...active.keys()])) {
+      for (const environmentId of cohort) {
         const entry = active.get(environmentId);
-        begin(environmentId, next.wakeup, entry?.record.sessionId !== null && entry !== undefined);
+        begin(
+          environmentId,
+          next.wakeup,
+          entry?.record.sessionId !== null && entry !== undefined,
+          trialEvent,
+        );
       }
     },
     visible: (next: typeof visible) => {
+      // Navigation after an event starts must not become cold catch-up time.
+      // Pin visibility for future events and interrupt an abandoned measurement.
       visible = next;
-      const entry = next === null ? undefined : active.get(next.environmentId);
-      if (
-        entry &&
-        entry.record.launch === "cold" &&
-        entry.record.visibleThread.outcome === "not-visible"
-      ) {
-        entry.visibleThreadId = next?.threadId ?? null;
-        const recent =
-          next === null ? undefined : recentSync.get(`${next.environmentId}:${next.threadId}`);
-        entry.record = {
-          ...entry.record,
-          visibleThread:
-            recent && recent.at >= entry.started
-              ? {
-                  mode: recent.event.mode,
-                  completion: recent.event.completion,
-                  bytes: null,
-                  liveAfterMs: recent.event.milestone === "live" ? recent.at - entry.started : null,
-                  outcome:
-                    recent.event.milestone === "started" ? "waiting" : recent.event.milestone,
-                }
-              : { ...entry.record.visibleThread, outcome: "waiting" },
-        };
-        publish(entry);
+      for (const [id, entry] of active) {
+        if (
+          entry.visibleThreadId !== null &&
+          entry.record.visibleThread.outcome === "waiting" &&
+          (next?.environmentId !== id || next.threadId !== entry.visibleThreadId)
+        ) {
+          entry.record = {
+            ...entry.record,
+            visibleThread: {
+              ...entry.record.visibleThread,
+              outcome: "interrupted",
+              liveAfterMs: null,
+            },
+          };
+          publish(entry);
+        }
       }
     },
     record: (event: Event) => {
       let entry = active.get(event.environmentId);
-      if (event.kind === "thread-sync") {
-        const key = `${event.environmentId}:${event.threadId}`;
-        recentSync.delete(key);
-        recentSync.set(key, { event, at: now().monotonic });
-        if (recentSync.size > CONNECTION_LOG_LIMIT)
-          recentSync.delete(recentSync.keys().next().value!);
-      }
       if (event.kind === "session-closed") {
         closed.add(event.environmentId);
         return;
       }
       if (event.kind === "wakeup") {
         if (event.reason === "credentials-changed") return;
-        if (entry && entry.record.eventId === trialEvent?.id && contexts.has(event.reason)) {
-          if (!event.desired) {
+        if (!event.desired) {
+          if (
+            entry &&
+            entry.record.outcome !== "idle" &&
+            (entry.record.shell.outcome !== "live" ||
+              entry.record.visibleThread.outcome === "waiting")
+          ) {
             entry.record = { ...entry.record, outcome: "idle" };
             publish(entry);
           }
           return;
         }
-        if (
-          entry?.wakeupAt !== null &&
-          entry?.wakeupAt === contexts.get(event.reason)?.at &&
-          entry?.record.wakeup === event.reason
-        )
+        const selected = contexts.get(event.reason);
+        if (entry && entry.record.eventId === selected?.event.id) {
           return;
-        if (!contexts.has(event.reason)) trialEvent = newEvent();
-        entry = begin(event.environmentId, event.reason, event.hasSession);
-        if (!event.desired) {
-          entry.record = { ...entry.record, outcome: "idle" };
-          publish(entry);
         }
+        if (!selected)
+          trialEvent = newEvent(
+            environmentsKnown ? environments : [event.environmentId],
+            undefined,
+            undefined,
+            false,
+            event.reason,
+          );
+        entry = begin(event.environmentId, event.reason, event.hasSession, selected ?? trialEvent);
         return;
       }
       if (event.kind === "attempt-start") {
@@ -562,6 +655,7 @@ export function createConnectionLog(
         case "thread-sync":
           if (
             entry.visibleThreadId !== event.threadId ||
+            entry.record.visibleThread.outcome === "interrupted" ||
             entry.record.visibleThread.outcome === "live" ||
             entry.record.interruptedAfterMs !== null
           )
@@ -601,12 +695,13 @@ export function formatConnectionLog(
   return JSON.stringify(
     {
       format: "t3-mobile-connection-log",
-      version: 3,
+      version: 4,
       experiment: {
         comparison: "B+C+M+I+L+S",
         shared: ["G"],
         unit: "wakeup event",
-        legacyRecords: "recordVersion 1/2 retain the prior per-environment comparison",
+        legacyRecords:
+          "recordVersion 1/2 retain the prior comparison; version 3 has historical event metadata",
         coldOrigin: "JavaScript entry",
       },
       app,
@@ -653,7 +748,21 @@ const DiagnosticError = Schema.NullOr(
   ]),
 );
 const StoredRecord = Schema.Struct({
-  recordVersion: Schema.optionalKey(Schema.Literals([1, 2, 3])),
+  recordVersion: Schema.optionalKey(Schema.Literals([1, 2, 3, 4])),
+  event: Schema.optionalKey(
+    Schema.NullOr(
+      Schema.Struct({
+        id: Schema.String.check(Schema.isPattern(/^\d+-event-\d+$/)),
+        timestamp: Schema.String,
+        timingOrigin: Schema.Literals(["js-launch", "wakeup", "attempt"]),
+        launch: Schema.Literals(["cold", "resume", "running"]),
+        wakeup: Schema.String,
+        backgroundMs: NullableNumber,
+        environments: Schema.Array(Schema.Number),
+        visibleThreadEnvironment: NullableNumber,
+      }),
+    ),
+  ),
   eventId: Schema.optionalKey(
     Schema.NullOr(Schema.String.check(Schema.isPattern(/^\d+-event-\d+$/))),
   ),
@@ -742,7 +851,7 @@ const StoredRecord = Schema.Struct({
     liveAfterMs: NullableNumber,
     completion: Schema.NullOr(Schema.Literals(["marker", "legacy"])),
     bytes: Schema.Null,
-    outcome: Schema.Literals(["waiting", "live", "failed", "not-visible"]),
+    outcome: Schema.Literals(["waiting", "live", "failed", "interrupted", "not-visible"]),
   }),
   durationMs: Schema.Number,
   outcome: Schema.Literals([
@@ -769,10 +878,12 @@ export function readConnectionLog(raw: string): ReadonlyArray<ConnectionLogRecor
       const decoded = decodeStoredRecord(value);
       if (Option.isNone(decoded)) return [];
       const record = decoded.value;
+      if (record.recordVersion === 4 && !record.event) return [];
       return [
         {
           ...record,
           recordVersion: record.recordVersion ?? (record.experiment === undefined ? 1 : 2),
+          event: record.event ?? null,
           eventId: record.eventId ?? null,
           eventEnvironmentCount: record.eventEnvironmentCount ?? 1,
           eventAssignment: record.eventAssignment ?? "random",
