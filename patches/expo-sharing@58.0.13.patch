@@ -1,19 +1,55 @@
 diff --git a/android/src/main/java/expo/modules/sharing/SharingModule.kt b/android/src/main/java/expo/modules/sharing/SharingModule.kt
-index 69ccba68e28af71a262c01bd54a202a7bd985909..f3661b11d62bf1889c4cd0bae8cf1b29af527c09 100644
+index 69ccba68e28af71a262c01bd54a202a7bd985909..4726d42b771ae3e8bf0f1b45a64fa79d044986b6 100644
 --- a/android/src/main/java/expo/modules/sharing/SharingModule.kt
 +++ b/android/src/main/java/expo/modules/sharing/SharingModule.kt
-@@ -51,8 +51,11 @@ class SharingModule : Module() {
+@@ -4,6 +4,7 @@ import android.content.Context
+ import android.content.Intent
+ import android.content.pm.PackageManager
+ import android.net.Uri
++import android.util.Log
+ import androidx.core.content.FileProvider
+ import expo.modules.core.errors.InvalidArgumentException
+ import expo.modules.kotlin.Promise
+@@ -23,7 +24,10 @@ class SharingModule : Module() {
+     Name("ExpoSharing")
+ 
+     AsyncFunction("shareAsync") { url: String?, params: SharingOptions, promise: Promise ->
++      // Temporary T3 diagnostics: adb logcat -s ExpoSharingDebug:D
++      Log.d("ExpoSharingDebug", "shareAsync start pending=${pendingPromise != null} thread=${Thread.currentThread().name}")
+       if (pendingPromise != null) {
++        Log.d("ExpoSharingDebug", "shareAsync rejected: already in progress")
+         throw SharingInProgressException()
+       }
+       try {
+@@ -50,9 +54,14 @@ class SharingModule : Module() {
+         }
          pendingPromise = promise
          appContext.throwingActivity.startActivityForResult(intent, REQUEST_CODE)
++        Log.d("ExpoSharingDebug", "shareAsync chooser launched")
        } catch (e: InvalidArgumentException) {
 +        pendingPromise = null
          throw SharingInvalidArgsException(e.message, e)
        } catch (e: Exception) {
++        Log.d("ExpoSharingDebug", "shareAsync launch failed", e)
 +        // A failed launch will not deliver an activity result to release this request.
 +        pendingPromise = null
          throw SharingFailedException("Failed to share the file: ${e.message}", e)
        }
      }
+@@ -77,7 +86,12 @@ class SharingModule : Module() {
+       SharingSingleton.intent = null
+     }
+ 
+-    OnActivityResult { _, (requestCode) ->
++    OnNewIntent { intent ->
++      Log.d("ExpoSharingDebug", "onNewIntent action=${intent.action} type=${intent.type} pending=${pendingPromise != null}")
++    }
++
++    OnActivityResult { _, (requestCode, resultCode) ->
++      Log.d("ExpoSharingDebug", "onActivityResult requestCode=$requestCode resultCode=$resultCode pending=${pendingPromise != null}")
+       if (requestCode == REQUEST_CODE && pendingPromise != null) {
+         pendingPromise?.resolve(null)
+         pendingPromise = null
 diff --git a/android/src/main/java/expo/modules/sharing/SharingRecords.kt b/android/src/main/java/expo/modules/sharing/SharingRecords.kt
 index 0b87b53f632e82f9b4c09c066d5a67e4ab2525a4..65f1c57faef3ba8caac9e137341f2b8312bb5f86 100644
 --- a/android/src/main/java/expo/modules/sharing/SharingRecords.kt
