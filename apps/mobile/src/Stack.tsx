@@ -135,6 +135,7 @@ import {
 } from "./features/settings/components/SettingsLegalDocumentRouteScreen";
 import { useAppShortcuts } from "./features/shortcuts/useAppShortcuts";
 import { useIncomingShare } from "./features/sharing/IncomingShareProvider";
+import { shareDebug } from "./features/sharing/share-debug";
 import {
   EMPTY_INCOMING_SHARE_PRESENTATION_STATE,
   transitionIncomingSharePresentation,
@@ -641,6 +642,13 @@ function RootStackLayout(props: {
       pendingShareId: pendingShare?.id ?? null,
     });
     sharePresentationRef.current = transition.state;
+    if (pendingShare || transition.shareIdToPresent) {
+      shareDebug("present", {
+        topRouteName,
+        pendingShareId: pendingShare?.id.slice(0, 18) ?? null,
+        shareIdToPresent: transition.shareIdToPresent?.slice(0, 18) ?? null,
+      });
+    }
     if (!transition.shareIdToPresent) {
       return;
     }

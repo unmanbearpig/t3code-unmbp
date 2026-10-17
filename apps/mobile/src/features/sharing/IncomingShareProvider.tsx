@@ -18,6 +18,7 @@ import {
   type IncomingShareDraft,
 } from "./incoming-share-model";
 import { createIncomingSharePayloadReader } from "./incoming-share-native";
+import { describeError, describeUri, shareDebug } from "./share-debug";
 import { IncomingShareInbox } from "./incoming-share-inbox";
 import { persistComposerAttachmentFile } from "../../lib/composerImages";
 import {
@@ -54,8 +55,36 @@ function receiveSharingEnabled(): boolean {
 
 const getIncomingSharePayloads = createIncomingSharePayloadReader({
   platform: Platform.OS,
-  readPayloads: getSharedPayloads,
+  readPayloads: () => {
+    const payloads = getSharedPayloads();
+    if (payloads.length > 0) {
+      shareDebug(
+        "incoming:native payloads",
+        payloads.map((payload) => ({
+          shareType: payload.shareType,
+          mimeType: payload.mimeType,
+          originalName: payload.originalName,
+          value: payload.shareType === "text" ? "<text>" : describeUri(payload.value),
+        })),
+      );
+    }
+    return payloads;
+  },
 });
+
+function describeDraft(draft: IncomingShareDraft) {
+  return {
+    id: draft.id.slice(0, 18),
+    destination: draft.destination ?? null,
+    textLength: draft.text.length,
+    attachments: draft.attachments.map((attachment) => ({
+      type: attachment.type,
+      name: attachment.name,
+      sizeBytes: "sizeBytes" in attachment ? attachment.sizeBytes : undefined,
+    })),
+    warnings: draft.warnings,
+  };
+}
 
 async function resolvedPayloadsForFiles(): Promise<ReadonlyArray<ResolvedSharePayload>> {
   try {
@@ -79,6 +108,7 @@ async function incomingShareIdForPayloads(payloads: ReadonlyArray<SharePayload>)
     })),
   );
   const digest = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, fingerprint);
+  shareDebug("incoming:share id", `share-${digest}`.slice(0, 18));
   return `share-${digest}`;
 }
 
@@ -89,7 +119,14 @@ async function readBase64(uri: string): Promise<string> {
 
 async function readFileSize(uri: string): Promise<number | null> {
   const { File } = await import("expo-file-system");
-  return new File(uri).size ?? null;
+  try {
+    const size = new File(uri).size ?? null;
+    shareDebug("incoming:readSize", { uri: describeUri(uri), size });
+    return size;
+  } catch (error) {
+    shareDebug("incoming:readSize failed", { uri: describeUri(uri), error: describeError(error) });
+    throw error;
+  }
 }
 
 async function removeOwnedFile(uri: string): Promise<void> {
@@ -167,11 +204,25 @@ const incomingShareInbox = new IncomingShareInbox({
       fileReader: {
         readBase64,
         persistFile: async (uri, name) => {
-          const persistedUri = await persistComposerAttachmentFile(
-            uri,
-            name,
-            PROVIDER_SEND_TURN_MAX_FILE_BYTES,
-          );
+          let persistedUri: string;
+          try {
+            persistedUri = await persistComposerAttachmentFile(
+              uri,
+              name,
+              PROVIDER_SEND_TURN_MAX_FILE_BYTES,
+            );
+          } catch (error) {
+            shareDebug("incoming:persistFile failed", {
+              uri: describeUri(uri),
+              name,
+              error: describeError(error),
+            });
+            throw error;
+          }
+          shareDebug("incoming:persistFile", {
+            from: describeUri(uri),
+            to: describeUri(persistedUri),
+          });
           persistedUris.add(persistedUri);
           return persistedUri;
         },
@@ -183,6 +234,7 @@ const incomingShareInbox = new IncomingShareInbox({
       id,
       createdAt,
     });
+    shareDebug("incoming:built draft", describeDraft(draft));
     return {
       draft,
       cleanup: async () => {
@@ -193,7 +245,10 @@ const incomingShareInbox = new IncomingShareInbox({
       },
     };
   },
-  cleanupReplayedPayloads: removeReplayedPayloadFiles,
+  cleanupReplayedPayloads: async (payloads) => {
+    shareDebug("incoming:replayed payload, existing inbox draft kept");
+    await removeReplayedPayloadFiles(payloads);
+  },
   idForPayloads: incomingShareIdForPayloads,
   now: () => new Date().toISOString(),
   onClearError: (error) => {
@@ -227,11 +282,13 @@ export function IncomingShareProvider(props: React.PropsWithChildren) {
     const operation = (async () => {
       try {
         const snapshot = await incomingShareInbox.refresh({ ingestNative: enabled });
+        shareDebug("inbox:refresh", snapshot.map(describeDraft));
         if (mountedRef.current) {
           setDrafts(snapshot);
           setError(null);
         }
       } catch (cause) {
+        shareDebug("inbox:refresh failed", describeError(cause));
         const persisted = await incomingShareInbox
           .refresh({ ingestNative: false })
           .catch(() => null);
@@ -267,6 +324,7 @@ export function IncomingShareProvider(props: React.PropsWithChildren) {
       return;
     }
     const subscription = AppState.addEventListener("change", (state) => {
+      shareDebug("appState", state);
       if (state === "active") {
         refreshOnAppActive();
       }
@@ -291,6 +349,7 @@ export function IncomingShareProvider(props: React.PropsWithChildren) {
   }, [error, refresh]);
 
   const consumeShare = useCallback(async (shareId: string) => {
+    shareDebug("inbox:consume", shareId.slice(0, 18));
     const snapshot = await incomingShareInbox.consume(shareId);
     if (mountedRef.current) {
       setDrafts(snapshot);
@@ -298,6 +357,7 @@ export function IncomingShareProvider(props: React.PropsWithChildren) {
   }, []);
   const reserveShare = useCallback(
     async (shareId: string, destination: IncomingShareDestination) => {
+      shareDebug("inbox:reserve", { shareId: shareId.slice(0, 18), destination });
       const snapshot = await incomingShareInbox.reserve(shareId, destination);
       if (mountedRef.current) {
         setDrafts(snapshot);
@@ -307,6 +367,7 @@ export function IncomingShareProvider(props: React.PropsWithChildren) {
   );
   const releaseShareReservation = useCallback(
     async (shareId: string, expectedDestination: IncomingShareDestination) => {
+      shareDebug("inbox:releaseReservation", shareId.slice(0, 18));
       const snapshot = await incomingShareInbox.releaseReservation(shareId, expectedDestination);
       if (mountedRef.current) {
         setDrafts(snapshot);

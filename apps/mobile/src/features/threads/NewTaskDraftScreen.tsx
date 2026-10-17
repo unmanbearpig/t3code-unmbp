@@ -132,6 +132,7 @@ import {
 } from "./new-task-context-presentation";
 import { useIncomingShare } from "../sharing/IncomingShareProvider";
 import { selectIncomingShareAttachmentsForServer } from "../sharing/incoming-share-model";
+import { describeError, shareDebug } from "../sharing/share-debug";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { serverEnvironment } from "../../state/server";
 import { fileRoutePathSegments } from "../files/filePath";
@@ -796,6 +797,25 @@ export function NewTaskDraftScreen(props: {
       !initialProjectId ||
       (destinationProject?.environmentId === initialEnvironmentId &&
         destinationProject.id === initialProjectId);
+    if (shareId) {
+      shareDebug("import:effect", {
+        shareId: shareId.slice(0, 18),
+        draftKey,
+        destination: destinationProject
+          ? { environmentId: destinationProject.environmentId, projectId: destinationProject.id }
+          : null,
+        initialProjectRef: props.initialProjectRef ?? null,
+        selectedProjectMatchesRoute,
+        cancelled: cancelledIncomingShareId === shareId,
+        started: startedShareImportKeyRef.current,
+        cancelling: cancellingShareImportKeyRef.current,
+        hasIncomingShare: Boolean(incomingShare),
+        isIncomingShareUnavailable,
+        incomingAttachments: incomingShare?.attachments.map((attachment) => attachment.type),
+        incomingDestination: incomingShare?.destination ?? null,
+        serverConfigLoaded: selectedEnvironmentServerConfig !== null,
+      });
+    }
     if (
       !shareId ||
       !draftKey ||
@@ -828,8 +848,10 @@ export function NewTaskDraftScreen(props: {
       incomingShare.attachments.some((attachment) => attachment.type === "file") &&
       selectedEnvironmentServerConfig === null
     ) {
+      shareDebug("import:waiting for server config", importKey.slice(0, 18));
       return;
     }
+    shareDebug("import:start", importKey.slice(0, 18));
 
     if (alertedUnavailableIncomingShareIdRef.current === shareId) {
       alertedUnavailableIncomingShareIdRef.current = null;
@@ -864,6 +886,14 @@ export function NewTaskDraftScreen(props: {
           serverEnvironment.configValueAtom(destinationProject.environmentId),
         ),
       });
+      shareDebug("import:selected attachments", {
+        status: selectedAttachments.status,
+        kept:
+          selectedAttachments.status === "ready"
+            ? selectedAttachments.attachments.map((attachment) => attachment.name)
+            : null,
+        warnings: selectedAttachments.status === "ready" ? selectedAttachments.warnings : null,
+      });
       if (selectedAttachments.status === "pending") {
         throw new Error("Server attachment support is still loading.");
       }
@@ -872,6 +902,14 @@ export function NewTaskDraftScreen(props: {
         text: incomingShare.text,
         attachments: selectedAttachments.attachments,
         sourceShareId: shareId,
+      });
+      shareDebug("import:merged", {
+        skippedAttachmentCount,
+        draftAttachments: getComposerDraftSnapshot(draftKey).attachments.map((attachment) => ({
+          id: attachment.id.slice(0, 30),
+          type: attachment.type,
+          name: attachment.name,
+        })),
       });
       if (
         !shareImportMountedRef.current ||
@@ -912,6 +950,11 @@ export function NewTaskDraftScreen(props: {
       shareImportDraftBackupRef.current.delete(importKey);
     })()
       .catch((error) => {
+        shareDebug("import:failed", {
+          error: describeError(error),
+          mounted: shareImportMountedRef.current,
+          stale: activeShareImportTokenRef.current !== importToken,
+        });
         if (!shareImportMountedRef.current || activeShareImportTokenRef.current !== importToken) {
           return;
         }
