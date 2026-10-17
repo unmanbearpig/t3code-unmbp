@@ -166,6 +166,7 @@
     "autolinking": {
       "buildFromSource": [
         "expo-notifications",
+        "expo-sharing",
         "react-native-screens",
         "react-native-reanimated",
         "@react-native-menu/menu",
