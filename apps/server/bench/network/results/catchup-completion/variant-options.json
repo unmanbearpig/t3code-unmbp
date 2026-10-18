@@ -1,0 +1,14 @@
+{
+ "baseline": {
+  "helloHandshake": false,
+  "helloSupportCached": false,
+  "websocketHeaders": false,
+  "skipDescriptorOnHttpsReconnect": false
+ },
+ "mi": {
+  "helloHandshake": false,
+  "helloSupportCached": false,
+  "websocketHeaders": false,
+  "skipDescriptorOnHttpsReconnect": false
+ }
+}

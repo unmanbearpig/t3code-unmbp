@@ -1,0 +1,3882 @@
+{
+  "version": "reconnect-v1",
+  "mtu": 1280,
+  "queuePackets": 100000,
+  "fixture": "100-cached-messages-50-new-domain-events",
+  "cases": [
+    {
+      "id": "mi-screen/cellular/idle/0/1",
+      "profile": {
+        "name": "cellular",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "idle",
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/cellular/idle/0/2",
+      "profile": {
+        "name": "cellular",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "idle",
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/cellular/warm-half-open/0/1",
+      "profile": {
+        "name": "cellular",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "warm-half-open",
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/cellular/warm-half-open/0/2",
+      "profile": {
+        "name": "cellular",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "warm-half-open",
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/cellular/warm-healthy/0/1",
+      "profile": {
+        "name": "cellular",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "warm-healthy",
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/cellular/warm-healthy/0/2",
+      "profile": {
+        "name": "cellular",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "warm-healthy",
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/cellular/refocus/0/1",
+      "profile": {
+        "name": "cellular",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "refocus",
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/cellular/refocus/0/2",
+      "profile": {
+        "name": "cellular",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "refocus",
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/high-latency/idle/0/1",
+      "profile": {
+        "name": "high-latency",
+        "down": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "idle",
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/high-latency/idle/0/2",
+      "profile": {
+        "name": "high-latency",
+        "down": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "idle",
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/high-latency/warm-half-open/0/1",
+      "profile": {
+        "name": "high-latency",
+        "down": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "warm-half-open",
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/high-latency/warm-half-open/0/2",
+      "profile": {
+        "name": "high-latency",
+        "down": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "warm-half-open",
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/high-latency/warm-healthy/0/1",
+      "profile": {
+        "name": "high-latency",
+        "down": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "warm-healthy",
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/high-latency/warm-healthy/0/2",
+      "profile": {
+        "name": "high-latency",
+        "down": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "warm-healthy",
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/high-latency/refocus/0/1",
+      "profile": {
+        "name": "high-latency",
+        "down": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "refocus",
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-screen/high-latency/refocus/0/2",
+      "profile": {
+        "name": "high-latency",
+        "down": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "up": {
+          "delayMs": 150,
+          "jitterMs": 0,
+          "rateKbit": 100000
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "refocus",
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/1",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/2",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/3",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 3,
+      "seed": 120567,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/4",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 4,
+      "seed": 128486,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/5",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 5,
+      "seed": 136405,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/6",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 6,
+      "seed": 144324,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/7",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 7,
+      "seed": 152243,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/8",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 8,
+      "seed": 160162,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/9",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 9,
+      "seed": 168081,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/10",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 10,
+      "seed": 176000,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/11",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 11,
+      "seed": 183919,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/12",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 12,
+      "seed": 191838,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/13",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 13,
+      "seed": 199757,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/14",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 14,
+      "seed": 207676,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/15",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 15,
+      "seed": 215595,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/16",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 16,
+      "seed": 223514,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/17",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 17,
+      "seed": 231433,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/18",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 18,
+      "seed": 239352,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/19",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 19,
+      "seed": 247271,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/replay-50/0/20",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 20,
+      "seed": 255190,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/1",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/2",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/3",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 3,
+      "seed": 120567,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/4",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 4,
+      "seed": 128486,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/5",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 5,
+      "seed": 136405,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/6",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 6,
+      "seed": 144324,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/7",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 7,
+      "seed": 152243,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/8",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 8,
+      "seed": 160162,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/9",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 9,
+      "seed": 168081,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/10",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 10,
+      "seed": 176000,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/11",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 11,
+      "seed": 183919,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/12",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 12,
+      "seed": 191838,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/13",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 13,
+      "seed": 199757,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/14",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 14,
+      "seed": 207676,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/15",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 15,
+      "seed": 215595,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/16",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 16,
+      "seed": 223514,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/17",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 17,
+      "seed": 231433,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/18",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 18,
+      "seed": 239352,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/19",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 19,
+      "seed": 247271,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/300/20",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 20,
+      "seed": 255190,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/1",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/2",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/3",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 3,
+      "seed": 120567,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/4",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 4,
+      "seed": 128486,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/5",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 5,
+      "seed": 136405,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/6",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 6,
+      "seed": 144324,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/7",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 7,
+      "seed": 152243,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/8",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 8,
+      "seed": 160162,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/9",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 9,
+      "seed": 168081,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/10",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 10,
+      "seed": 176000,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/11",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 11,
+      "seed": 183919,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/12",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 12,
+      "seed": 191838,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/13",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 13,
+      "seed": 199757,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/14",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 14,
+      "seed": 207676,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/15",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 15,
+      "seed": 215595,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/16",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 16,
+      "seed": 223514,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/17",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 17,
+      "seed": 231433,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/18",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 18,
+      "seed": 239352,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/19",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 19,
+      "seed": 247271,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/loss-3/loaded-host/1500/20",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 20,
+      "seed": 255190,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/1",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/2",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/3",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 3,
+      "seed": 120567,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/4",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 4,
+      "seed": 128486,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/5",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 5,
+      "seed": 136405,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/6",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 6,
+      "seed": 144324,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/7",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 7,
+      "seed": 152243,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/8",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 8,
+      "seed": 160162,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/9",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 9,
+      "seed": 168081,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/10",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 10,
+      "seed": 176000,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/11",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 11,
+      "seed": 183919,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/12",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 12,
+      "seed": 191838,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/13",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 13,
+      "seed": 199757,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/14",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 14,
+      "seed": 207676,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/15",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 15,
+      "seed": 215595,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/16",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 16,
+      "seed": 223514,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/17",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 17,
+      "seed": 231433,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/18",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 18,
+      "seed": 239352,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/19",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 19,
+      "seed": 247271,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/replay-50/0/20",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 20,
+      "seed": 255190,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/1",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/2",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/3",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 3,
+      "seed": 120567,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/4",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 4,
+      "seed": 128486,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/5",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 5,
+      "seed": 136405,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/6",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 6,
+      "seed": 144324,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/7",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 7,
+      "seed": 152243,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/8",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 8,
+      "seed": 160162,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/9",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 9,
+      "seed": 168081,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/10",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 10,
+      "seed": 176000,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/11",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 11,
+      "seed": 183919,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/12",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 12,
+      "seed": 191838,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/13",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 13,
+      "seed": 199757,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/14",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 14,
+      "seed": 207676,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/15",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 15,
+      "seed": 215595,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/16",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 16,
+      "seed": 223514,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/17",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 17,
+      "seed": 231433,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/18",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 18,
+      "seed": 239352,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/19",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 19,
+      "seed": 247271,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/300/20",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 20,
+      "seed": 255190,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/1",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/2",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/3",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 3,
+      "seed": 120567,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/4",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 4,
+      "seed": 128486,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/5",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 5,
+      "seed": 136405,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/6",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 6,
+      "seed": 144324,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/7",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 7,
+      "seed": 152243,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/8",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 8,
+      "seed": 160162,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/9",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 9,
+      "seed": 168081,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/10",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 10,
+      "seed": 176000,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/11",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 11,
+      "seed": 183919,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/12",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 12,
+      "seed": 191838,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/13",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 13,
+      "seed": 199757,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/14",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 14,
+      "seed": 207676,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/15",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 15,
+      "seed": 215595,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/16",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 16,
+      "seed": 223514,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/17",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 17,
+      "seed": 231433,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/18",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 18,
+      "seed": 239352,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/19",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 19,
+      "seed": 247271,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/burst-loss/loaded-host/1500/20",
+      "profile": {
+        "name": "burst-loss",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "gemodel 1% 25%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 20,
+      "seed": 255190,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/constrained/replay-50/0/1",
+      "profile": {
+        "name": "constrained",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 1000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 512
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/constrained/replay-50/0/2",
+      "profile": {
+        "name": "constrained",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 1000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 512
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/constrained/loaded-host/300/1",
+      "profile": {
+        "name": "constrained",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 1000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 512
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/constrained/loaded-host/300/2",
+      "profile": {
+        "name": "constrained",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 1000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 512
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 300,
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/constrained/loaded-host/1500/1",
+      "profile": {
+        "name": "constrained",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 1000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 512
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 1,
+      "seed": 104729,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-confirm/constrained/loaded-host/1500/2",
+      "profile": {
+        "name": "constrained",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 1000
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 512
+        },
+        "stochastic": false,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "loaded-host",
+      "configDelayMs": 1500,
+      "repetition": 2,
+      "seed": 112648,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    }
+  ]
+}

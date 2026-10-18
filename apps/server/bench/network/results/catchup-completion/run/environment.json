@@ -1,0 +1,73 @@
+{
+  "node": "v26.3.0",
+  "versions": {
+    "node": "26.3.0",
+    "acorn": "8.16.0",
+    "ada": "3.4.4",
+    "amaro": "1.1.9",
+    "ares": "1.34.8",
+    "brotli": "1.2.0",
+    "cldr": "48.0",
+    "icu": "78.3",
+    "libffi": "3.5.2",
+    "lief": "0.17.0",
+    "llhttp": "9.4.1",
+    "merve": "1.2.2",
+    "modules": "147",
+    "napi": "10",
+    "nbytes": "0.1.4",
+    "ncrypto": "0.0.1",
+    "nghttp2": "1.69.0",
+    "nghttp3": "",
+    "ngtcp2": "",
+    "openssl": "3.5.8",
+    "simdjson": "4.6.2",
+    "simdutf": "9.0.0",
+    "sqlite": "3.53.3",
+    "tz": "2026b",
+    "undici": "8.3.0",
+    "unicode": "17.0",
+    "uv": "1.52.1",
+    "uvwasi": "0.0.23",
+    "v8": "14.6.202.34-node.20",
+    "zlib": "1.3.2",
+    "zstd": "1.5.7"
+  },
+  "platform": "linux",
+  "arch": "x64",
+  "kernel": "6.18.54-gentoo-dist",
+  "cpu": "Intel(R) Core(TM) Ultra 5 135H",
+  "laneCount": 1,
+  "cpuSets": [
+    "0"
+  ],
+  "serialProfiles": [],
+  "warmups": 20,
+  "freshWorkers": false,
+  "variants": [
+    {
+      "name": "baseline",
+      "path": "<worktree of perf/reconnect-confirm-baseline>",
+      "options": {
+        "helloHandshake": false,
+        "helloSupportCached": false,
+        "websocketHeaders": false,
+        "skipDescriptorOnHttpsReconnect": false
+      },
+      "revision": "6ba3b2f34c2eceed2a3ee7b589fb2a0c824c58a0",
+      "dirty": false
+    },
+    {
+      "name": "mi",
+      "path": "<worktree of perf/reconnect-confirm-mi>",
+      "options": {
+        "helloHandshake": false,
+        "helloSupportCached": false,
+        "websocketHeaders": false,
+        "skipDescriptorOnHttpsReconnect": false
+      },
+      "revision": "2f280fdc937d66a62c580997bd2c0da33e0f9f0b",
+      "dirty": false
+    }
+  ]
+}

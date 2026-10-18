@@ -1,0 +1,3380 @@
+[
+  {
+    "key": "mi/cellular/refocus/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 84.17499150000094,
+    "minMs": 83.72299200000089,
+    "maxMs": 84.626991000001,
+    "falseReplacements": 0,
+    "shellMedianMs": 84.62822100000176,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "inactive-without-background": -0.0042344999992565135,
+      "active": 0.002919500000643893,
+      "stream-cancel:orchestration.subscribeThread-start": 43.79010350000044,
+      "stream-cancel:orchestration.subscribeThread-end": 43.87402850000035,
+      "stream-cancel:orchestration.subscribeShell-start": 43.85983900000065,
+      "stream-cancel:orchestration.subscribeShell-end": 43.91867650000131,
+      "subscribe": 1.2667129999999815,
+      "shell-subscribe": 1.4585950000009689,
+      "probe-request": 2.3352995000013834,
+      "synchronized": 83.72740050000084,
+      "applied": 84.17162500000177,
+      "shell-synchronized": 84.23980950000168,
+      "shell-applied": 84.63168550000046,
+      "case-cleanup-start": 87.10594949871302,
+      "release-start": 88.22229150000021,
+      "release-end": 88.46610750000218,
+      "cleanup-old-close": 89.16010899999947
+    },
+    "stageDurationMediansMs": {},
+    "medianBytes": 1416.5,
+    "medianPackets": 16,
+    "requests": [
+      {},
+      {}
+    ]
+  },
+  {
+    "key": "baseline/cellular/refocus/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 85.21380000000045,
+    "minMs": 83.97958199999994,
+    "maxMs": 86.44801800000096,
+    "falseReplacements": 0,
+    "shellMedianMs": 160.69582000000082,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "inactive-without-background": -0.002667999999175663,
+      "active": 0.0025820000000749133,
+      "stream-cancel:orchestration.subscribeThread-start": 80.70124900000064,
+      "stream-cancel:orchestration.subscribeThread-end": 80.781959500001,
+      "stream-cancel:orchestration.subscribeShell-start": 80.599615000001,
+      "stream-cancel:orchestration.subscribeShell-end": 80.77653350000128,
+      "subscribe": 1.2380470000007335,
+      "shell-subscribe": 1.386149500001011,
+      "probe-request": 1.9961965000002238,
+      "synchronized": 84.84337750000122,
+      "applied": 85.21158100000048,
+      "shell-synchronized": 160.0610510000006,
+      "shell-applied": 160.70025600000008,
+      "case-cleanup-start": 163.2146934941411,
+      "release-start": 164.3666940000012,
+      "release-end": 164.72084750000067,
+      "cleanup-old-close": 165.4037515000009
+    },
+    "stageDurationMediansMs": {},
+    "medianBytes": 1663.5,
+    "medianPackets": 19.5,
+    "requests": [
+      {},
+      {}
+    ]
+  },
+  {
+    "key": "mi/burst-loss/replay-50/https/1/0/0/0",
+    "count": 20,
+    "successes": 20,
+    "failures": 0,
+    "medianMs": 873.83019350002,
+    "minMs": 814.8828799999901,
+    "maxMs": 5629.509411000006,
+    "falseReplacements": 0,
+    "shellMedianMs": 992.622239999997,
+    "p90Ms": 2302.390948,
+    "stageMediansMs": {
+      "setup-complete": -0.0008034999773371965,
+      "active": 0.0020615000066754874,
+      "attempt-start": 0.24360950001209858,
+      "progress:preparing": 0.2881245000207855,
+      "descriptor-1": 229.83248599999934,
+      "ticket": 302.51283399996464,
+      "descriptor-2": 376.9745924999879,
+      "progress:opening": 377.1796639999666,
+      "progress:synchronizing": 377.8335714999703,
+      "socket-start": 377.96671599996625,
+      "socket-open": 608.397390999995,
+      "config-request": 608.5431364999968,
+      "config": 689.9259909999782,
+      "subscribe": 691.2559670000046,
+      "http:/api/orchestration/shell": 872.504636499998,
+      "synchronized": 870.637028500023,
+      "applied": 873.8258435000134,
+      "shell-subscribe": 875.2016739999999,
+      "shell-synchronized": 992.2202425000141,
+      "shell-applied": 992.6259399999981,
+      "case-cleanup-start": 995.7311250045896,
+      "stream-cancel:orchestration.subscribeShell-start": 996.027820999996,
+      "stream-cancel:orchestration.subscribeShell-end": 996.1277269999846,
+      "stream-cancel:orchestration.subscribeThread-start": 996.2186090000032,
+      "stream-cancel:orchestration.subscribeThread-end": 996.469058000017,
+      "release-start": 996.7547755000123,
+      "release-end": 997.0738659999915,
+      "cleanup-socket-close": 997.6524840000202
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 227.96163000000524,
+      "ticket": 72.48741850000806,
+      "descriptor-2": 68.47808699999223,
+      "http:/api/orchestration/shell": 182.3460370000139
+    },
+    "medianBytes": 62732.5,
+    "medianPackets": 103,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/burst-loss/replay-50/https/1/0/0/0",
+    "count": 20,
+    "successes": 20,
+    "failures": 0,
+    "medianMs": 974.5328630000004,
+    "minMs": 896.268121000001,
+    "maxMs": 18073.227301999985,
+    "falseReplacements": 0,
+    "shellMedianMs": 1065.2176990000007,
+    "p90Ms": 2375.247604999997,
+    "stageMediansMs": {
+      "setup-complete": -0.0007634999928995967,
+      "active": 0.002503999978216598,
+      "attempt-start": 0.23047199996653944,
+      "progress:preparing": 0.29004400002304465,
+      "descriptor-1": 227.3326549999947,
+      "ticket": 300.8400829999882,
+      "descriptor-2": 372.7543454999977,
+      "progress:opening": 372.9981199999929,
+      "progress:synchronizing": 373.5110649999915,
+      "socket-start": 373.6448270000001,
+      "socket-open": 602.0263609999674,
+      "config-request": 602.158961499983,
+      "config": 685.1982754999772,
+      "subscribe": 686.368347999989,
+      "http:/api/orchestration/shell": 871.8196899999948,
+      "shell-subscribe": 874.5261764999977,
+      "synchronized": 974.0486340000007,
+      "applied": 974.5293395000008,
+      "shell-synchronized": 1064.9711694999714,
+      "shell-applied": 1065.22097699999,
+      "case-cleanup-start": 1068.2382835000753,
+      "stream-cancel:orchestration.subscribeShell-start": 1068.5361705000105,
+      "stream-cancel:orchestration.subscribeShell-end": 1068.612844999996,
+      "stream-cancel:orchestration.subscribeThread-start": 1068.698149999982,
+      "stream-cancel:orchestration.subscribeThread-end": 1068.741733999981,
+      "release-start": 1101.5531089999713,
+      "release-end": 1101.7586059999885,
+      "cleanup-socket-close": 1069.7467720000132,
+      "descriptor-3": 12640.300472999981
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 226.19313849998798,
+      "ticket": 72.22660449999967,
+      "descriptor-2": 69.17515449998609,
+      "http:/api/orchestration/shell": 182.51272249999965,
+      "descriptor-3": 76.25382099999115
+    },
+    "medianBytes": 63139.5,
+    "medianPackets": 108,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 3,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/cellular/idle/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 769.467704499999,
+    "minMs": 764.0856050000002,
+    "maxMs": 774.8498039999977,
+    "falseReplacements": 0,
+    "shellMedianMs": 1003.7830514999987,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "setup-complete": -0.0005884999991394579,
+      "active": 0.0023639999999431893,
+      "attempt-start": 0.2837634999959846,
+      "progress:preparing": 0.3288575000005949,
+      "descriptor-1": 220.94214199999988,
+      "ticket": 290.0622379999986,
+      "descriptor-2": 371.0521410000001,
+      "progress:opening": 371.2953149999994,
+      "progress:synchronizing": 371.79459999999744,
+      "socket-start": 371.9313284999989,
+      "socket-open": 607.2539049999978,
+      "config-request": 607.3891849999964,
+      "config": 682.8279624999996,
+      "subscribe": 684.135158000001,
+      "http:/api/orchestration/shell": 852.2308259999954,
+      "synchronized": 768.7839490000006,
+      "applied": 769.4636344999999,
+      "shell-subscribe": 854.9518489999973,
+      "shell-synchronized": 1003.2232084999996,
+      "shell-applied": 1003.7871769999983,
+      "case-cleanup-start": 1006.2745895013213,
+      "stream-cancel:orchestration.subscribeShell-start": 1006.5700414999956,
+      "stream-cancel:orchestration.subscribeShell-end": 1006.7864754999973,
+      "stream-cancel:orchestration.subscribeThread-start": 1006.8871279999985,
+      "stream-cancel:orchestration.subscribeThread-end": 1006.939397999995,
+      "release-start": 1007.2164954999971,
+      "release-end": 1007.592588499996,
+      "cleanup-socket-close": 1008.1900489999971
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 220.30537650000406,
+      "ticket": 68.1623514999992,
+      "descriptor-2": 80.2708920000041,
+      "http:/api/orchestration/shell": 167.5120259999967
+    },
+    "medianBytes": 31585.5,
+    "medianPackets": 70,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/cellular/idle/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 787.6815344999995,
+    "minMs": 781.534971000001,
+    "maxMs": 793.8280979999981,
+    "falseReplacements": 0,
+    "shellMedianMs": 957.3654815000045,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "setup-complete": -0.0006924999979673885,
+      "active": 0.0020884999976260588,
+      "attempt-start": 2.561787499995262,
+      "progress:preparing": 2.6116799999945215,
+      "descriptor-1": 221.5670745000025,
+      "ticket": 290.67128100000264,
+      "descriptor-2": 370.7057554999992,
+      "progress:opening": 371.14094900000055,
+      "progress:synchronizing": 371.68980849999934,
+      "socket-start": 372.8254564999952,
+      "socket-open": 609.3596660000039,
+      "config-request": 609.4931229999929,
+      "config": 685.0112109999973,
+      "subscribe": 686.0993089999974,
+      "http:/api/orchestration/shell": 879.5950999999986,
+      "synchronized": 787.1877279999972,
+      "applied": 787.6782509999975,
+      "shell-subscribe": 882.3652165000021,
+      "shell-synchronized": 956.9378035000045,
+      "shell-applied": 957.3695174999957,
+      "case-cleanup-start": 960.0210704952478,
+      "stream-cancel:orchestration.subscribeShell-start": 960.3407569999981,
+      "stream-cancel:orchestration.subscribeShell-end": 960.5762759999998,
+      "stream-cancel:orchestration.subscribeThread-start": 960.6794759999975,
+      "stream-cancel:orchestration.subscribeThread-end": 960.7368795000002,
+      "release-start": 961.0266944999967,
+      "release-end": 961.2902945000023,
+      "cleanup-socket-close": 961.9611420000001
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 218.54038100000616,
+      "ticket": 68.32852000000275,
+      "descriptor-2": 79.68205400000443,
+      "http:/api/orchestration/shell": 192.88501499999984
+    },
+    "medianBytes": 31430.5,
+    "medianPackets": 68.5,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/high-latency/warm-half-open/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 3351.200385999997,
+    "minMs": 3350.529555999994,
+    "maxMs": 3351.8712159999995,
+    "falseReplacements": 0,
+    "shellMedianMs": 3691.1958114999943,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "background-simulated": -0.0019800000081886537,
+      "active": 0.0028804999965359457,
+      "stream-cancel:orchestration.subscribeThread-start": 1838.3917029999939,
+      "stream-cancel:orchestration.subscribeThread-end": 1839.0071964999952,
+      "stream-cancel:orchestration.subscribeShell-start": 1838.9000799999994,
+      "stream-cancel:orchestration.subscribeShell-end": 1838.9786434999987,
+      "release-start": 1839.334676999999,
+      "release-end": 1839.6876614999928,
+      "attempt-start": 1.7157794999948237,
+      "progress:preparing": 1.7700094999891007,
+      "descriptor-3": 907.6593474999972,
+      "ticket": 1211.4080744999956,
+      "descriptor-4": 1513.6882314999966,
+      "progress:opening": 1513.933011999994,
+      "progress:synchronizing": 1514.4906039999914,
+      "socket-start": 1514.6274414999934,
+      "socket-open": 2419.860284999988,
+      "config-request": 2420.05333599999,
+      "config": 2722.6563434999916,
+      "subscribe": 2724.4263779999965,
+      "http:/api/orchestration/shell": 3377.4478974999947,
+      "synchronized": 3348.6247559999974,
+      "applied": 3351.1967739999964,
+      "shell-subscribe": 3386.7590424999944,
+      "shell-synchronized": 3690.6146819999994,
+      "shell-applied": 3691.200834999996,
+      "case-cleanup-start": 3694.1255545020103,
+      "cleanup-socket-close": 3696.1095270000005,
+      "cleanup-old-close": 3696.1531804999977
+    },
+    "stageDurationMediansMs": {
+      "descriptor-3": 905.4335449999999,
+      "ticket": 302.48815399999876,
+      "descriptor-4": 301.86920049999753,
+      "http:/api/orchestration/shell": 652.4696185000066
+    },
+    "medianBytes": 81770.5,
+    "medianPackets": 128.5,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/high-latency/warm-half-open/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 3654.4156054999985,
+    "minMs": 3649.6645699999935,
+    "maxMs": 3659.1666410000034,
+    "falseReplacements": 0,
+    "shellMedianMs": 3971.148550500009,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "background-simulated": -0.002166999998735264,
+      "active": 0.0028970000057597645,
+      "stream-cancel:orchestration.subscribeThread-start": 1986.8337270000047,
+      "stream-cancel:orchestration.subscribeThread-end": 1986.916441500005,
+      "stream-cancel:orchestration.subscribeShell-start": 1986.8407690000022,
+      "stream-cancel:orchestration.subscribeShell-end": 1986.9132980000068,
+      "release-start": 1987.1626030000043,
+      "release-end": 1987.491568000005,
+      "attempt-start": 1.0196944999988773,
+      "progress:preparing": 1.0787524999977904,
+      "descriptor-3": 905.8152075000035,
+      "ticket": 1209.6506240000017,
+      "descriptor-4": 1512.2004440000019,
+      "progress:opening": 1512.4474764999977,
+      "progress:synchronizing": 1512.9524729999976,
+      "socket-start": 1513.0707449999973,
+      "socket-open": 2418.236668999998,
+      "config-request": 2418.376393499995,
+      "config": 2720.7729860000036,
+      "subscribe": 2725.0912735000093,
+      "http:/api/orchestration/shell": 3356.146996000003,
+      "shell-subscribe": 3361.383698999998,
+      "synchronized": 3653.9530785000024,
+      "applied": 3654.413163999998,
+      "shell-synchronized": 3968.989361,
+      "shell-applied": 3971.1560949999985,
+      "case-cleanup-start": 3974.15485650301,
+      "cleanup-socket-close": 3976.413773500004,
+      "cleanup-old-close": 3976.463577499999
+    },
+    "stageDurationMediansMs": {
+      "descriptor-3": 904.2895510000017,
+      "ticket": 302.73761500000546,
+      "descriptor-4": 302.1713830000008,
+      "http:/api/orchestration/shell": 630.5914929999999
+    },
+    "medianBytes": 76519,
+    "medianPackets": 131,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/high-latency/warm-healthy/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 3032.8985390000016,
+    "minMs": 3032.8164930000057,
+    "maxMs": 3032.9805849999975,
+    "falseReplacements": 0,
+    "shellMedianMs": 3966.377552500002,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "background-simulated": -0.0013564999972004443,
+      "active": 0.0029199999989941716,
+      "stream-cancel:orchestration.subscribeThread-start": 1983.1616295000058,
+      "stream-cancel:orchestration.subscribeThread-end": 1983.2473495000013,
+      "stream-cancel:orchestration.subscribeShell-start": 1983.187085000005,
+      "stream-cancel:orchestration.subscribeShell-end": 1983.2511184999967,
+      "release-start": 1983.4903954999972,
+      "release-end": 1983.7523985000007,
+      "attempt-start": 0.8260060000029625,
+      "progress:preparing": 0.8672664999976405,
+      "descriptor-3": 906.5238275000011,
+      "old-close": 305.6850659999982,
+      "ticket": 1209.889912999999,
+      "descriptor-4": 1511.8978605000011,
+      "progress:opening": 1512.1386544999987,
+      "progress:synchronizing": 1513.0263819999964,
+      "socket-start": 1513.1595355000027,
+      "socket-open": 2418.106774,
+      "config-request": 2418.2516295000023,
+      "config": 2720.3050264999983,
+      "subscribe": 2721.565677999999,
+      "http:/api/orchestration/shell": 3348.209617499997,
+      "synchronized": 3032.434145499996,
+      "applied": 3032.8923540000033,
+      "shell-subscribe": 3353.7601104999994,
+      "shell-synchronized": 3965.735600500004,
+      "shell-applied": 3966.381287999997,
+      "case-cleanup-start": 3968.8737885057926,
+      "cleanup-socket-close": 3971.476749499998
+    },
+    "stageDurationMediansMs": {
+      "descriptor-3": 905.3922610000009,
+      "ticket": 302.4904735000018,
+      "descriptor-4": 301.6235849999939,
+      "http:/api/orchestration/shell": 626.089638999998
+    },
+    "medianBytes": 33039.5,
+    "medianPackets": 91,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/high-latency/warm-healthy/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 3035.5243820000032,
+    "minMs": 3034.651801,
+    "maxMs": 3036.3969630000065,
+    "falseReplacements": 0,
+    "shellMedianMs": 3652.2664615000103,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "background-simulated": -0.0014020000016898848,
+      "active": 0.0023894999976619147,
+      "stream-cancel:orchestration.subscribeThread-start": 1826.0107389999976,
+      "stream-cancel:orchestration.subscribeThread-end": 1826.084294500004,
+      "stream-cancel:orchestration.subscribeShell-start": 1826.0083930000037,
+      "stream-cancel:orchestration.subscribeShell-end": 1826.0781095000057,
+      "release-start": 1826.3215674999956,
+      "release-end": 1827.075367000005,
+      "attempt-start": 1.382314000002225,
+      "progress:preparing": 1.4271260000023176,
+      "descriptor-3": 906.9173484999992,
+      "old-close": 305.73778799999855,
+      "ticket": 1210.433122500006,
+      "descriptor-4": 1512.8902564999953,
+      "progress:opening": 1513.125393000002,
+      "progress:synchronizing": 1513.6884430000064,
+      "socket-start": 1513.8085195000021,
+      "socket-open": 2418.333104000005,
+      "config-request": 2418.4723160000067,
+      "config": 2720.8893024999998,
+      "subscribe": 2722.4172265000016,
+      "http:/api/orchestration/shell": 3342.6729964999977,
+      "synchronized": 3035.021396999997,
+      "applied": 3035.5208330000023,
+      "shell-subscribe": 3347.7536009999967,
+      "shell-synchronized": 3651.8683665000062,
+      "shell-applied": 3652.270484000008,
+      "case-cleanup-start": 3654.7068770080805,
+      "cleanup-socket-close": 3656.6778909999994
+    },
+    "stageDurationMediansMs": {
+      "descriptor-3": 905.2191224999988,
+      "ticket": 302.8259385000056,
+      "descriptor-4": 301.96791149999626,
+      "http:/api/orchestration/shell": 619.7000409999964
+    },
+    "medianBytes": 32858.5,
+    "medianPackets": 89,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/loss-3/loaded-host/https/1/0/1500/0",
+    "count": 20,
+    "successes": 20,
+    "failures": 0,
+    "medianMs": 2728.0175799999997,
+    "minMs": 2415.089645,
+    "maxMs": 4556.254615999991,
+    "falseReplacements": 0,
+    "shellMedianMs": 2811.6770215000142,
+    "p90Ms": 4014.3699950000155,
+    "stageMediansMs": {
+      "setup-complete": -0.0006865000032121316,
+      "active": 0.0021424999576993287,
+      "attempt-start": 0.22177649998047855,
+      "progress:preparing": 0.2633779999887338,
+      "descriptor-1": 229.8281699999934,
+      "ticket": 306.2666719999979,
+      "descriptor-2": 372.32522950001294,
+      "progress:opening": 372.57787099998677,
+      "progress:synchronizing": 373.19503300002543,
+      "socket-start": 373.61763649998466,
+      "socket-open": 696.073629999999,
+      "config-request": 696.2026934999885,
+      "config": 2367.395437500003,
+      "subscribe": 2368.482038999995,
+      "http:/api/orchestration/shell": 2558.9485609999974,
+      "shell-subscribe": 2562.872570999971,
+      "synchronized": 2727.3110165000107,
+      "applied": 2728.013928000015,
+      "shell-synchronized": 2811.402621000001,
+      "shell-applied": 2811.6805310000054,
+      "case-cleanup-start": 2814.5902560055256,
+      "stream-cancel:orchestration.subscribeShell-start": 2814.8856904999993,
+      "stream-cancel:orchestration.subscribeShell-end": 2814.970319,
+      "stream-cancel:orchestration.subscribeThread-start": 2815.153806500006,
+      "stream-cancel:orchestration.subscribeThread-end": 2815.2081655000075,
+      "release-start": 2815.646633000011,
+      "release-end": 2816.108778000009,
+      "cleanup-socket-close": 2816.6653185000177
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 228.95081599999685,
+      "ticket": 73.97783700002765,
+      "descriptor-2": 73.11470500002906,
+      "http:/api/orchestration/shell": 185.89003200001025
+    },
+    "medianBytes": 65722,
+    "medianPackets": 115,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/loss-3/loaded-host/https/1/0/1500/0",
+    "count": 20,
+    "successes": 20,
+    "failures": 0,
+    "medianMs": 2650.090499499929,
+    "minMs": 2329.8463719999418,
+    "maxMs": 4049.4692719999875,
+    "falseReplacements": 0,
+    "shellMedianMs": 2691.2189704999328,
+    "p90Ms": 3653.6601259999443,
+    "stageMediansMs": {
+      "setup-complete": -0.0007479999912902713,
+      "active": 0.001994999998714775,
+      "attempt-start": 0.23563349997857586,
+      "progress:preparing": 0.28781049998360686,
+      "descriptor-1": 229.70706600000267,
+      "ticket": 305.99051999997755,
+      "descriptor-2": 375.80051699996693,
+      "progress:opening": 376.07348049996654,
+      "progress:synchronizing": 376.5654499999364,
+      "socket-start": 376.7111024999758,
+      "socket-open": 696.5070754999906,
+      "config-request": 696.637800499986,
+      "config": 2391.793690499995,
+      "subscribe": 2393.155633000002,
+      "http:/api/orchestration/shell": 2600.9535714999656,
+      "shell-subscribe": 2604.1788324999798,
+      "synchronized": 2647.27918449993,
+      "shell-synchronized": 2690.173692499986,
+      "applied": 2650.086317499925,
+      "shell-applied": 2691.2228869999526,
+      "case-cleanup-start": 2694.3058250024915,
+      "stream-cancel:orchestration.subscribeShell-start": 2694.6872199999634,
+      "stream-cancel:orchestration.subscribeShell-end": 2694.811016499938,
+      "stream-cancel:orchestration.subscribeThread-start": 2694.9177974999766,
+      "stream-cancel:orchestration.subscribeThread-end": 2694.9708199999295,
+      "release-start": 2695.2981699999655,
+      "release-end": 2695.5912479999824,
+      "cleanup-socket-close": 2696.050019999966
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 229.1201420000143,
+      "ticket": 74.7936650000047,
+      "descriptor-2": 73.19696849997854,
+      "http:/api/orchestration/shell": 180.70576200001233
+    },
+    "medianBytes": 65270,
+    "medianPackets": 109.5,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/burst-loss/loaded-host/https/1/0/300/0",
+    "count": 20,
+    "successes": 20,
+    "failures": 0,
+    "medianMs": 1261.7592264999985,
+    "minMs": 1201.2763280000072,
+    "maxMs": 5927.8429539999925,
+    "falseReplacements": 0,
+    "shellMedianMs": 1338.5242474999977,
+    "p90Ms": 2662.428270000004,
+    "stageMediansMs": {
+      "setup-complete": -0.0007219999824883416,
+      "active": 0.002173999964725226,
+      "attempt-start": 0.21395400000619702,
+      "progress:preparing": 0.25244699999166187,
+      "descriptor-1": 226.71127400000114,
+      "ticket": 299.92954400001327,
+      "descriptor-2": 371.18977799999993,
+      "progress:opening": 371.4381670000148,
+      "progress:synchronizing": 371.99272499998915,
+      "socket-start": 372.13226850001956,
+      "socket-open": 603.1371450000152,
+      "config-request": 603.2606174999964,
+      "config": 990.6237699999765,
+      "subscribe": 991.7519040000043,
+      "http:/api/orchestration/shell": 1191.937594499992,
+      "shell-subscribe": 1194.6587834999955,
+      "synchronized": 1261.349881999995,
+      "applied": 1261.7569345000084,
+      "shell-synchronized": 1338.2562960000214,
+      "shell-applied": 1338.5317145000445,
+      "case-cleanup-start": 1341.46208050102,
+      "stream-cancel:orchestration.subscribeShell-start": 1341.7711500000296,
+      "stream-cancel:orchestration.subscribeShell-end": 1341.852555000005,
+      "stream-cancel:orchestration.subscribeThread-start": 1341.9361790000112,
+      "stream-cancel:orchestration.subscribeThread-end": 1341.9838135000173,
+      "release-start": 1342.261694500019,
+      "release-end": 1342.6012665000017,
+      "cleanup-socket-close": 1343.0341570000164
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 226.0796660000051,
+      "ticket": 71.79870549996849,
+      "descriptor-2": 68.47463149999385,
+      "http:/api/orchestration/shell": 186.6879604999558
+    },
+    "medianBytes": 63295,
+    "medianPackets": 110.5,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/burst-loss/loaded-host/https/1/0/300/0",
+    "count": 20,
+    "successes": 20,
+    "failures": 0,
+    "medianMs": 1175.2492215000239,
+    "minMs": 1124.472951999982,
+    "maxMs": 5839.543265999993,
+    "falseReplacements": 0,
+    "shellMedianMs": 1258.492999999973,
+    "p90Ms": 2593.6620209999965,
+    "stageMediansMs": {
+      "setup-complete": -0.000737000023946166,
+      "active": 0.002217500004917383,
+      "attempt-start": 0.23478749999776483,
+      "progress:preparing": 0.278814000019338,
+      "descriptor-1": 227.21933449999779,
+      "ticket": 299.6012219999684,
+      "descriptor-2": 371.31708500001696,
+      "progress:opening": 371.6065580000286,
+      "progress:synchronizing": 372.21740349999163,
+      "socket-start": 372.3795275000157,
+      "socket-open": 603.4359425000148,
+      "config-request": 603.6072630000126,
+      "config": 987.4889604999917,
+      "subscribe": 988.6008145000087,
+      "http:/api/orchestration/shell": 1176.1990194999962,
+      "synchronized": 1171.4624770000082,
+      "applied": 1175.2458250000054,
+      "shell-subscribe": 1178.7103779999597,
+      "shell-synchronized": 1258.1070879999752,
+      "shell-applied": 1258.4967054999724,
+      "case-cleanup-start": 1261.3471719920635,
+      "stream-cancel:orchestration.subscribeShell-start": 1261.6305059999722,
+      "stream-cancel:orchestration.subscribeShell-end": 1261.7198409999692,
+      "stream-cancel:orchestration.subscribeThread-start": 1261.8069524999883,
+      "stream-cancel:orchestration.subscribeThread-end": 1261.854106999992,
+      "release-start": 1262.2341099999903,
+      "release-end": 1262.5858844999893,
+      "cleanup-socket-close": 1263.006682999985
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 226.5840020000469,
+      "ticket": 71.69825599997421,
+      "descriptor-2": 68.89912649997859,
+      "http:/api/orchestration/shell": 182.08071300000302
+    },
+    "medianBytes": 62835,
+    "medianPackets": 105,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/constrained/loaded-host/https/1/0/300/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 1674.6767565000046,
+    "minMs": 1665.8555819999892,
+    "maxMs": 1683.49793100002,
+    "falseReplacements": 0,
+    "shellMedianMs": 1755.7301005000045,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "setup-complete": -0.0007089999999152496,
+      "active": 0.0021320000087143853,
+      "attempt-start": 0.24468250000791159,
+      "progress:preparing": 0.2900335000013001,
+      "descriptor-1": 275.8545060000033,
+      "ticket": 366.13944400000037,
+      "descriptor-2": 456.9178335000033,
+      "progress:opening": 457.13862950001203,
+      "progress:synchronizing": 458.1550920000009,
+      "socket-start": 458.3287980000023,
+      "socket-open": 749.463084499992,
+      "config-request": 749.5973200000008,
+      "config": 1139.389175000004,
+      "subscribe": 1140.5011844999972,
+      "http:/api/orchestration/shell": 1599.0552965000097,
+      "shell-subscribe": 1601.7328470000066,
+      "synchronized": 1674.2763925000036,
+      "applied": 1674.674180499991,
+      "shell-synchronized": 1755.4119305000058,
+      "shell-applied": 1755.7339735000132,
+      "case-cleanup-start": 1758.7204155027866,
+      "stream-cancel:orchestration.subscribeShell-start": 1759.033335,
+      "stream-cancel:orchestration.subscribeShell-end": 1759.1250525000069,
+      "stream-cancel:orchestration.subscribeThread-start": 1759.2184545000055,
+      "stream-cancel:orchestration.subscribeThread-end": 1759.2683309999993,
+      "release-start": 1759.8699380000035,
+      "release-end": 1760.135938499996,
+      "cleanup-socket-close": 1760.7028715000051
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 275.23567999999796,
+      "ticket": 89.09257799999614,
+      "descriptor-2": 90.35418000000936,
+      "http:/api/orchestration/shell": 458.0801090000168
+    },
+    "medianBytes": 63194,
+    "medianPackets": 109,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/constrained/loaded-host/https/1/0/300/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 1605.5208614999865,
+    "minMs": 1593.554862000019,
+    "maxMs": 1617.486860999954,
+    "falseReplacements": 0,
+    "shellMedianMs": 1692.1421074999816,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "setup-complete": -0.0006310000171652064,
+      "active": 0.0018214999872725457,
+      "attempt-start": 0.21662949997698888,
+      "progress:preparing": 0.2568189999728929,
+      "descriptor-1": 275.51513449997583,
+      "ticket": 365.4741984999855,
+      "descriptor-2": 455.6502480000054,
+      "progress:opening": 455.846864999985,
+      "progress:synchronizing": 456.77410499997495,
+      "socket-start": 456.9343224999757,
+      "socket-open": 747.6543314999872,
+      "config-request": 747.7844974999753,
+      "config": 1138.4111490000068,
+      "subscribe": 1139.7791754999635,
+      "http:/api/orchestration/shell": 1609.03014849998,
+      "synchronized": 1602.9477324999898,
+      "applied": 1605.5169584999821,
+      "shell-subscribe": 1611.5101814999798,
+      "shell-synchronized": 1691.7984710000019,
+      "shell-applied": 1692.1455690000003,
+      "case-cleanup-start": 1695.1225015074015,
+      "stream-cancel:orchestration.subscribeShell-start": 1695.4174379999895,
+      "stream-cancel:orchestration.subscribeShell-end": 1695.5103544999874,
+      "stream-cancel:orchestration.subscribeThread-start": 1695.5943184999778,
+      "stream-cancel:orchestration.subscribeThread-end": 1695.6395779999875,
+      "release-start": 1696.128100499991,
+      "release-end": 1696.3528885000123,
+      "cleanup-socket-close": 1696.8063404999994
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 274.9644205000077,
+      "ticket": 89.25782600000093,
+      "descriptor-2": 89.8640075000294,
+      "http:/api/orchestration/shell": 468.7837634999887
+    },
+    "medianBytes": 62836,
+    "medianPackets": 105,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/burst-loss/loaded-host/https/1/0/1500/0",
+    "count": 20,
+    "successes": 20,
+    "failures": 0,
+    "medianMs": 2377.45968,
+    "minMs": 2336.6766530000023,
+    "maxMs": 7038.843099999998,
+    "falseReplacements": 0,
+    "shellMedianMs": 2512.152817000024,
+    "p90Ms": 3789.235226000019,
+    "stageMediansMs": {
+      "setup-complete": -0.00076149997767061,
+      "active": 0.002314500045031309,
+      "attempt-start": 0.2372824999911245,
+      "progress:preparing": 0.2834230000153184,
+      "descriptor-1": 230.7310765000002,
+      "ticket": 301.77411500000744,
+      "descriptor-2": 374.2686870000034,
+      "progress:opening": 374.5451405000058,
+      "progress:synchronizing": 375.4275835000153,
+      "socket-start": 375.62913950000075,
+      "socket-open": 602.4132770000142,
+      "config-request": 602.5776924999955,
+      "config": 2189.725500999979,
+      "subscribe": 2191.1522650000115,
+      "http:/api/orchestration/shell": 2429.830791500048,
+      "synchronized": 2375.552709499985,
+      "applied": 2377.4564245000074,
+      "shell-subscribe": 2432.3765020000283,
+      "shell-synchronized": 2511.754926500027,
+      "shell-applied": 2512.156355000043,
+      "case-cleanup-start": 2515.1035484969616,
+      "stream-cancel:orchestration.subscribeShell-start": 2515.4126515000244,
+      "stream-cancel:orchestration.subscribeShell-end": 2515.5167950000323,
+      "stream-cancel:orchestration.subscribeThread-start": 2515.6068955000374,
+      "stream-cancel:orchestration.subscribeThread-end": 2515.6543200000306,
+      "release-start": 2516.071020000032,
+      "release-end": 2516.3165915000136,
+      "cleanup-socket-close": 2516.853961500019
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 228.50351699997555,
+      "ticket": 73.18432550001307,
+      "descriptor-2": 68.7151624999824,
+      "http:/api/orchestration/shell": 185.6355910000275
+    },
+    "medianBytes": 62838,
+    "medianPackets": 105,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/burst-loss/loaded-host/https/1/0/1500/0",
+    "count": 20,
+    "successes": 20,
+    "failures": 0,
+    "medianMs": 2470.9154834999936,
+    "minMs": 2402.6110239999834,
+    "maxMs": 7123.461393000034,
+    "falseReplacements": 0,
+    "shellMedianMs": 2552.389201999991,
+    "p90Ms": 3797.509340999997,
+    "stageMediansMs": {
+      "setup-complete": -0.0007845000072848052,
+      "active": 0.0023679999576415867,
+      "attempt-start": 0.23166100002708845,
+      "progress:preparing": 0.2739630000141915,
+      "descriptor-1": 228.2410014999914,
+      "ticket": 302.2547160000249,
+      "descriptor-2": 378.23273350001546,
+      "progress:opening": 378.5114060000051,
+      "progress:synchronizing": 379.40298549999716,
+      "socket-start": 379.5652415000077,
+      "socket-open": 605.9404689999938,
+      "config-request": 606.0965544999926,
+      "config": 2189.841550000012,
+      "subscribe": 2190.998656999989,
+      "http:/api/orchestration/shell": 2380.1588225000014,
+      "shell-subscribe": 2382.9547764999734,
+      "synchronized": 2470.4205409999995,
+      "applied": 2470.912121499976,
+      "shell-synchronized": 2552.0821005000034,
+      "shell-applied": 2552.3925814999966,
+      "case-cleanup-start": 2556.357922002673,
+      "stream-cancel:orchestration.subscribeShell-start": 2557.030026499997,
+      "stream-cancel:orchestration.subscribeShell-end": 2557.1378010000044,
+      "stream-cancel:orchestration.subscribeThread-start": 2557.555339499988,
+      "stream-cancel:orchestration.subscribeThread-end": 2557.629196499998,
+      "release-start": 2558.2073335000023,
+      "release-end": 2558.454626999999,
+      "cleanup-socket-close": 2558.8780515000108
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 227.56789350000327,
+      "ticket": 72.87491549999686,
+      "descriptor-2": 69.65921949999756,
+      "http:/api/orchestration/shell": 184.13702850003028
+    },
+    "medianBytes": 63242,
+    "medianPackets": 110,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/constrained/replay-50/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 1304.7251184999768,
+    "minMs": 1304.2458329999936,
+    "maxMs": 1305.20440399996,
+    "falseReplacements": 0,
+    "shellMedianMs": 1392.5539310000022,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "setup-complete": -0.0008475000213366002,
+      "active": 0.0020795000018551946,
+      "attempt-start": 0.23352199999499135,
+      "progress:preparing": 0.28283950002514757,
+      "descriptor-1": 275.47631500000716,
+      "ticket": 365.09774250001647,
+      "descriptor-2": 455.3385600000038,
+      "progress:opening": 455.5451919999905,
+      "progress:synchronizing": 456.17660000000615,
+      "socket-start": 456.3022250000213,
+      "socket-open": 748.1123450000014,
+      "config-request": 748.2890999999945,
+      "config": 838.6256330000178,
+      "subscribe": 839.6731405000028,
+      "http:/api/orchestration/shell": 1306.4139400000277,
+      "synchronized": 1301.3901809999952,
+      "applied": 1304.7214974999952,
+      "shell-subscribe": 1308.8792909999902,
+      "shell-synchronized": 1392.0930865000119,
+      "shell-applied": 1392.5585664999962,
+      "case-cleanup-start": 1395.732920512557,
+      "stream-cancel:orchestration.subscribeShell-start": 1396.0678724999889,
+      "stream-cancel:orchestration.subscribeShell-end": 1396.1770545000036,
+      "stream-cancel:orchestration.subscribeThread-start": 1396.2764514999872,
+      "stream-cancel:orchestration.subscribeThread-end": 1396.3314379999938,
+      "release-start": 1396.6575885000057,
+      "release-end": 1396.9142295000202,
+      "cleanup-socket-close": 1397.346534500015
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 274.85421900000074,
+      "ticket": 88.97588350001024,
+      "descriptor-2": 89.89949999999953,
+      "http:/api/orchestration/shell": 466.19389150003553
+    },
+    "medianBytes": 62730.5,
+    "medianPackets": 103,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/constrained/replay-50/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 1387.8860910000221,
+    "minMs": 1381.1628430000274,
+    "maxMs": 1394.609339000017,
+    "falseReplacements": 0,
+    "shellMedianMs": 1464.5304375000123,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "setup-complete": -0.000674999988405034,
+      "active": 0.0021209999977145344,
+      "attempt-start": 0.24741350000840612,
+      "progress:preparing": 0.2919205000216607,
+      "descriptor-1": 277.2298235000053,
+      "ticket": 367.0592739999993,
+      "descriptor-2": 457.28109800000675,
+      "progress:opening": 457.5048015000066,
+      "progress:synchronizing": 458.179426000017,
+      "socket-start": 458.31710050001857,
+      "socket-open": 750.1355335000262,
+      "config-request": 750.2781115000253,
+      "config": 840.7756115000229,
+      "subscribe": 842.1088730000192,
+      "http:/api/orchestration/shell": 1308.8953760000004,
+      "shell-subscribe": 1311.4478984999878,
+      "synchronized": 1387.4900900000066,
+      "applied": 1387.883222000004,
+      "shell-synchronized": 1464.226502000005,
+      "shell-applied": 1464.5338225000014,
+      "case-cleanup-start": 1467.481577500701,
+      "stream-cancel:orchestration.subscribeShell-start": 1467.7722829999984,
+      "stream-cancel:orchestration.subscribeShell-end": 1467.860343999986,
+      "stream-cancel:orchestration.subscribeThread-start": 1467.94800199999,
+      "stream-cancel:orchestration.subscribeThread-end": 1467.9933005000057,
+      "release-start": 1468.2656980000029,
+      "release-end": 1468.4832855000277,
+      "cleanup-socket-close": 1468.8784900000028
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 276.6176489999925,
+      "ticket": 89.23106499999994,
+      "descriptor-2": 89.86155950001557,
+      "http:/api/orchestration/shell": 466.2324779999908
+    },
+    "medianBytes": 63087.5,
+    "medianPackets": 107,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/cellular/warm-half-open/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 926.1477784999879,
+    "minMs": 921.7361810000148,
+    "maxMs": 930.559375999961,
+    "falseReplacements": 0,
+    "shellMedianMs": 1038.4065434999939,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "background-simulated": -0.0024129999801516533,
+      "active": 0.003444000001763925,
+      "stream-cancel:orchestration.subscribeThread-start": 511.5417150000285,
+      "stream-cancel:orchestration.subscribeThread-end": 511.62947350004106,
+      "stream-cancel:orchestration.subscribeShell-start": 511.55826300004264,
+      "stream-cancel:orchestration.subscribeShell-end": 511.6305420000281,
+      "release-start": 511.92906950000906,
+      "release-end": 512.3060215000296,
+      "attempt-start": 3.1223884999926668,
+      "progress:preparing": 3.18088150001131,
+      "descriptor-3": 232.53957650001394,
+      "ticket": 299.4241734999814,
+      "descriptor-4": 371.3253909999912,
+      "progress:opening": 371.5624704999791,
+      "progress:synchronizing": 372.05761250000796,
+      "socket-start": 372.2054974999919,
+      "socket-open": 599.8142315000005,
+      "config-request": 599.948115999985,
+      "config": 676.4388345000043,
+      "subscribe": 677.5265420000069,
+      "http:/api/orchestration/shell": 859.8640974999871,
+      "shell-subscribe": 866.9912924999953,
+      "synchronized": 925.721870999987,
+      "applied": 926.1450224999862,
+      "shell-synchronized": 1038.0467629999912,
+      "shell-applied": 1038.4106705000158,
+      "case-cleanup-start": 1041.3743315041065,
+      "cleanup-socket-close": 1043.1862235000008,
+      "cleanup-old-close": 1043.2348224999732
+    },
+    "stageDurationMediansMs": {
+      "descriptor-3": 229.05193950000103,
+      "ticket": 66.27474349999102,
+      "descriptor-4": 71.41192899999442,
+      "http:/api/orchestration/shell": 181.89238799997838
+    },
+    "medianBytes": 81897.5,
+    "medianPackets": 131.5,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/cellular/warm-half-open/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 855.9319294999877,
+    "minMs": 852.0420769999619,
+    "maxMs": 859.8217820000136,
+    "falseReplacements": 0,
+    "shellMedianMs": 942.6477855000121,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "background-simulated": -0.0020265000057406723,
+      "active": 0.0029384999943431467,
+      "stream-cancel:orchestration.subscribeThread-start": 471.5895915000292,
+      "stream-cancel:orchestration.subscribeThread-end": 472.25889699999243,
+      "stream-cancel:orchestration.subscribeShell-start": 472.2078840000031,
+      "stream-cancel:orchestration.subscribeShell-end": 472.27253600000404,
+      "release-start": 472.5231614999939,
+      "release-end": 472.8627039999992,
+      "attempt-start": 1.9742020000121556,
+      "progress:preparing": 2.022098499990534,
+      "descriptor-3": 231.73565450002206,
+      "ticket": 298.1546950000047,
+      "descriptor-4": 368.05545400001574,
+      "progress:opening": 368.3338315000001,
+      "progress:synchronizing": 369.1240569999791,
+      "socket-start": 369.28076449999935,
+      "socket-open": 598.4014334999956,
+      "config-request": 598.5224455000134,
+      "config": 672.1310679999879,
+      "subscribe": 673.0600344999984,
+      "http:/api/orchestration/shell": 856.3564214999788,
+      "synchronized": 850.5720975000004,
+      "applied": 855.9283369999903,
+      "shell-subscribe": 861.2739379999985,
+      "shell-synchronized": 941.9966245000251,
+      "shell-applied": 942.6528220000037,
+      "case-cleanup-start": 945.6235139966011,
+      "cleanup-socket-close": 947.2201904999965,
+      "cleanup-old-close": 947.2737699999998
+    },
+    "stageDurationMediansMs": {
+      "descriptor-3": 229.44211300002644,
+      "ticket": 65.85418050002772,
+      "descriptor-4": 69.51521150002372,
+      "http:/api/orchestration/shell": 182.86501149999094
+    },
+    "medianBytes": 80238,
+    "medianPackets": 126,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/loss-3/replay-50/https/1/0/0/0",
+    "count": 20,
+    "successes": 20,
+    "failures": 0,
+    "medianMs": 1147.5990004999912,
+    "minMs": 836.1863669999875,
+    "maxMs": 3275.6666860000696,
+    "falseReplacements": 0,
+    "shellMedianMs": 1189.348640500044,
+    "p90Ms": 2449.2254640000174,
+    "stageMediansMs": {
+      "setup-complete": -0.000722500029951334,
+      "active": 0.0019420000026002526,
+      "attempt-start": 0.22123350005131215,
+      "progress:preparing": 0.2664949999889359,
+      "descriptor-1": 229.7164750000229,
+      "ticket": 306.9253310000058,
+      "descriptor-2": 375.379475499969,
+      "progress:opening": 375.6281420000014,
+      "progress:synchronizing": 376.1692069999408,
+      "socket-start": 376.314292999974,
+      "socket-open": 693.6827850000118,
+      "config-request": 693.857227499946,
+      "config": 815.2995809999993,
+      "subscribe": 816.4061845000251,
+      "http:/api/orchestration/shell": 997.9735729999957,
+      "synchronized": 1145.008893500024,
+      "applied": 1147.595817500027,
+      "shell-subscribe": 1000.5402964999666,
+      "shell-synchronized": 1188.417653499986,
+      "shell-applied": 1189.3537115000072,
+      "case-cleanup-start": 1192.3826220035553,
+      "stream-cancel:orchestration.subscribeShell-start": 1192.7551794999745,
+      "stream-cancel:orchestration.subscribeShell-end": 1192.8633934999816,
+      "stream-cancel:orchestration.subscribeThread-start": 1193.1256489999942,
+      "stream-cancel:orchestration.subscribeThread-end": 1193.2057625000598,
+      "release-start": 1193.5072495000204,
+      "release-end": 1193.7753159999847,
+      "cleanup-socket-close": 1194.3669180000434
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 229.16414500004612,
+      "ticket": 74.14302800002042,
+      "descriptor-2": 73.46225400001276,
+      "http:/api/orchestration/shell": 182.34550449997187
+    },
+    "medianBytes": 65128.5,
+    "medianPackets": 106.5,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/loss-3/replay-50/https/1/0/0/0",
+    "count": 20,
+    "successes": 20,
+    "failures": 0,
+    "medianMs": 1246.3878084999742,
+    "minMs": 912.2027719999896,
+    "maxMs": 3328.0696310000494,
+    "falseReplacements": 0,
+    "shellMedianMs": 1354.99379149999,
+    "p90Ms": 2224.6303890000563,
+    "stageMediansMs": {
+      "setup-complete": -0.000756499997805804,
+      "active": 0.0022800000151619315,
+      "attempt-start": 0.2232310000108555,
+      "progress:preparing": 0.2606185000622645,
+      "descriptor-1": 228.51156000001356,
+      "ticket": 306.53697400004603,
+      "descriptor-2": 376.8485065000132,
+      "progress:opening": 377.0753145000199,
+      "progress:synchronizing": 377.52089700003853,
+      "socket-start": 377.63629300001776,
+      "socket-open": 690.5983675000025,
+      "config-request": 690.7129790000035,
+      "config": 813.5082499999553,
+      "subscribe": 814.5970525000012,
+      "http:/api/orchestration/shell": 989.8918290000292,
+      "synchronized": 1245.9136469999794,
+      "applied": 1246.38439750002,
+      "shell-subscribe": 992.5907089999528,
+      "shell-synchronized": 1354.7893475000164,
+      "shell-applied": 1354.9971580000129,
+      "case-cleanup-start": 1357.9254934936762,
+      "stream-cancel:orchestration.subscribeShell-start": 1358.2486159999971,
+      "stream-cancel:orchestration.subscribeShell-end": 1358.3318124999641,
+      "stream-cancel:orchestration.subscribeThread-start": 1358.4135275000008,
+      "stream-cancel:orchestration.subscribeThread-end": 1358.4533300000476,
+      "release-start": 1358.7161270000506,
+      "release-end": 1358.9585859999643,
+      "cleanup-socket-close": 1359.375395500043
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 227.92509350000182,
+      "ticket": 76.24014600005466,
+      "descriptor-2": 72.23246899998048,
+      "http:/api/orchestration/shell": 180.7366865000222
+    },
+    "medianBytes": 65533,
+    "medianPackets": 112,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/constrained/loaded-host/https/1/0/1500/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 2887.1108985000174,
+    "minMs": 2882.3084249999374,
+    "maxMs": 2891.9133720000973,
+    "falseReplacements": 0,
+    "shellMedianMs": 2964.9851640000124,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "setup-complete": -0.0007495000027120113,
+      "active": 0.0024384999996982515,
+      "attempt-start": 0.23776400001952425,
+      "progress:preparing": 0.2833950000349432,
+      "descriptor-1": 275.87362399999984,
+      "ticket": 366.280671000015,
+      "descriptor-2": 456.91371800005436,
+      "progress:opening": 457.15976800001226,
+      "progress:synchronizing": 457.6026979999733,
+      "socket-start": 457.8862734999857,
+      "socket-open": 748.6738295000396,
+      "config-request": 748.8052474999567,
+      "config": 2339.2958339999896,
+      "subscribe": 2340.4514325000346,
+      "http:/api/orchestration/shell": 2806.145287499996,
+      "shell-subscribe": 2809.3832040000125,
+      "synchronized": 2886.1696520000114,
+      "applied": 2887.1068270000396,
+      "shell-synchronized": 2964.6033840000164,
+      "shell-applied": 2964.989257499983,
+      "case-cleanup-start": 2968.013216994703,
+      "stream-cancel:orchestration.subscribeShell-start": 2968.3543109999737,
+      "stream-cancel:orchestration.subscribeShell-end": 2968.4540244999807,
+      "stream-cancel:orchestration.subscribeThread-start": 2968.545505999995,
+      "stream-cancel:orchestration.subscribeThread-end": 2968.592002999969,
+      "release-start": 2968.874983499991,
+      "release-end": 2969.132962499978,
+      "cleanup-socket-close": 2969.9469960000133
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 275.2656025000033,
+      "ticket": 89.84850300004473,
+      "descriptor-2": 90.2515565000358,
+      "http:/api/orchestration/shell": 464.78743399999803
+    },
+    "medianBytes": 63218.5,
+    "medianPackets": 109.5,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/constrained/loaded-host/https/1/0/1500/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 2803.2209054999403,
+    "minMs": 2794.645181999891,
+    "maxMs": 2811.7966289999895,
+    "falseReplacements": 0,
+    "shellMedianMs": 2895.7107469999464,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "setup-complete": -0.0009080000454559922,
+      "active": 0.002539499953854829,
+      "attempt-start": 0.2335784999304451,
+      "progress:preparing": 0.2772469999617897,
+      "descriptor-1": 275.93597699992824,
+      "ticket": 367.2782904999913,
+      "descriptor-2": 457.6294779999298,
+      "progress:opening": 457.8858514999156,
+      "progress:synchronizing": 458.4312869999558,
+      "socket-start": 458.5763094999711,
+      "socket-open": 749.6622929999721,
+      "config-request": 749.7892094999552,
+      "config": 2340.19625249994,
+      "subscribe": 2341.2816434999695,
+      "http:/api/orchestration/shell": 2804.961504499952,
+      "synchronized": 2800.4304184999783,
+      "applied": 2803.216745499987,
+      "shell-subscribe": 2807.5645529999747,
+      "shell-synchronized": 2895.1245384999784,
+      "shell-applied": 2895.7145514999283,
+      "case-cleanup-start": 2899.3194769993424,
+      "stream-cancel:orchestration.subscribeShell-start": 2899.67297949997,
+      "stream-cancel:orchestration.subscribeShell-end": 2899.773027999967,
+      "stream-cancel:orchestration.subscribeThread-start": 2899.879511999956,
+      "stream-cancel:orchestration.subscribeThread-end": 2899.934802499949,
+      "release-start": 2900.257011999958,
+      "release-end": 2900.537123999966,
+      "cleanup-socket-close": 2901.325250999944
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 275.0613129999256,
+      "ticket": 90.68998500006273,
+      "descriptor-2": 89.79836649994832,
+      "http:/api/orchestration/shell": 463.215457000013
+    },
+    "medianBytes": 62835.5,
+    "medianPackets": 105,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/loss-3/loaded-host/https/1/0/300/0",
+    "count": 20,
+    "successes": 20,
+    "failures": 0,
+    "medianMs": 1525.3609925000346,
+    "minMs": 1129.0769950000104,
+    "maxMs": 3404.9279780000215,
+    "falseReplacements": 0,
+    "shellMedianMs": 1584.3479579999694,
+    "p90Ms": 2684.3497119999956,
+    "stageMediansMs": {
+      "setup-complete": -0.0007854999857954681,
+      "active": 0.0023105000145733356,
+      "attempt-start": 0.2442789999768138,
+      "progress:preparing": 0.2961340000038035,
+      "descriptor-1": 232.53168299997924,
+      "ticket": 306.6274620000622,
+      "descriptor-2": 420.1502830000245,
+      "progress:opening": 420.41229400003795,
+      "progress:synchronizing": 420.99145050003426,
+      "socket-start": 421.3225519999978,
+      "socket-open": 789.8848610000568,
+      "config-request": 790.0546655000071,
+      "config": 1254.494197000051,
+      "subscribe": 1256.5033164999913,
+      "http:/api/orchestration/shell": 1483.4673140000086,
+      "shell-subscribe": 1486.5684655000223,
+      "synchronized": 1520.968016500061,
+      "shell-synchronized": 1583.9077260000631,
+      "applied": 1525.3577284999774,
+      "shell-applied": 1584.3505565000232,
+      "case-cleanup-start": 1587.3028775006533,
+      "stream-cancel:orchestration.subscribeShell-start": 1587.6340540000238,
+      "stream-cancel:orchestration.subscribeShell-end": 1587.724326000025,
+      "stream-cancel:orchestration.subscribeThread-start": 1587.8117130000028,
+      "stream-cancel:orchestration.subscribeThread-end": 1587.9618435000302,
+      "release-start": 1588.5739199999953,
+      "release-end": 1588.822378999961,
+      "cleanup-socket-close": 1589.2617605000269
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 231.96967399999266,
+      "ticket": 72.32686550001381,
+      "descriptor-2": 72.14205600001151,
+      "http:/api/orchestration/shell": 181.44884450006066
+    },
+    "medianBytes": 64970,
+    "medianPackets": 108.5,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/loss-3/loaded-host/https/1/0/300/0",
+    "count": 20,
+    "successes": 20,
+    "failures": 0,
+    "medianMs": 1574.1640419999603,
+    "minMs": 1201.5957290000515,
+    "maxMs": 3340.615630000015,
+    "falseReplacements": 0,
+    "shellMedianMs": 1627.2066515000188,
+    "p90Ms": 2773.550934000057,
+    "stageMediansMs": {
+      "setup-complete": -0.000712999957613647,
+      "active": 0.0023379999911412597,
+      "attempt-start": 0.21750149998115376,
+      "progress:preparing": 0.25613049999810755,
+      "descriptor-1": 232.05225249996874,
+      "ticket": 305.7920935000293,
+      "descriptor-2": 372.006120999984,
+      "progress:opening": 372.3187429999816,
+      "progress:synchronizing": 372.89420749997953,
+      "socket-start": 373.01942450000206,
+      "socket-open": 689.5582799999975,
+      "config-request": 689.6876414999715,
+      "config": 1167.618299499969,
+      "subscribe": 1168.7625994999544,
+      "http:/api/orchestration/shell": 1392.0495629999205,
+      "shell-subscribe": 1394.7563339999178,
+      "synchronized": 1573.73946849996,
+      "applied": 1574.1610029999865,
+      "shell-synchronized": 1626.9937595000374,
+      "shell-applied": 1627.2094175000093,
+      "case-cleanup-start": 1630.4412279948592,
+      "stream-cancel:orchestration.subscribeShell-start": 1631.0199329999741,
+      "stream-cancel:orchestration.subscribeShell-end": 1631.0977439999697,
+      "stream-cancel:orchestration.subscribeThread-start": 1631.1830910000135,
+      "stream-cancel:orchestration.subscribeThread-end": 1631.3455684999935,
+      "release-start": 1631.6885550000006,
+      "release-end": 1631.9297789999982,
+      "cleanup-socket-close": 1632.516334999993
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 231.5047875000164,
+      "ticket": 73.77958800003398,
+      "descriptor-2": 73.08240650000516,
+      "http:/api/orchestration/shell": 182.15642150002532
+    },
+    "medianBytes": 65798,
+    "medianPackets": 115.5,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "mi/cellular/warm-healthy/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 754.661884000001,
+    "minMs": 748.8254810000071,
+    "maxMs": 760.4982869999949,
+    "falseReplacements": 0,
+    "shellMedianMs": 902.0398799999966,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "background-simulated": -0.001588999992236495,
+      "active": 0.002115999988745898,
+      "stream-cancel:orchestration.subscribeThread-start": 443.681257499964,
+      "stream-cancel:orchestration.subscribeThread-end": 443.7384229999734,
+      "stream-cancel:orchestration.subscribeShell-start": 443.667146999971,
+      "stream-cancel:orchestration.subscribeShell-end": 443.7256580000394,
+      "release-start": 444.21861400001217,
+      "release-end": 444.5418710000231,
+      "attempt-start": 0.9325534999370575,
+      "progress:preparing": 0.9797670000116341,
+      "descriptor-3": 227.97551599994767,
+      "old-close": 85.16526649997104,
+      "ticket": 300.4929059999995,
+      "descriptor-4": 371.28919199999655,
+      "progress:opening": 371.56570699997246,
+      "progress:synchronizing": 372.13852249999763,
+      "socket-start": 372.2759594999952,
+      "socket-open": 594.163439499971,
+      "config-request": 594.2861465000315,
+      "config": 667.7346149999648,
+      "subscribe": 669.1780584999942,
+      "http:/api/orchestration/shell": 822.3420549999573,
+      "synchronized": 754.2336319999886,
+      "applied": 754.6585384999635,
+      "shell-subscribe": 826.8675399999483,
+      "shell-synchronized": 901.6776079999981,
+      "shell-applied": 902.043393000029,
+      "case-cleanup-start": 905.1014795005322,
+      "cleanup-socket-close": 906.8433514999924
+    },
+    "stageDurationMediansMs": {
+      "descriptor-3": 226.72138750000158,
+      "ticket": 71.98384050000459,
+      "descriptor-4": 70.44620450004004,
+      "http:/api/orchestration/shell": 152.72609299997566
+    },
+    "medianBytes": 32810.5,
+    "medianPackets": 88,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/cellular/warm-healthy/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 752.610974500014,
+    "minMs": 748.0726300000679,
+    "maxMs": 757.1493189999601,
+    "falseReplacements": 0,
+    "shellMedianMs": 981.9876449999865,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "background-simulated": -0.001438500010408461,
+      "active": 0.002675499999895692,
+      "stream-cancel:orchestration.subscribeThread-start": 491.8760909999837,
+      "stream-cancel:orchestration.subscribeThread-end": 491.9256634999765,
+      "stream-cancel:orchestration.subscribeShell-start": 491.8597980000195,
+      "stream-cancel:orchestration.subscribeShell-end": 491.90761749999365,
+      "release-start": 492.1424635000294,
+      "release-end": 492.4409110000124,
+      "attempt-start": 0.8356205000309274,
+      "progress:preparing": 0.8781769999768585,
+      "descriptor-3": 234.0522629999905,
+      "old-close": 84.69439600000624,
+      "ticket": 309.44266350002727,
+      "descriptor-4": 378.5742495000013,
+      "progress:opening": 378.786380000005,
+      "progress:synchronizing": 379.276847000001,
+      "socket-start": 379.40169550001156,
+      "socket-open": 601.072728500003,
+      "config-request": 601.2326800000155,
+      "config": 674.2317160000093,
+      "subscribe": 675.6607809999841,
+      "http:/api/orchestration/shell": 827.755055000016,
+      "synchronized": 752.230226500018,
+      "applied": 752.6088689999888,
+      "shell-subscribe": 832.5533315000357,
+      "shell-synchronized": 981.6608525000047,
+      "shell-applied": 981.9904480000259,
+      "case-cleanup-start": 984.383012495935,
+      "cleanup-socket-close": 986.1811255000066
+    },
+    "stageDurationMediansMs": {
+      "descriptor-3": 232.9240904999897,
+      "ticket": 74.60735000006389,
+      "descriptor-4": 68.86316050001187,
+      "http:/api/orchestration/shell": 151.6729940000223
+    },
+    "medianBytes": 32938.5,
+    "medianPackets": 89,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/high-latency/refocus/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 304.58041950000916,
+    "minMs": 303.63306000002194,
+    "maxMs": 305.52777899999637,
+    "falseReplacements": 0,
+    "shellMedianMs": 607.4785940000438,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "inactive-without-background": -0.0016169999726116657,
+      "active": 0.004680000012740493,
+      "stream-cancel:orchestration.subscribeThread-start": 304.95687200000975,
+      "stream-cancel:orchestration.subscribeThread-end": 305.01547949999804,
+      "stream-cancel:orchestration.subscribeShell-start": 304.96401850000257,
+      "stream-cancel:orchestration.subscribeShell-end": 305.0151490000426,
+      "subscribe": 1.3684265000629239,
+      "shell-subscribe": 1.811961000028532,
+      "probe-request": 2.057636499986984,
+      "synchronized": 303.8973259999766,
+      "applied": 304.5779475000454,
+      "shell-synchronized": 607.1435429999838,
+      "shell-applied": 607.4822379999678,
+      "case-cleanup-start": 609.9980790019035,
+      "release-start": 611.1205914999591,
+      "release-end": 611.346017999982,
+      "cleanup-old-close": 611.7348650000058
+    },
+    "stageDurationMediansMs": {},
+    "medianBytes": 1661,
+    "medianPackets": 19.5,
+    "requests": [
+      {},
+      {}
+    ]
+  },
+  {
+    "key": "mi/high-latency/refocus/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 305.18254649994196,
+    "minMs": 303.9509009999456,
+    "maxMs": 306.41419199993834,
+    "falseReplacements": 0,
+    "shellMedianMs": 306.2142289999756,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "inactive-without-background": -0.0014640000299550593,
+      "active": 0.0029459999641403556,
+      "stream-cancel:orchestration.subscribeThread-start": 154.4582099999534,
+      "stream-cancel:orchestration.subscribeThread-end": 154.5162405000301,
+      "stream-cancel:orchestration.subscribeShell-start": 154.4617309999885,
+      "stream-cancel:orchestration.subscribeShell-end": 154.51988400000846,
+      "subscribe": 0.8987895000027493,
+      "shell-subscribe": 1.038053999945987,
+      "probe-request": 2.111185999994632,
+      "synchronized": 304.19041549996473,
+      "applied": 305.1790224999422,
+      "shell-synchronized": 305.6709549999796,
+      "shell-applied": 306.21672199998284,
+      "case-cleanup-start": 308.71646900475025,
+      "release-start": 309.9744114999776,
+      "release-end": 310.24420799996005,
+      "cleanup-old-close": 310.83991499996046
+    },
+    "stageDurationMediansMs": {},
+    "medianBytes": 1468.5,
+    "medianPackets": 17,
+    "requests": [
+      {},
+      {}
+    ]
+  },
+  {
+    "key": "mi/high-latency/idle/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 3072.5946444999427,
+    "minMs": 3036.6359659999143,
+    "maxMs": 3108.553322999971,
+    "falseReplacements": 0,
+    "shellMedianMs": 3711.0625974999275,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "setup-complete": -0.0007455000886693597,
+      "active": 0.002510499965865165,
+      "attempt-start": 1.2725244999746792,
+      "progress:preparing": 1.3197359999176115,
+      "descriptor-1": 906.0343214999302,
+      "ticket": 1209.3107204999542,
+      "descriptor-2": 1511.6897854999406,
+      "progress:opening": 1511.9232394999708,
+      "progress:synchronizing": 1512.6295389999286,
+      "socket-start": 1512.7801604999113,
+      "socket-open": 2417.9883739999495,
+      "config-request": 2418.1788164999452,
+      "config": 2722.3975659999414,
+      "subscribe": 2724.333315499942,
+      "http:/api/orchestration/shell": 3402.8638634999515,
+      "synchronized": 3071.975333999959,
+      "applied": 3072.5907199999783,
+      "shell-subscribe": 3407.0425429999596,
+      "shell-synchronized": 3710.515831500001,
+      "shell-applied": 3711.066487999982,
+      "case-cleanup-start": 3713.913708500564,
+      "stream-cancel:orchestration.subscribeShell-start": 3714.239384999906,
+      "stream-cancel:orchestration.subscribeShell-end": 3714.338144999987,
+      "stream-cancel:orchestration.subscribeThread-start": 3714.4406194999465,
+      "stream-cancel:orchestration.subscribeThread-end": 3714.490592499962,
+      "release-start": 3715.4832374999532,
+      "release-end": 3715.7458809999516,
+      "cleanup-socket-close": 3716.1473774999613
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 904.4229840000044,
+      "ticket": 302.6187150000478,
+      "descriptor-2": 301.96274149999954,
+      "http:/api/orchestration/shell": 678.0816939999931
+    },
+    "medianBytes": 31435.5,
+    "medianPackets": 68.5,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  },
+  {
+    "key": "baseline/high-latency/idle/https/1/0/0/0",
+    "count": 2,
+    "successes": 2,
+    "failures": 0,
+    "medianMs": 3036.0167404999956,
+    "minMs": 3035.836433999939,
+    "maxMs": 3036.1970470000524,
+    "falseReplacements": 0,
+    "shellMedianMs": 3982.5625804999727,
+    "p90Ms": null,
+    "stageMediansMs": {
+      "setup-complete": -0.0007559999939985573,
+      "active": 0.002062499988824129,
+      "attempt-start": 0.38003249996108934,
+      "progress:preparing": 0.4202054999768734,
+      "descriptor-1": 906.2706379999872,
+      "ticket": 1209.2256599999964,
+      "descriptor-2": 1512.3825619999552,
+      "progress:opening": 1512.969970999984,
+      "progress:synchronizing": 1514.1636219999637,
+      "socket-start": 1514.5124129999895,
+      "socket-open": 2420.426975500013,
+      "config-request": 2420.571268999949,
+      "config": 2722.6645549999666,
+      "subscribe": 2724.635008000012,
+      "http:/api/orchestration/shell": 3373.8499279999523,
+      "synchronized": 3035.5413265000097,
+      "applied": 3036.0137870000326,
+      "shell-subscribe": 3376.479731999978,
+      "shell-synchronized": 3982.206537500024,
+      "shell-applied": 3982.5661329999566,
+      "case-cleanup-start": 3985.1179494932294,
+      "stream-cancel:orchestration.subscribeShell-start": 3985.4680389999994,
+      "stream-cancel:orchestration.subscribeShell-end": 3985.57169349998,
+      "stream-cancel:orchestration.subscribeThread-start": 3985.668245000008,
+      "stream-cancel:orchestration.subscribeThread-end": 3985.7161610000185,
+      "release-start": 3986.78989049996,
+      "release-end": 3987.0519220000133,
+      "cleanup-socket-close": 3987.596483499976
+    },
+    "stageDurationMediansMs": {
+      "descriptor-1": 905.5644445000216,
+      "ticket": 302.32457700005034,
+      "descriptor-2": 302.76327299996046,
+      "http:/api/orchestration/shell": 648.7259499999345
+    },
+    "medianBytes": 31615.5,
+    "medianPackets": 70.5,
+    "requests": [
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      },
+      {
+        "/.well-known/t3/environment": 2,
+        "/api/auth/websocket-ticket": 1,
+        "/ws": 1,
+        "/api/orchestration/shell": 1
+      }
+    ]
+  }
+]

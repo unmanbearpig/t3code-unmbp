@@ -1,0 +1,10 @@
+{
+  "startedAt": "2026-10-16T01:52:28.877Z",
+  "finishedAt": "2026-10-16T02:07:42.071Z",
+  "lanes": 1,
+  "cases": 284,
+  "calibrationMs": 55959,
+  "casesMs": 857235,
+  "totalMs": 913194,
+  "wallMsPerCase": 3018.4330985915494
+}

@@ -1,0 +1,1628 @@
+{
+  "version": "reconnect-v1",
+  "mtu": 1280,
+  "queuePackets": 100000,
+  "fixture": "100-cached-messages-50-new-domain-events",
+  "cases": [
+    {
+      "id": "mi-ext/loss-3/replay-50/300007",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 300007,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/301004",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 301004,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/302001",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 302001,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/302998",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 302998,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/303995",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 303995,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/304992",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 304992,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/305989",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 305989,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/306986",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 306986,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/307983",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 307983,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/308980",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 308980,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/309977",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 309977,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/310974",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 310974,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/311971",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 311971,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/312968",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 312968,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/313965",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 313965,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/314962",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 314962,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/315959",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 315959,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/316956",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 316956,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/317953",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 317953,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/318950",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 318950,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/319947",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 319947,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/320944",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 320944,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/321941",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 321941,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/322938",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 322938,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/323935",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 323935,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/324932",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 324932,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/325929",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 325929,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/326926",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 326926,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/327923",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 327923,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/328920",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 328920,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/329917",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 329917,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/330914",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 330914,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/331911",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 331911,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/332908",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 332908,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/333905",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 333905,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/334902",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 334902,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/335899",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 335899,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/336896",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 336896,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/337893",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 337893,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/338890",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 338890,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/339887",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 339887,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/340884",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 340884,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/341881",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 341881,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/342878",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 342878,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/343875",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 343875,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/344872",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 344872,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/345869",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 345869,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/346866",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 346866,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/347863",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 347863,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/348860",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 348860,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/349857",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 349857,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/350854",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 350854,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/351851",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 351851,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/352848",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 352848,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/353845",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 353845,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/354842",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 354842,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/355839",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 355839,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/356836",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 356836,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/357833",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 357833,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    },
+    {
+      "id": "mi-ext/loss-3/replay-50/358830",
+      "profile": {
+        "name": "loss-3",
+        "down": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "up": {
+          "delayMs": 35,
+          "jitterMs": 7,
+          "rateKbit": 100000,
+          "loss": "3%"
+        },
+        "stochastic": true,
+        "schedule": []
+      },
+      "scheme": "https",
+      "routes": 1,
+      "workload": "replay-50",
+      "repetition": 1,
+      "seed": 358830,
+      "phaseMs": 0,
+      "timeoutMs": 60000
+    }
+  ]
+}

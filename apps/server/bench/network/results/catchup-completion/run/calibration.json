@@ -1,0 +1,4961 @@
+[
+  {
+    "type": "calibrated",
+    "calibration": {
+      "correct": true,
+      "echoes": [
+        {
+          "profile": "cellular",
+          "type": "result",
+          "sent": 160,
+          "echoes": [
+            {
+              "number": 0,
+              "sentMs": 0.840062,
+              "receivedMs": 72.194088,
+              "rttMs": 71.354026
+            },
+            {
+              "number": 1,
+              "sentMs": 20.06179,
+              "receivedMs": 84.941381,
+              "rttMs": 64.879591
+            },
+            {
+              "number": 2,
+              "sentMs": 40.067258,
+              "receivedMs": 98.834611,
+              "rttMs": 58.767353
+            },
+            {
+              "number": 3,
+              "sentMs": 60.0652,
+              "receivedMs": 126.716238,
+              "rttMs": 66.651038
+            },
+            {
+              "number": 4,
+              "sentMs": 80.065259,
+              "receivedMs": 149.503136,
+              "rttMs": 69.437877
+            },
+            {
+              "number": 5,
+              "sentMs": 100.064129,
+              "receivedMs": 174.458933,
+              "rttMs": 74.394804
+            },
+            {
+              "number": 6,
+              "sentMs": 120.065533,
+              "receivedMs": 187.682479,
+              "rttMs": 67.616946
+            },
+            {
+              "number": 7,
+              "sentMs": 140.063495,
+              "receivedMs": 215.63167,
+              "rttMs": 75.568175
+            },
+            {
+              "number": 8,
+              "sentMs": 160.065738,
+              "receivedMs": 231.743972,
+              "rttMs": 71.678234
+            },
+            {
+              "number": 9,
+              "sentMs": 180.064889,
+              "receivedMs": 258.799482,
+              "rttMs": 78.734593
+            },
+            {
+              "number": 10,
+              "sentMs": 200.064489,
+              "receivedMs": 262.686043,
+              "rttMs": 62.621554
+            },
+            {
+              "number": 11,
+              "sentMs": 220.060568,
+              "receivedMs": 282.33311,
+              "rttMs": 62.272542
+            },
+            {
+              "number": 12,
+              "sentMs": 240.064682,
+              "receivedMs": 314.37274,
+              "rttMs": 74.308058
+            },
+            {
+              "number": 13,
+              "sentMs": 260.063865,
+              "receivedMs": 330.802409,
+              "rttMs": 70.738544
+            },
+            {
+              "number": 14,
+              "sentMs": 280.062083,
+              "receivedMs": 353.17607,
+              "rttMs": 73.113987
+            },
+            {
+              "number": 15,
+              "sentMs": 300.065447,
+              "receivedMs": 369.08099,
+              "rttMs": 69.015543
+            },
+            {
+              "number": 16,
+              "sentMs": 320.064983,
+              "receivedMs": 389.169331,
+              "rttMs": 69.104348
+            },
+            {
+              "number": 17,
+              "sentMs": 340.064196,
+              "receivedMs": 420.363068,
+              "rttMs": 80.298872
+            },
+            {
+              "number": 18,
+              "sentMs": 360.058868,
+              "receivedMs": 428.279899,
+              "rttMs": 68.221031
+            },
+            {
+              "number": 19,
+              "sentMs": 380.065685,
+              "receivedMs": 437.354463,
+              "rttMs": 57.288778
+            },
+            {
+              "number": 20,
+              "sentMs": 400.064529,
+              "receivedMs": 463.846705,
+              "rttMs": 63.782176
+            },
+            {
+              "number": 21,
+              "sentMs": 420.066418,
+              "receivedMs": 491.173414,
+              "rttMs": 71.106996
+            },
+            {
+              "number": 22,
+              "sentMs": 440.065193,
+              "receivedMs": 503.216504,
+              "rttMs": 63.151311
+            },
+            {
+              "number": 23,
+              "sentMs": 460.07493,
+              "receivedMs": 531.404888,
+              "rttMs": 71.329958
+            },
+            {
+              "number": 24,
+              "sentMs": 480.066131,
+              "receivedMs": 544.441685,
+              "rttMs": 64.375554
+            },
+            {
+              "number": 25,
+              "sentMs": 500.066105,
+              "receivedMs": 567.453083,
+              "rttMs": 67.386978
+            },
+            {
+              "number": 26,
+              "sentMs": 520.092788,
+              "receivedMs": 596.679692,
+              "rttMs": 76.586904
+            },
+            {
+              "number": 27,
+              "sentMs": 540.067664,
+              "receivedMs": 609.180503,
+              "rttMs": 69.112839
+            },
+            {
+              "number": 28,
+              "sentMs": 560.065981,
+              "receivedMs": 635.101086,
+              "rttMs": 75.035105
+            },
+            {
+              "number": 29,
+              "sentMs": 580.065364,
+              "receivedMs": 649.557704,
+              "rttMs": 69.49234
+            },
+            {
+              "number": 30,
+              "sentMs": 600.070125,
+              "receivedMs": 679.054909,
+              "rttMs": 78.984784
+            },
+            {
+              "number": 31,
+              "sentMs": 620.060525,
+              "receivedMs": 691.698738,
+              "rttMs": 71.638213
+            },
+            {
+              "number": 32,
+              "sentMs": 640.054389,
+              "receivedMs": 703.108699,
+              "rttMs": 63.05431
+            },
+            {
+              "number": 33,
+              "sentMs": 660.064804,
+              "receivedMs": 723.496474,
+              "rttMs": 63.43167
+            },
+            {
+              "number": 34,
+              "sentMs": 680.064765,
+              "receivedMs": 755.300182,
+              "rttMs": 75.235417
+            },
+            {
+              "number": 35,
+              "sentMs": 700.065485,
+              "receivedMs": 768.078592,
+              "rttMs": 68.013107
+            },
+            {
+              "number": 36,
+              "sentMs": 720.067323,
+              "receivedMs": 785.081413,
+              "rttMs": 65.01409
+            },
+            {
+              "number": 37,
+              "sentMs": 740.066723,
+              "receivedMs": 802.420234,
+              "rttMs": 62.353511
+            },
+            {
+              "number": 38,
+              "sentMs": 760.061423,
+              "receivedMs": 841.841715,
+              "rttMs": 81.780292
+            },
+            {
+              "number": 39,
+              "sentMs": 780.058018,
+              "receivedMs": 845.988288,
+              "rttMs": 65.93027
+            },
+            {
+              "number": 40,
+              "sentMs": 800.063484,
+              "receivedMs": 867.469354,
+              "rttMs": 67.40587
+            },
+            {
+              "number": 41,
+              "sentMs": 820.065705,
+              "receivedMs": 887.393859,
+              "rttMs": 67.328154
+            },
+            {
+              "number": 42,
+              "sentMs": 840.066211,
+              "receivedMs": 907.845823,
+              "rttMs": 67.779612
+            },
+            {
+              "number": 43,
+              "sentMs": 860.065351,
+              "receivedMs": 922.230202,
+              "rttMs": 62.164851
+            },
+            {
+              "number": 44,
+              "sentMs": 880.06066,
+              "receivedMs": 952.956251,
+              "rttMs": 72.895591
+            },
+            {
+              "number": 45,
+              "sentMs": 900.063833,
+              "receivedMs": 973.985745,
+              "rttMs": 73.921912
+            },
+            {
+              "number": 46,
+              "sentMs": 920.064645,
+              "receivedMs": 988.62234,
+              "rttMs": 68.557695
+            },
+            {
+              "number": 47,
+              "sentMs": 940.067933,
+              "receivedMs": 1005.455387,
+              "rttMs": 65.387454
+            },
+            {
+              "number": 48,
+              "sentMs": 960.066701,
+              "receivedMs": 1027.543905,
+              "rttMs": 67.477204
+            },
+            {
+              "number": 49,
+              "sentMs": 980.067642,
+              "receivedMs": 1051.407792,
+              "rttMs": 71.34015
+            },
+            {
+              "number": 50,
+              "sentMs": 1000.067833,
+              "receivedMs": 1075.888682,
+              "rttMs": 75.820849
+            },
+            {
+              "number": 51,
+              "sentMs": 1020.061343,
+              "receivedMs": 1085.83714,
+              "rttMs": 65.775797
+            },
+            {
+              "number": 52,
+              "sentMs": 1040.058009,
+              "receivedMs": 1108.567533,
+              "rttMs": 68.509524
+            },
+            {
+              "number": 53,
+              "sentMs": 1060.055077,
+              "receivedMs": 1128.951917,
+              "rttMs": 68.89684
+            },
+            {
+              "number": 54,
+              "sentMs": 1080.054926,
+              "receivedMs": 1145.92388,
+              "rttMs": 65.868954
+            },
+            {
+              "number": 55,
+              "sentMs": 1100.058261,
+              "receivedMs": 1172.504672,
+              "rttMs": 72.446411
+            },
+            {
+              "number": 56,
+              "sentMs": 1120.058811,
+              "receivedMs": 1196.965056,
+              "rttMs": 76.906245
+            },
+            {
+              "number": 57,
+              "sentMs": 1140.055104,
+              "receivedMs": 1219.737606,
+              "rttMs": 79.682502
+            },
+            {
+              "number": 58,
+              "sentMs": 1160.057584,
+              "receivedMs": 1228.133134,
+              "rttMs": 68.07555
+            },
+            {
+              "number": 59,
+              "sentMs": 1180.022229,
+              "receivedMs": 1249.396962,
+              "rttMs": 69.374733
+            },
+            {
+              "number": 60,
+              "sentMs": 1200.054052,
+              "receivedMs": 1266.719532,
+              "rttMs": 66.66548
+            },
+            {
+              "number": 61,
+              "sentMs": 1220.055064,
+              "receivedMs": 1284.321711,
+              "rttMs": 64.266647
+            },
+            {
+              "number": 62,
+              "sentMs": 1240.064677,
+              "receivedMs": 1302.203974,
+              "rttMs": 62.139297
+            },
+            {
+              "number": 63,
+              "sentMs": 1260.057247,
+              "receivedMs": 1319.216555,
+              "rttMs": 59.159308
+            },
+            {
+              "number": 64,
+              "sentMs": 1280.055574,
+              "receivedMs": 1347.611429,
+              "rttMs": 67.555855
+            },
+            {
+              "number": 65,
+              "sentMs": 1300.056536,
+              "receivedMs": 1361.965693,
+              "rttMs": 61.909157
+            },
+            {
+              "number": 66,
+              "sentMs": 1320.05421,
+              "receivedMs": 1392.78761,
+              "rttMs": 72.7334
+            },
+            {
+              "number": 67,
+              "sentMs": 1340.058353,
+              "receivedMs": 1402.875731,
+              "rttMs": 62.817378
+            },
+            {
+              "number": 68,
+              "sentMs": 1360.054886,
+              "receivedMs": 1429.066773,
+              "rttMs": 69.011887
+            },
+            {
+              "number": 69,
+              "sentMs": 1380.054409,
+              "receivedMs": 1440.237434,
+              "rttMs": 60.183025
+            },
+            {
+              "number": 70,
+              "sentMs": 1400.054201,
+              "receivedMs": 1465.006366,
+              "rttMs": 64.952165
+            },
+            {
+              "number": 71,
+              "sentMs": 1420.054662,
+              "receivedMs": 1484.928483,
+              "rttMs": 64.873821
+            },
+            {
+              "number": 72,
+              "sentMs": 1440.054779,
+              "receivedMs": 1502.746775,
+              "rttMs": 62.691996
+            },
+            {
+              "number": 73,
+              "sentMs": 1460.054554,
+              "receivedMs": 1536.529781,
+              "rttMs": 76.475227
+            },
+            {
+              "number": 74,
+              "sentMs": 1480.05553,
+              "receivedMs": 1554.032747,
+              "rttMs": 73.977217
+            },
+            {
+              "number": 75,
+              "sentMs": 1500.057816,
+              "receivedMs": 1581.423872,
+              "rttMs": 81.366056
+            },
+            {
+              "number": 76,
+              "sentMs": 1520.055059,
+              "receivedMs": 1591.287172,
+              "rttMs": 71.232113
+            },
+            {
+              "number": 77,
+              "sentMs": 1540.054779,
+              "receivedMs": 1606.79829,
+              "rttMs": 66.743511
+            },
+            {
+              "number": 78,
+              "sentMs": 1560.056742,
+              "receivedMs": 1631.546948,
+              "rttMs": 71.490206
+            },
+            {
+              "number": 79,
+              "sentMs": 1580.054722,
+              "receivedMs": 1649.133164,
+              "rttMs": 69.078442
+            },
+            {
+              "number": 80,
+              "sentMs": 1600.054688,
+              "receivedMs": 1674.033606,
+              "rttMs": 73.978918
+            },
+            {
+              "number": 81,
+              "sentMs": 1620.056829,
+              "receivedMs": 1684.861096,
+              "rttMs": 64.804267
+            },
+            {
+              "number": 82,
+              "sentMs": 1640.061798,
+              "receivedMs": 1712.279887,
+              "rttMs": 72.218089
+            },
+            {
+              "number": 83,
+              "sentMs": 1660.055989,
+              "receivedMs": 1723.035702,
+              "rttMs": 62.979713
+            },
+            {
+              "number": 84,
+              "sentMs": 1680.058863,
+              "receivedMs": 1761.658435,
+              "rttMs": 81.599572
+            },
+            {
+              "number": 85,
+              "sentMs": 1700.064511,
+              "receivedMs": 1763.497169,
+              "rttMs": 63.432658
+            },
+            {
+              "number": 86,
+              "sentMs": 1720.065449,
+              "receivedMs": 1799.319071,
+              "rttMs": 79.253622
+            },
+            {
+              "number": 87,
+              "sentMs": 1740.068156,
+              "receivedMs": 1816.523051,
+              "rttMs": 76.454895
+            },
+            {
+              "number": 88,
+              "sentMs": 1760.066479,
+              "receivedMs": 1824.295367,
+              "rttMs": 64.228888
+            },
+            {
+              "number": 89,
+              "sentMs": 1780.06558,
+              "receivedMs": 1857.138361,
+              "rttMs": 77.072781
+            },
+            {
+              "number": 90,
+              "sentMs": 1800.064665,
+              "receivedMs": 1882.673565,
+              "rttMs": 82.6089
+            },
+            {
+              "number": 91,
+              "sentMs": 1820.065039,
+              "receivedMs": 1891.756622,
+              "rttMs": 71.691583
+            },
+            {
+              "number": 92,
+              "sentMs": 1840.064977,
+              "receivedMs": 1911.598998,
+              "rttMs": 71.534021
+            },
+            {
+              "number": 93,
+              "sentMs": 1860.064452,
+              "receivedMs": 1934.717057,
+              "rttMs": 74.652605
+            },
+            {
+              "number": 94,
+              "sentMs": 1880.065805,
+              "receivedMs": 1946.783481,
+              "rttMs": 66.717676
+            },
+            {
+              "number": 95,
+              "sentMs": 1900.067323,
+              "receivedMs": 1969.800809,
+              "rttMs": 69.733486
+            },
+            {
+              "number": 96,
+              "sentMs": 1920.064871,
+              "receivedMs": 1993.320009,
+              "rttMs": 73.255138
+            },
+            {
+              "number": 97,
+              "sentMs": 1940.059957,
+              "receivedMs": 2021.197038,
+              "rttMs": 81.137081
+            },
+            {
+              "number": 98,
+              "sentMs": 1960.065139,
+              "receivedMs": 2026.639154,
+              "rttMs": 66.574015
+            },
+            {
+              "number": 99,
+              "sentMs": 1980.060391,
+              "receivedMs": 2050.303947,
+              "rttMs": 70.243556
+            },
+            {
+              "number": 100,
+              "sentMs": 2000.066717,
+              "receivedMs": 2062.717907,
+              "rttMs": 62.65119
+            },
+            {
+              "number": 101,
+              "sentMs": 2020.066832,
+              "receivedMs": 2081.520582,
+              "rttMs": 61.45375
+            },
+            {
+              "number": 102,
+              "sentMs": 2040.065373,
+              "receivedMs": 2109.275579,
+              "rttMs": 69.210206
+            },
+            {
+              "number": 103,
+              "sentMs": 2060.06598,
+              "receivedMs": 2132.763681,
+              "rttMs": 72.697701
+            },
+            {
+              "number": 104,
+              "sentMs": 2080.066551,
+              "receivedMs": 2150.168176,
+              "rttMs": 70.101625
+            },
+            {
+              "number": 105,
+              "sentMs": 2100.064446,
+              "receivedMs": 2171.395753,
+              "rttMs": 71.331307
+            },
+            {
+              "number": 106,
+              "sentMs": 2120.065839,
+              "receivedMs": 2191.558915,
+              "rttMs": 71.493076
+            },
+            {
+              "number": 107,
+              "sentMs": 2140.066714,
+              "receivedMs": 2205.846447,
+              "rttMs": 65.779733
+            },
+            {
+              "number": 108,
+              "sentMs": 2160.064699,
+              "receivedMs": 2230.042478,
+              "rttMs": 69.977779
+            },
+            {
+              "number": 109,
+              "sentMs": 2180.065366,
+              "receivedMs": 2243.71342,
+              "rttMs": 63.648054
+            },
+            {
+              "number": 110,
+              "sentMs": 2200.039708,
+              "receivedMs": 2273.74853,
+              "rttMs": 73.708822
+            },
+            {
+              "number": 111,
+              "sentMs": 2220.066225,
+              "receivedMs": 2289.723675,
+              "rttMs": 69.65745
+            },
+            {
+              "number": 112,
+              "sentMs": 2240.065116,
+              "receivedMs": 2313.411448,
+              "rttMs": 73.346332
+            },
+            {
+              "number": 113,
+              "sentMs": 2260.056666,
+              "receivedMs": 2335.524579,
+              "rttMs": 75.467913
+            },
+            {
+              "number": 114,
+              "sentMs": 2280.055487,
+              "receivedMs": 2352.80397,
+              "rttMs": 72.748483
+            },
+            {
+              "number": 115,
+              "sentMs": 2300.057169,
+              "receivedMs": 2371.509043,
+              "rttMs": 71.451874
+            },
+            {
+              "number": 116,
+              "sentMs": 2320.055007,
+              "receivedMs": 2393.0195,
+              "rttMs": 72.964493
+            },
+            {
+              "number": 117,
+              "sentMs": 2340.054692,
+              "receivedMs": 2419.732653,
+              "rttMs": 79.677961
+            },
+            {
+              "number": 118,
+              "sentMs": 2360.054385,
+              "receivedMs": 2426.510829,
+              "rttMs": 66.456444
+            },
+            {
+              "number": 119,
+              "sentMs": 2380.0549,
+              "receivedMs": 2460.997979,
+              "rttMs": 80.943079
+            },
+            {
+              "number": 120,
+              "sentMs": 2400.054459,
+              "receivedMs": 2462.534569,
+              "rttMs": 62.48011
+            },
+            {
+              "number": 121,
+              "sentMs": 2420.054056,
+              "receivedMs": 2500.186425,
+              "rttMs": 80.132369
+            },
+            {
+              "number": 122,
+              "sentMs": 2440.058511,
+              "receivedMs": 2504.776598,
+              "rttMs": 64.718087
+            },
+            {
+              "number": 123,
+              "sentMs": 2460.058905,
+              "receivedMs": 2518.618456,
+              "rttMs": 58.559551
+            },
+            {
+              "number": 124,
+              "sentMs": 2480.055291,
+              "receivedMs": 2540.51541,
+              "rttMs": 60.460119
+            },
+            {
+              "number": 125,
+              "sentMs": 2500.056452,
+              "receivedMs": 2575.132534,
+              "rttMs": 75.076082
+            },
+            {
+              "number": 126,
+              "sentMs": 2520.060823,
+              "receivedMs": 2585.887213,
+              "rttMs": 65.82639
+            },
+            {
+              "number": 127,
+              "sentMs": 2540.072731,
+              "receivedMs": 2612.178644,
+              "rttMs": 72.105913
+            },
+            {
+              "number": 128,
+              "sentMs": 2560.055338,
+              "receivedMs": 2632.456285,
+              "rttMs": 72.400947
+            },
+            {
+              "number": 129,
+              "sentMs": 2580.068241,
+              "receivedMs": 2653.740492,
+              "rttMs": 73.672251
+            },
+            {
+              "number": 130,
+              "sentMs": 2600.060412,
+              "receivedMs": 2671.223499,
+              "rttMs": 71.163087
+            },
+            {
+              "number": 131,
+              "sentMs": 2620.057878,
+              "receivedMs": 2692.838126,
+              "rttMs": 72.780248
+            },
+            {
+              "number": 132,
+              "sentMs": 2640.06231,
+              "receivedMs": 2706.70139,
+              "rttMs": 66.63908
+            },
+            {
+              "number": 133,
+              "sentMs": 2660.056851,
+              "receivedMs": 2727.282548,
+              "rttMs": 67.225697
+            },
+            {
+              "number": 134,
+              "sentMs": 2680.05453,
+              "receivedMs": 2743.458097,
+              "rttMs": 63.403567
+            },
+            {
+              "number": 135,
+              "sentMs": 2700.066096,
+              "receivedMs": 2761.769311,
+              "rttMs": 61.703215
+            },
+            {
+              "number": 136,
+              "sentMs": 2720.067509,
+              "receivedMs": 2794.343373,
+              "rttMs": 74.275864
+            },
+            {
+              "number": 137,
+              "sentMs": 2740.064566,
+              "receivedMs": 2814.342235,
+              "rttMs": 74.277669
+            },
+            {
+              "number": 138,
+              "sentMs": 2760.064857,
+              "receivedMs": 2829.36552,
+              "rttMs": 69.300663
+            },
+            {
+              "number": 139,
+              "sentMs": 2780.064326,
+              "receivedMs": 2840.091327,
+              "rttMs": 60.027001
+            },
+            {
+              "number": 140,
+              "sentMs": 2800.066535,
+              "receivedMs": 2869.905712,
+              "rttMs": 69.839177
+            },
+            {
+              "number": 141,
+              "sentMs": 2820.067037,
+              "receivedMs": 2888.31481,
+              "rttMs": 68.247773
+            },
+            {
+              "number": 142,
+              "sentMs": 2840.070868,
+              "receivedMs": 2909.244371,
+              "rttMs": 69.173503
+            },
+            {
+              "number": 143,
+              "sentMs": 2860.062573,
+              "receivedMs": 2925.730773,
+              "rttMs": 65.6682
+            },
+            {
+              "number": 144,
+              "sentMs": 2880.066491,
+              "receivedMs": 2952.020748,
+              "rttMs": 71.954257
+            },
+            {
+              "number": 145,
+              "sentMs": 2900.078879,
+              "receivedMs": 2967.4769,
+              "rttMs": 67.398021
+            },
+            {
+              "number": 146,
+              "sentMs": 2920.065878,
+              "receivedMs": 2982.420071,
+              "rttMs": 62.354193
+            },
+            {
+              "number": 147,
+              "sentMs": 2940.065888,
+              "receivedMs": 3010.71352,
+              "rttMs": 70.647632
+            },
+            {
+              "number": 148,
+              "sentMs": 2960.062483,
+              "receivedMs": 3021.814907,
+              "rttMs": 61.752424
+            },
+            {
+              "number": 149,
+              "sentMs": 2980.066053,
+              "receivedMs": 3053.102823,
+              "rttMs": 73.03677
+            },
+            {
+              "number": 150,
+              "sentMs": 3000.066685,
+              "receivedMs": 3069.19045,
+              "rttMs": 69.123765
+            },
+            {
+              "number": 151,
+              "sentMs": 3020.059355,
+              "receivedMs": 3090.468118,
+              "rttMs": 70.408763
+            },
+            {
+              "number": 152,
+              "sentMs": 3040.063842,
+              "receivedMs": 3107.381296,
+              "rttMs": 67.317454
+            },
+            {
+              "number": 153,
+              "sentMs": 3060.026462,
+              "receivedMs": 3135.399295,
+              "rttMs": 75.372833
+            },
+            {
+              "number": 154,
+              "sentMs": 3080.065638,
+              "receivedMs": 3155.832396,
+              "rttMs": 75.766758
+            },
+            {
+              "number": 155,
+              "sentMs": 3100.762416,
+              "receivedMs": 3178.134045,
+              "rttMs": 77.371629
+            },
+            {
+              "number": 156,
+              "sentMs": 3120.064807,
+              "receivedMs": 3190.133615,
+              "rttMs": 70.068808
+            },
+            {
+              "number": 157,
+              "sentMs": 3140.066035,
+              "receivedMs": 3214.002605,
+              "rttMs": 73.93657
+            },
+            {
+              "number": 158,
+              "sentMs": 3160.068119,
+              "receivedMs": 3239.585386,
+              "rttMs": 79.517267
+            },
+            {
+              "number": 159,
+              "sentMs": 3180.068013,
+              "receivedMs": 3252.52784,
+              "rttMs": 72.459827
+            }
+          ],
+          "errors": [],
+          "controller": [
+            {
+              "type": "ready"
+            },
+            {
+              "type": "done"
+            }
+          ],
+          "configuration": [
+            "qdisc add dev ifb-netbench root handle 1: prio bands 3 priomap 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1",
+            "qdisc add dev ifb-netbench parent 1:1 handle 20: netem limit 100000 delay 35ms 7ms rate 100000kbit seed 104729",
+            "qdisc add dev ifb-netbench parent 20:1 handle 21: pfifo limit 100000",
+            "qdisc add dev ifb-netbench parent 1:2 handle 30: netem limit 100000 delay 35ms 7ms rate 100000kbit seed 104730",
+            "qdisc add dev ifb-netbench parent 30:1 handle 31: pfifo limit 100000",
+            "filter add dev ifb-netbench parent 1: protocol ip pref 10 u32 match ip sport 4410 0xffff flowid 1:1",
+            "filter add dev lo ingress protocol ip pref 30 matchall action mirred egress redirect dev ifb-netbench"
+          ]
+        },
+        {
+          "profile": "high-latency",
+          "type": "result",
+          "sent": 160,
+          "echoes": [
+            {
+              "number": 0,
+              "sentMs": 0.123497,
+              "receivedMs": 300.214728,
+              "rttMs": 300.091231
+            },
+            {
+              "number": 1,
+              "sentMs": 20.067481,
+              "receivedMs": 320.137523,
+              "rttMs": 300.070042
+            },
+            {
+              "number": 2,
+              "sentMs": 40.068507,
+              "receivedMs": 340.152707,
+              "rttMs": 300.0842
+            },
+            {
+              "number": 3,
+              "sentMs": 60.066085,
+              "receivedMs": 360.131788,
+              "rttMs": 300.065703
+            },
+            {
+              "number": 4,
+              "sentMs": 80.066967,
+              "receivedMs": 380.131132,
+              "rttMs": 300.064165
+            },
+            {
+              "number": 5,
+              "sentMs": 100.065977,
+              "receivedMs": 400.127011,
+              "rttMs": 300.061034
+            },
+            {
+              "number": 6,
+              "sentMs": 120.066998,
+              "receivedMs": 420.132879,
+              "rttMs": 300.065881
+            },
+            {
+              "number": 7,
+              "sentMs": 140.06592,
+              "receivedMs": 440.13225,
+              "rttMs": 300.06633
+            },
+            {
+              "number": 8,
+              "sentMs": 160.065952,
+              "receivedMs": 460.134052,
+              "rttMs": 300.0681
+            },
+            {
+              "number": 9,
+              "sentMs": 180.065769,
+              "receivedMs": 480.131845,
+              "rttMs": 300.066076
+            },
+            {
+              "number": 10,
+              "sentMs": 200.069916,
+              "receivedMs": 500.135782,
+              "rttMs": 300.065866
+            },
+            {
+              "number": 11,
+              "sentMs": 220.066767,
+              "receivedMs": 520.131364,
+              "rttMs": 300.064597
+            },
+            {
+              "number": 12,
+              "sentMs": 240.085057,
+              "receivedMs": 540.141646,
+              "rttMs": 300.056589
+            },
+            {
+              "number": 13,
+              "sentMs": 260.068611,
+              "receivedMs": 560.117934,
+              "rttMs": 300.049323
+            },
+            {
+              "number": 14,
+              "sentMs": 280.06713,
+              "receivedMs": 580.131625,
+              "rttMs": 300.064495
+            },
+            {
+              "number": 15,
+              "sentMs": 300.066469,
+              "receivedMs": 600.130594,
+              "rttMs": 300.064125
+            },
+            {
+              "number": 16,
+              "sentMs": 320.064417,
+              "receivedMs": 620.144495,
+              "rttMs": 300.080078
+            },
+            {
+              "number": 17,
+              "sentMs": 340.067057,
+              "receivedMs": 640.128308,
+              "rttMs": 300.061251
+            },
+            {
+              "number": 18,
+              "sentMs": 360.064926,
+              "receivedMs": 660.120758,
+              "rttMs": 300.055832
+            },
+            {
+              "number": 19,
+              "sentMs": 380.061417,
+              "receivedMs": 680.111448,
+              "rttMs": 300.050031
+            },
+            {
+              "number": 20,
+              "sentMs": 400.055334,
+              "receivedMs": 700.117363,
+              "rttMs": 300.062029
+            },
+            {
+              "number": 21,
+              "sentMs": 420.063887,
+              "receivedMs": 720.13289,
+              "rttMs": 300.069003
+            },
+            {
+              "number": 22,
+              "sentMs": 440.065234,
+              "receivedMs": 740.128788,
+              "rttMs": 300.063554
+            },
+            {
+              "number": 23,
+              "sentMs": 460.063743,
+              "receivedMs": 760.127823,
+              "rttMs": 300.06408
+            },
+            {
+              "number": 24,
+              "sentMs": 480.066076,
+              "receivedMs": 780.13786,
+              "rttMs": 300.071784
+            },
+            {
+              "number": 25,
+              "sentMs": 500.061989,
+              "receivedMs": 800.126491,
+              "rttMs": 300.064502
+            },
+            {
+              "number": 26,
+              "sentMs": 520.056579,
+              "receivedMs": 820.12064,
+              "rttMs": 300.064061
+            },
+            {
+              "number": 27,
+              "sentMs": 540.066729,
+              "receivedMs": 840.129491,
+              "rttMs": 300.062762
+            },
+            {
+              "number": 28,
+              "sentMs": 560.06443,
+              "receivedMs": 860.14946,
+              "rttMs": 300.08503
+            },
+            {
+              "number": 29,
+              "sentMs": 580.061495,
+              "receivedMs": 880.125217,
+              "rttMs": 300.063722
+            },
+            {
+              "number": 30,
+              "sentMs": 600.064732,
+              "receivedMs": 900.153373,
+              "rttMs": 300.088641
+            },
+            {
+              "number": 31,
+              "sentMs": 620.064224,
+              "receivedMs": 920.128354,
+              "rttMs": 300.06413
+            },
+            {
+              "number": 32,
+              "sentMs": 640.067192,
+              "receivedMs": 940.131443,
+              "rttMs": 300.064251
+            },
+            {
+              "number": 33,
+              "sentMs": 660.064489,
+              "receivedMs": 960.130297,
+              "rttMs": 300.065808
+            },
+            {
+              "number": 34,
+              "sentMs": 680.06378,
+              "receivedMs": 980.126918,
+              "rttMs": 300.063138
+            },
+            {
+              "number": 35,
+              "sentMs": 700.063932,
+              "receivedMs": 1000.130165,
+              "rttMs": 300.066233
+            },
+            {
+              "number": 36,
+              "sentMs": 720.064,
+              "receivedMs": 1020.12879,
+              "rttMs": 300.06479
+            },
+            {
+              "number": 37,
+              "sentMs": 740.06619,
+              "receivedMs": 1040.132654,
+              "rttMs": 300.066464
+            },
+            {
+              "number": 38,
+              "sentMs": 760.063652,
+              "receivedMs": 1060.130413,
+              "rttMs": 300.066761
+            },
+            {
+              "number": 39,
+              "sentMs": 780.069598,
+              "receivedMs": 1080.132688,
+              "rttMs": 300.06309
+            },
+            {
+              "number": 40,
+              "sentMs": 800.066174,
+              "receivedMs": 1100.137399,
+              "rttMs": 300.071225
+            },
+            {
+              "number": 41,
+              "sentMs": 820.065255,
+              "receivedMs": 1120.124326,
+              "rttMs": 300.059071
+            },
+            {
+              "number": 42,
+              "sentMs": 840.064032,
+              "receivedMs": 1140.133986,
+              "rttMs": 300.069954
+            },
+            {
+              "number": 43,
+              "sentMs": 860.06412,
+              "receivedMs": 1160.123382,
+              "rttMs": 300.059262
+            },
+            {
+              "number": 44,
+              "sentMs": 880.064151,
+              "receivedMs": 1180.123972,
+              "rttMs": 300.059821
+            },
+            {
+              "number": 45,
+              "sentMs": 900.064484,
+              "receivedMs": 1200.120076,
+              "rttMs": 300.055592
+            },
+            {
+              "number": 46,
+              "sentMs": 920.066208,
+              "receivedMs": 1220.124829,
+              "rttMs": 300.058621
+            },
+            {
+              "number": 47,
+              "sentMs": 940.063504,
+              "receivedMs": 1240.108087,
+              "rttMs": 300.044583
+            },
+            {
+              "number": 48,
+              "sentMs": 960.065755,
+              "receivedMs": 1260.109611,
+              "rttMs": 300.043856
+            },
+            {
+              "number": 49,
+              "sentMs": 980.063943,
+              "receivedMs": 1280.11006,
+              "rttMs": 300.046117
+            },
+            {
+              "number": 50,
+              "sentMs": 1000.064819,
+              "receivedMs": 1300.113025,
+              "rttMs": 300.048206
+            },
+            {
+              "number": 51,
+              "sentMs": 1020.062544,
+              "receivedMs": 1320.11083,
+              "rttMs": 300.048286
+            },
+            {
+              "number": 52,
+              "sentMs": 1040.063953,
+              "receivedMs": 1340.123236,
+              "rttMs": 300.059283
+            },
+            {
+              "number": 53,
+              "sentMs": 1060.064929,
+              "receivedMs": 1360.124898,
+              "rttMs": 300.059969
+            },
+            {
+              "number": 54,
+              "sentMs": 1080.060379,
+              "receivedMs": 1380.109706,
+              "rttMs": 300.049327
+            },
+            {
+              "number": 55,
+              "sentMs": 1100.057841,
+              "receivedMs": 1400.552869,
+              "rttMs": 300.495028
+            },
+            {
+              "number": 56,
+              "sentMs": 1120.056182,
+              "receivedMs": 1420.127986,
+              "rttMs": 300.071804
+            },
+            {
+              "number": 57,
+              "sentMs": 1140.05501,
+              "receivedMs": 1440.111487,
+              "rttMs": 300.056477
+            },
+            {
+              "number": 58,
+              "sentMs": 1160.056276,
+              "receivedMs": 1460.1012,
+              "rttMs": 300.044924
+            },
+            {
+              "number": 59,
+              "sentMs": 1180.057254,
+              "receivedMs": 1480.103682,
+              "rttMs": 300.046428
+            },
+            {
+              "number": 60,
+              "sentMs": 1200.055691,
+              "receivedMs": 1500.301273,
+              "rttMs": 300.245582
+            },
+            {
+              "number": 61,
+              "sentMs": 1220.057377,
+              "receivedMs": 1520.157031,
+              "rttMs": 300.099654
+            },
+            {
+              "number": 62,
+              "sentMs": 1240.055482,
+              "receivedMs": 1542.413792,
+              "rttMs": 302.35831
+            },
+            {
+              "number": 63,
+              "sentMs": 1260.055896,
+              "receivedMs": 1560.146833,
+              "rttMs": 300.090937
+            },
+            {
+              "number": 64,
+              "sentMs": 1280.059229,
+              "receivedMs": 1580.10251,
+              "rttMs": 300.043281
+            },
+            {
+              "number": 65,
+              "sentMs": 1300.056768,
+              "receivedMs": 1600.111813,
+              "rttMs": 300.055045
+            },
+            {
+              "number": 66,
+              "sentMs": 1320.056169,
+              "receivedMs": 1620.111124,
+              "rttMs": 300.054955
+            },
+            {
+              "number": 67,
+              "sentMs": 1340.0721,
+              "receivedMs": 1640.151407,
+              "rttMs": 300.079307
+            },
+            {
+              "number": 68,
+              "sentMs": 1360.07734,
+              "receivedMs": 1660.15037,
+              "rttMs": 300.07303
+            },
+            {
+              "number": 69,
+              "sentMs": 1380.069941,
+              "receivedMs": 1680.155099,
+              "rttMs": 300.085158
+            },
+            {
+              "number": 70,
+              "sentMs": 1400.56085,
+              "receivedMs": 1700.609793,
+              "rttMs": 300.048943
+            },
+            {
+              "number": 71,
+              "sentMs": 1420.078572,
+              "receivedMs": 1720.125881,
+              "rttMs": 300.047309
+            },
+            {
+              "number": 72,
+              "sentMs": 1440.062073,
+              "receivedMs": 1740.109901,
+              "rttMs": 300.047828
+            },
+            {
+              "number": 73,
+              "sentMs": 1460.065307,
+              "receivedMs": 1760.131692,
+              "rttMs": 300.066385
+            },
+            {
+              "number": 74,
+              "sentMs": 1480.063277,
+              "receivedMs": 1780.110665,
+              "rttMs": 300.047388
+            },
+            {
+              "number": 75,
+              "sentMs": 1500.064448,
+              "receivedMs": 1800.13441,
+              "rttMs": 300.069962
+            },
+            {
+              "number": 76,
+              "sentMs": 1520.076092,
+              "receivedMs": 1820.140595,
+              "rttMs": 300.064503
+            },
+            {
+              "number": 77,
+              "sentMs": 1540.068511,
+              "receivedMs": 1840.118789,
+              "rttMs": 300.050278
+            },
+            {
+              "number": 78,
+              "sentMs": 1560.056343,
+              "receivedMs": 1860.11295,
+              "rttMs": 300.056607
+            },
+            {
+              "number": 79,
+              "sentMs": 1580.054716,
+              "receivedMs": 1880.099608,
+              "rttMs": 300.044892
+            },
+            {
+              "number": 80,
+              "sentMs": 1600.069861,
+              "receivedMs": 1900.141458,
+              "rttMs": 300.071597
+            },
+            {
+              "number": 81,
+              "sentMs": 1620.054693,
+              "receivedMs": 1920.11399,
+              "rttMs": 300.059297
+            },
+            {
+              "number": 82,
+              "sentMs": 1640.063445,
+              "receivedMs": 1940.128806,
+              "rttMs": 300.065361
+            },
+            {
+              "number": 83,
+              "sentMs": 1660.066143,
+              "receivedMs": 1960.127996,
+              "rttMs": 300.061853
+            },
+            {
+              "number": 84,
+              "sentMs": 1680.095128,
+              "receivedMs": 1980.158126,
+              "rttMs": 300.062998
+            },
+            {
+              "number": 85,
+              "sentMs": 1700.055759,
+              "receivedMs": 2000.116464,
+              "rttMs": 300.060705
+            },
+            {
+              "number": 86,
+              "sentMs": 1720.058084,
+              "receivedMs": 2020.117149,
+              "rttMs": 300.059065
+            },
+            {
+              "number": 87,
+              "sentMs": 1740.065695,
+              "receivedMs": 2040.129831,
+              "rttMs": 300.064136
+            },
+            {
+              "number": 88,
+              "sentMs": 1760.06382,
+              "receivedMs": 2060.135354,
+              "rttMs": 300.071534
+            },
+            {
+              "number": 89,
+              "sentMs": 1780.063959,
+              "receivedMs": 2080.134489,
+              "rttMs": 300.07053
+            },
+            {
+              "number": 90,
+              "sentMs": 1800.063858,
+              "receivedMs": 2100.12793,
+              "rttMs": 300.064072
+            },
+            {
+              "number": 91,
+              "sentMs": 1820.064386,
+              "receivedMs": 2120.128758,
+              "rttMs": 300.064372
+            },
+            {
+              "number": 92,
+              "sentMs": 1840.063949,
+              "receivedMs": 2140.12784,
+              "rttMs": 300.063891
+            },
+            {
+              "number": 93,
+              "sentMs": 1860.063697,
+              "receivedMs": 2160.1259,
+              "rttMs": 300.062203
+            },
+            {
+              "number": 94,
+              "sentMs": 1880.063601,
+              "receivedMs": 2180.129324,
+              "rttMs": 300.065723
+            },
+            {
+              "number": 95,
+              "sentMs": 1900.060167,
+              "receivedMs": 2200.124294,
+              "rttMs": 300.064127
+            },
+            {
+              "number": 96,
+              "sentMs": 1920.064029,
+              "receivedMs": 2220.12728,
+              "rttMs": 300.063251
+            },
+            {
+              "number": 97,
+              "sentMs": 1940.064195,
+              "receivedMs": 2240.129148,
+              "rttMs": 300.064953
+            },
+            {
+              "number": 98,
+              "sentMs": 1960.063805,
+              "receivedMs": 2260.128804,
+              "rttMs": 300.064999
+            },
+            {
+              "number": 99,
+              "sentMs": 1980.063985,
+              "receivedMs": 2280.127887,
+              "rttMs": 300.063902
+            },
+            {
+              "number": 100,
+              "sentMs": 2000.060767,
+              "receivedMs": 2300.121975,
+              "rttMs": 300.061208
+            },
+            {
+              "number": 101,
+              "sentMs": 2020.063691,
+              "receivedMs": 2320.118611,
+              "rttMs": 300.05492
+            },
+            {
+              "number": 102,
+              "sentMs": 2040.064156,
+              "receivedMs": 2340.117191,
+              "rttMs": 300.053035
+            },
+            {
+              "number": 103,
+              "sentMs": 2060.069827,
+              "receivedMs": 2360.134046,
+              "rttMs": 300.064219
+            },
+            {
+              "number": 104,
+              "sentMs": 2080.066057,
+              "receivedMs": 2380.136967,
+              "rttMs": 300.07091
+            },
+            {
+              "number": 105,
+              "sentMs": 2100.065061,
+              "receivedMs": 2400.394695,
+              "rttMs": 300.329634
+            },
+            {
+              "number": 106,
+              "sentMs": 2120.064468,
+              "receivedMs": 2420.132779,
+              "rttMs": 300.068311
+            },
+            {
+              "number": 107,
+              "sentMs": 2140.064301,
+              "receivedMs": 2440.122966,
+              "rttMs": 300.058665
+            },
+            {
+              "number": 108,
+              "sentMs": 2160.061433,
+              "receivedMs": 2460.12231,
+              "rttMs": 300.060877
+            },
+            {
+              "number": 109,
+              "sentMs": 2180.056439,
+              "receivedMs": 2480.109859,
+              "rttMs": 300.05342
+            },
+            {
+              "number": 110,
+              "sentMs": 2200.066499,
+              "receivedMs": 2500.13621,
+              "rttMs": 300.069711
+            },
+            {
+              "number": 111,
+              "sentMs": 2220.063192,
+              "receivedMs": 2520.119027,
+              "rttMs": 300.055835
+            },
+            {
+              "number": 112,
+              "sentMs": 2240.06381,
+              "receivedMs": 2540.109168,
+              "rttMs": 300.045358
+            },
+            {
+              "number": 113,
+              "sentMs": 2260.066651,
+              "receivedMs": 2560.133879,
+              "rttMs": 300.067228
+            },
+            {
+              "number": 114,
+              "sentMs": 2280.064649,
+              "receivedMs": 2580.110467,
+              "rttMs": 300.045818
+            },
+            {
+              "number": 115,
+              "sentMs": 2300.063305,
+              "receivedMs": 2600.122349,
+              "rttMs": 300.059044
+            },
+            {
+              "number": 116,
+              "sentMs": 2320.064205,
+              "receivedMs": 2620.116775,
+              "rttMs": 300.05257
+            },
+            {
+              "number": 117,
+              "sentMs": 2340.059842,
+              "receivedMs": 2640.10963,
+              "rttMs": 300.049788
+            },
+            {
+              "number": 118,
+              "sentMs": 2360.063364,
+              "receivedMs": 2660.122908,
+              "rttMs": 300.059544
+            },
+            {
+              "number": 119,
+              "sentMs": 2380.059572,
+              "receivedMs": 2680.115796,
+              "rttMs": 300.056224
+            },
+            {
+              "number": 120,
+              "sentMs": 2400.222035,
+              "receivedMs": 2700.270896,
+              "rttMs": 300.048861
+            },
+            {
+              "number": 121,
+              "sentMs": 2420.056216,
+              "receivedMs": 2720.103996,
+              "rttMs": 300.04778
+            },
+            {
+              "number": 122,
+              "sentMs": 2440.056735,
+              "receivedMs": 2740.104273,
+              "rttMs": 300.047538
+            },
+            {
+              "number": 123,
+              "sentMs": 2460.058335,
+              "receivedMs": 2760.123684,
+              "rttMs": 300.065349
+            },
+            {
+              "number": 124,
+              "sentMs": 2480.054075,
+              "receivedMs": 2780.11539,
+              "rttMs": 300.061315
+            },
+            {
+              "number": 125,
+              "sentMs": 2500.056852,
+              "receivedMs": 2800.117033,
+              "rttMs": 300.060181
+            },
+            {
+              "number": 126,
+              "sentMs": 2520.054725,
+              "receivedMs": 2820.116158,
+              "rttMs": 300.061433
+            },
+            {
+              "number": 127,
+              "sentMs": 2540.0597,
+              "receivedMs": 2840.119368,
+              "rttMs": 300.059668
+            },
+            {
+              "number": 128,
+              "sentMs": 2560.057321,
+              "receivedMs": 2860.117359,
+              "rttMs": 300.060038
+            },
+            {
+              "number": 129,
+              "sentMs": 2580.057222,
+              "receivedMs": 2880.117016,
+              "rttMs": 300.059794
+            },
+            {
+              "number": 130,
+              "sentMs": 2600.068764,
+              "receivedMs": 2900.135105,
+              "rttMs": 300.066341
+            },
+            {
+              "number": 131,
+              "sentMs": 2620.064606,
+              "receivedMs": 2920.128909,
+              "rttMs": 300.064303
+            },
+            {
+              "number": 132,
+              "sentMs": 2640.064486,
+              "receivedMs": 2940.15777,
+              "rttMs": 300.093284
+            },
+            {
+              "number": 133,
+              "sentMs": 2660.069604,
+              "receivedMs": 2960.135532,
+              "rttMs": 300.065928
+            },
+            {
+              "number": 134,
+              "sentMs": 2680.065043,
+              "receivedMs": 2980.129258,
+              "rttMs": 300.064215
+            },
+            {
+              "number": 135,
+              "sentMs": 2700.069306,
+              "receivedMs": 3000.134317,
+              "rttMs": 300.065011
+            },
+            {
+              "number": 136,
+              "sentMs": 2720.067258,
+              "receivedMs": 3020.139674,
+              "rttMs": 300.072416
+            },
+            {
+              "number": 137,
+              "sentMs": 2740.067533,
+              "receivedMs": 3040.162887,
+              "rttMs": 300.095354
+            },
+            {
+              "number": 138,
+              "sentMs": 2760.064524,
+              "receivedMs": 3060.128373,
+              "rttMs": 300.063849
+            },
+            {
+              "number": 139,
+              "sentMs": 2780.075329,
+              "receivedMs": 3080.134863,
+              "rttMs": 300.059534
+            },
+            {
+              "number": 140,
+              "sentMs": 2800.060185,
+              "receivedMs": 3100.123953,
+              "rttMs": 300.063768
+            },
+            {
+              "number": 141,
+              "sentMs": 2820.06388,
+              "receivedMs": 3120.124336,
+              "rttMs": 300.060456
+            },
+            {
+              "number": 142,
+              "sentMs": 2840.064228,
+              "receivedMs": 3140.13491,
+              "rttMs": 300.070682
+            },
+            {
+              "number": 143,
+              "sentMs": 2860.064228,
+              "receivedMs": 3160.127687,
+              "rttMs": 300.063459
+            },
+            {
+              "number": 144,
+              "sentMs": 2880.064462,
+              "receivedMs": 3180.131312,
+              "rttMs": 300.06685
+            },
+            {
+              "number": 145,
+              "sentMs": 2900.064314,
+              "receivedMs": 3200.128838,
+              "rttMs": 300.064524
+            },
+            {
+              "number": 146,
+              "sentMs": 2920.063902,
+              "receivedMs": 3220.13928,
+              "rttMs": 300.075378
+            },
+            {
+              "number": 147,
+              "sentMs": 2940.066336,
+              "receivedMs": 3240.140903,
+              "rttMs": 300.074567
+            },
+            {
+              "number": 148,
+              "sentMs": 2960.10942,
+              "receivedMs": 3260.182124,
+              "rttMs": 300.072704
+            },
+            {
+              "number": 149,
+              "sentMs": 2980.063361,
+              "receivedMs": 3280.146386,
+              "rttMs": 300.083025
+            },
+            {
+              "number": 150,
+              "sentMs": 3000.067563,
+              "receivedMs": 3300.155014,
+              "rttMs": 300.087451
+            },
+            {
+              "number": 151,
+              "sentMs": 3020.064732,
+              "receivedMs": 3320.13907,
+              "rttMs": 300.074338
+            },
+            {
+              "number": 152,
+              "sentMs": 3040.063569,
+              "receivedMs": 3340.139387,
+              "rttMs": 300.075818
+            },
+            {
+              "number": 153,
+              "sentMs": 3060.063207,
+              "receivedMs": 3360.135013,
+              "rttMs": 300.071806
+            },
+            {
+              "number": 154,
+              "sentMs": 3080.064259,
+              "receivedMs": 3380.199281,
+              "rttMs": 300.135022
+            },
+            {
+              "number": 155,
+              "sentMs": 3100.064163,
+              "receivedMs": 3400.146755,
+              "rttMs": 300.082592
+            },
+            {
+              "number": 156,
+              "sentMs": 3120.064096,
+              "receivedMs": 3420.139622,
+              "rttMs": 300.075526
+            },
+            {
+              "number": 157,
+              "sentMs": 3140.063662,
+              "receivedMs": 3440.127201,
+              "rttMs": 300.063539
+            },
+            {
+              "number": 158,
+              "sentMs": 3160.064886,
+              "receivedMs": 3460.138326,
+              "rttMs": 300.07344
+            },
+            {
+              "number": 159,
+              "sentMs": 3180.064344,
+              "receivedMs": 3480.141247,
+              "rttMs": 300.076903
+            }
+          ],
+          "errors": [],
+          "controller": [
+            {
+              "type": "ready"
+            },
+            {
+              "type": "done"
+            }
+          ],
+          "configuration": [
+            "qdisc add dev ifb-netbench root handle 1: prio bands 3 priomap 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1",
+            "qdisc add dev ifb-netbench parent 1:1 handle 20: netem limit 100000 delay 150ms rate 100000kbit seed 104729",
+            "qdisc add dev ifb-netbench parent 20:1 handle 21: pfifo limit 100000",
+            "qdisc add dev ifb-netbench parent 1:2 handle 30: netem limit 100000 delay 150ms rate 100000kbit seed 104730",
+            "qdisc add dev ifb-netbench parent 30:1 handle 31: pfifo limit 100000",
+            "filter add dev ifb-netbench parent 1: protocol ip pref 10 u32 match ip sport 4410 0xffff flowid 1:1",
+            "filter add dev lo ingress protocol ip pref 30 matchall action mirred egress redirect dev ifb-netbench"
+          ]
+        },
+        {
+          "profile": "loss-3",
+          "type": "result",
+          "sent": 160,
+          "echoes": [
+            {
+              "number": 0,
+              "sentMs": 0.072177,
+              "receivedMs": 64.974745,
+              "rttMs": 64.902568
+            },
+            {
+              "number": 1,
+              "sentMs": 20.068846,
+              "receivedMs": 86.721953,
+              "rttMs": 66.653107
+            },
+            {
+              "number": 2,
+              "sentMs": 40.070651,
+              "receivedMs": 114.459464,
+              "rttMs": 74.388813
+            },
+            {
+              "number": 3,
+              "sentMs": 60.096629,
+              "receivedMs": 135.647869,
+              "rttMs": 75.55124
+            },
+            {
+              "number": 4,
+              "sentMs": 80.065535,
+              "receivedMs": 158.777538,
+              "rttMs": 78.712003
+            },
+            {
+              "number": 5,
+              "sentMs": 100.064146,
+              "receivedMs": 162.343576,
+              "rttMs": 62.27943
+            },
+            {
+              "number": 6,
+              "sentMs": 120.06082,
+              "receivedMs": 190.791966,
+              "rttMs": 70.731146
+            },
+            {
+              "number": 7,
+              "sentMs": 140.065015,
+              "receivedMs": 209.072871,
+              "rttMs": 69.007856
+            },
+            {
+              "number": 8,
+              "sentMs": 160.064389,
+              "receivedMs": 240.354611,
+              "rttMs": 80.290222
+            },
+            {
+              "number": 9,
+              "sentMs": 180.0653,
+              "receivedMs": 240.359774,
+              "rttMs": 60.294474
+            },
+            {
+              "number": 10,
+              "sentMs": 200.06477,
+              "receivedMs": 271.175944,
+              "rttMs": 71.111174
+            },
+            {
+              "number": 11,
+              "sentMs": 220.064187,
+              "receivedMs": 291.414968,
+              "rttMs": 71.350781
+            },
+            {
+              "number": 12,
+              "sentMs": 240.064639,
+              "receivedMs": 307.440098,
+              "rttMs": 67.375459
+            },
+            {
+              "number": 13,
+              "sentMs": 260.064346,
+              "receivedMs": 329.026083,
+              "rttMs": 68.961737
+            },
+            {
+              "number": 14,
+              "sentMs": 280.065773,
+              "receivedMs": 349.565752,
+              "rttMs": 69.499979
+            },
+            {
+              "number": 15,
+              "sentMs": 300.067203,
+              "receivedMs": 371.706799,
+              "rttMs": 71.639596
+            },
+            {
+              "number": 16,
+              "sentMs": 320.06113,
+              "receivedMs": 383.491335,
+              "rttMs": 63.430205
+            },
+            {
+              "number": 17,
+              "sentMs": 340.071298,
+              "receivedMs": 408.076154,
+              "rttMs": 68.004856
+            },
+            {
+              "number": 18,
+              "sentMs": 360.065295,
+              "receivedMs": 422.428286,
+              "rttMs": 62.362991
+            },
+            {
+              "number": 19,
+              "sentMs": 380.065532,
+              "receivedMs": 445.999122,
+              "rttMs": 65.93359
+            },
+            {
+              "number": 20,
+              "sentMs": 400.066284,
+              "receivedMs": 467.394397,
+              "rttMs": 67.328113
+            },
+            {
+              "number": 22,
+              "sentMs": 440.065378,
+              "receivedMs": 514.986317,
+              "rttMs": 74.920939
+            },
+            {
+              "number": 23,
+              "sentMs": 460.065489,
+              "receivedMs": 529.142163,
+              "rttMs": 69.076674
+            },
+            {
+              "number": 24,
+              "sentMs": 480.057217,
+              "receivedMs": 550.991828,
+              "rttMs": 70.934611
+            },
+            {
+              "number": 25,
+              "sentMs": 500.057558,
+              "receivedMs": 571.398437,
+              "rttMs": 71.340879
+            },
+            {
+              "number": 26,
+              "sentMs": 520.054973,
+              "receivedMs": 580.335356,
+              "rttMs": 60.280383
+            },
+            {
+              "number": 27,
+              "sentMs": 540.056258,
+              "receivedMs": 605.780084,
+              "rttMs": 65.723826
+            },
+            {
+              "number": 28,
+              "sentMs": 560.057804,
+              "receivedMs": 638.0291,
+              "rttMs": 77.971296
+            },
+            {
+              "number": 29,
+              "sentMs": 580.055521,
+              "receivedMs": 648.226078,
+              "rttMs": 68.170557
+            },
+            {
+              "number": 30,
+              "sentMs": 600.032738,
+              "receivedMs": 659.949487,
+              "rttMs": 59.916749
+            },
+            {
+              "number": 31,
+              "sentMs": 620.062322,
+              "receivedMs": 681.678284,
+              "rttMs": 61.615962
+            },
+            {
+              "number": 32,
+              "sentMs": 640.066937,
+              "receivedMs": 701.247683,
+              "rttMs": 61.180746
+            },
+            {
+              "number": 33,
+              "sentMs": 660.056503,
+              "receivedMs": 730.147906,
+              "rttMs": 70.091403
+            },
+            {
+              "number": 34,
+              "sentMs": 680.063667,
+              "receivedMs": 742.114575,
+              "rttMs": 62.050908
+            },
+            {
+              "number": 35,
+              "sentMs": 700.061526,
+              "receivedMs": 765.655682,
+              "rttMs": 65.594156
+            },
+            {
+              "number": 36,
+              "sentMs": 720.068554,
+              "receivedMs": 791.304205,
+              "rttMs": 71.235651
+            },
+            {
+              "number": 37,
+              "sentMs": 740.067452,
+              "receivedMs": 815.478647,
+              "rttMs": 75.411195
+            },
+            {
+              "number": 38,
+              "sentMs": 760.065746,
+              "receivedMs": 832.726588,
+              "rttMs": 72.660842
+            },
+            {
+              "number": 39,
+              "sentMs": 780.06426,
+              "receivedMs": 861.446667,
+              "rttMs": 81.382407
+            },
+            {
+              "number": 40,
+              "sentMs": 800.067762,
+              "receivedMs": 865.12996,
+              "rttMs": 65.062198
+            },
+            {
+              "number": 41,
+              "sentMs": 820.059766,
+              "receivedMs": 889.037057,
+              "rttMs": 68.977291
+            },
+            {
+              "number": 42,
+              "sentMs": 840.064771,
+              "receivedMs": 908.35442,
+              "rttMs": 68.289649
+            },
+            {
+              "number": 43,
+              "sentMs": 860.06179,
+              "receivedMs": 939.301694,
+              "rttMs": 79.239904
+            },
+            {
+              "number": 44,
+              "sentMs": 880.061659,
+              "receivedMs": 950.996567,
+              "rttMs": 70.934908
+            },
+            {
+              "number": 45,
+              "sentMs": 900.060174,
+              "receivedMs": 981.21993,
+              "rttMs": 81.159756
+            },
+            {
+              "number": 46,
+              "sentMs": 920.054775,
+              "receivedMs": 992.024516,
+              "rttMs": 71.969741
+            },
+            {
+              "number": 47,
+              "sentMs": 940.055684,
+              "receivedMs": 1017.46162,
+              "rttMs": 77.405936
+            },
+            {
+              "number": 48,
+              "sentMs": 960.055328,
+              "receivedMs": 1031.580093,
+              "rttMs": 71.524765
+            },
+            {
+              "number": 49,
+              "sentMs": 980.055414,
+              "receivedMs": 1042.020815,
+              "rttMs": 61.965401
+            },
+            {
+              "number": 50,
+              "sentMs": 1000.05476,
+              "receivedMs": 1066.622446,
+              "rttMs": 66.567686
+            },
+            {
+              "number": 51,
+              "sentMs": 1020.054983,
+              "receivedMs": 1087.841441,
+              "rttMs": 67.786458
+            },
+            {
+              "number": 52,
+              "sentMs": 1040.054987,
+              "receivedMs": 1117.968117,
+              "rttMs": 77.91313
+            },
+            {
+              "number": 53,
+              "sentMs": 1060.065655,
+              "receivedMs": 1123.300446,
+              "rttMs": 63.234791
+            },
+            {
+              "number": 54,
+              "sentMs": 1080.057491,
+              "receivedMs": 1141.124567,
+              "rttMs": 61.067076
+            },
+            {
+              "number": 55,
+              "sentMs": 1100.054439,
+              "receivedMs": 1170.147614,
+              "rttMs": 70.093175
+            },
+            {
+              "number": 56,
+              "sentMs": 1120.053997,
+              "receivedMs": 1197.763922,
+              "rttMs": 77.709925
+            },
+            {
+              "number": 57,
+              "sentMs": 1140.059151,
+              "receivedMs": 1200.881859,
+              "rttMs": 60.822708
+            },
+            {
+              "number": 58,
+              "sentMs": 1160.055006,
+              "receivedMs": 1234.713687,
+              "rttMs": 74.658681
+            },
+            {
+              "number": 60,
+              "sentMs": 1200.057004,
+              "receivedMs": 1280.326503,
+              "rttMs": 80.269499
+            },
+            {
+              "number": 61,
+              "sentMs": 1220.05829,
+              "receivedMs": 1290.084346,
+              "rttMs": 70.026056
+            },
+            {
+              "number": 62,
+              "sentMs": 1240.066323,
+              "receivedMs": 1309.903614,
+              "rttMs": 69.837291
+            },
+            {
+              "number": 63,
+              "sentMs": 1260.067278,
+              "receivedMs": 1330.274674,
+              "rttMs": 70.207396
+            },
+            {
+              "number": 64,
+              "sentMs": 1280.064413,
+              "receivedMs": 1357.053401,
+              "rttMs": 76.988988
+            },
+            {
+              "number": 65,
+              "sentMs": 1300.064864,
+              "receivedMs": 1371.759819,
+              "rttMs": 71.694955
+            },
+            {
+              "number": 66,
+              "sentMs": 1320.064284,
+              "receivedMs": 1383.614396,
+              "rttMs": 63.550112
+            },
+            {
+              "number": 67,
+              "sentMs": 1340.061946,
+              "receivedMs": 1407.369742,
+              "rttMs": 67.307796
+            },
+            {
+              "number": 68,
+              "sentMs": 1360.06377,
+              "receivedMs": 1431.211333,
+              "rttMs": 71.147563
+            },
+            {
+              "number": 69,
+              "sentMs": 1380.06613,
+              "receivedMs": 1443.767331,
+              "rttMs": 63.701201
+            },
+            {
+              "number": 70,
+              "sentMs": 1400.067792,
+              "receivedMs": 1470.9435,
+              "rttMs": 70.875708
+            },
+            {
+              "number": 71,
+              "sentMs": 1420.065505,
+              "receivedMs": 1486.618295,
+              "rttMs": 66.55279
+            },
+            {
+              "number": 72,
+              "sentMs": 1440.065127,
+              "receivedMs": 1505.003331,
+              "rttMs": 64.938204
+            },
+            {
+              "number": 73,
+              "sentMs": 1460.06411,
+              "receivedMs": 1530.822974,
+              "rttMs": 70.758864
+            },
+            {
+              "number": 75,
+              "sentMs": 1500.098056,
+              "receivedMs": 1568.777963,
+              "rttMs": 68.679907
+            },
+            {
+              "number": 76,
+              "sentMs": 1520.067271,
+              "receivedMs": 1591.332976,
+              "rttMs": 71.265705
+            },
+            {
+              "number": 78,
+              "sentMs": 1560.065198,
+              "receivedMs": 1628.993893,
+              "rttMs": 68.928695
+            },
+            {
+              "number": 79,
+              "sentMs": 1580.065867,
+              "receivedMs": 1657.474587,
+              "rttMs": 77.40872
+            },
+            {
+              "number": 80,
+              "sentMs": 1600.067188,
+              "receivedMs": 1679.195949,
+              "rttMs": 79.128761
+            },
+            {
+              "number": 81,
+              "sentMs": 1620.065538,
+              "receivedMs": 1696.689671,
+              "rttMs": 76.624133
+            },
+            {
+              "number": 82,
+              "sentMs": 1640.060154,
+              "receivedMs": 1706.735132,
+              "rttMs": 66.674978
+            },
+            {
+              "number": 83,
+              "sentMs": 1660.064499,
+              "receivedMs": 1729.808302,
+              "rttMs": 69.743803
+            },
+            {
+              "number": 84,
+              "sentMs": 1680.06494,
+              "receivedMs": 1745.370735,
+              "rttMs": 65.305795
+            },
+            {
+              "number": 85,
+              "sentMs": 1700.101459,
+              "receivedMs": 1775.95852,
+              "rttMs": 75.857061
+            },
+            {
+              "number": 86,
+              "sentMs": 1720.06639,
+              "receivedMs": 1788.924815,
+              "rttMs": 68.858425
+            },
+            {
+              "number": 87,
+              "sentMs": 1740.065902,
+              "receivedMs": 1818.031836,
+              "rttMs": 77.965934
+            },
+            {
+              "number": 88,
+              "sentMs": 1760.064248,
+              "receivedMs": 1826.231853,
+              "rttMs": 66.167605
+            },
+            {
+              "number": 89,
+              "sentMs": 1780.065341,
+              "receivedMs": 1856.678002,
+              "rttMs": 76.612661
+            },
+            {
+              "number": 90,
+              "sentMs": 1800.067922,
+              "receivedMs": 1864.274678,
+              "rttMs": 64.206756
+            },
+            {
+              "number": 91,
+              "sentMs": 1820.064417,
+              "receivedMs": 1899.760052,
+              "rttMs": 79.695635
+            },
+            {
+              "number": 92,
+              "sentMs": 1840.068072,
+              "receivedMs": 1910.539289,
+              "rttMs": 70.471217
+            },
+            {
+              "number": 93,
+              "sentMs": 1860.06454,
+              "receivedMs": 1937.713678,
+              "rttMs": 77.649138
+            },
+            {
+              "number": 94,
+              "sentMs": 1880.064743,
+              "receivedMs": 1956.433223,
+              "rttMs": 76.36848
+            },
+            {
+              "number": 95,
+              "sentMs": 1900.056877,
+              "receivedMs": 1971.435701,
+              "rttMs": 71.378824
+            },
+            {
+              "number": 96,
+              "sentMs": 1920.065832,
+              "receivedMs": 2001.143125,
+              "rttMs": 81.077293
+            },
+            {
+              "number": 97,
+              "sentMs": 1940.062782,
+              "receivedMs": 2013.322986,
+              "rttMs": 73.260204
+            },
+            {
+              "number": 98,
+              "sentMs": 1960.06408,
+              "receivedMs": 2022.327124,
+              "rttMs": 62.263044
+            },
+            {
+              "number": 100,
+              "sentMs": 2000.070209,
+              "receivedMs": 2067.748364,
+              "rttMs": 67.678155
+            },
+            {
+              "number": 101,
+              "sentMs": 2020.066347,
+              "receivedMs": 2095.247398,
+              "rttMs": 75.181051
+            },
+            {
+              "number": 102,
+              "sentMs": 2040.06544,
+              "receivedMs": 2115.269209,
+              "rttMs": 75.203769
+            },
+            {
+              "number": 103,
+              "sentMs": 2060.065129,
+              "receivedMs": 2127.554889,
+              "rttMs": 67.48976
+            },
+            {
+              "number": 104,
+              "sentMs": 2080.063651,
+              "receivedMs": 2154.637419,
+              "rttMs": 74.573768
+            },
+            {
+              "number": 105,
+              "sentMs": 2100.06427,
+              "receivedMs": 2167.469469,
+              "rttMs": 67.405199
+            },
+            {
+              "number": 106,
+              "sentMs": 2120.067016,
+              "receivedMs": 2198.697482,
+              "rttMs": 78.630466
+            },
+            {
+              "number": 107,
+              "sentMs": 2140.065125,
+              "receivedMs": 2213.85092,
+              "rttMs": 73.785795
+            },
+            {
+              "number": 108,
+              "sentMs": 2160.066493,
+              "receivedMs": 2229.408624,
+              "rttMs": 69.342131
+            },
+            {
+              "number": 109,
+              "sentMs": 2180.064107,
+              "receivedMs": 2240.346943,
+              "rttMs": 60.282836
+            },
+            {
+              "number": 111,
+              "sentMs": 2220.072284,
+              "receivedMs": 2285.760688,
+              "rttMs": 65.688404
+            },
+            {
+              "number": 112,
+              "sentMs": 2240.057656,
+              "receivedMs": 2305.717882,
+              "rttMs": 65.660226
+            },
+            {
+              "number": 113,
+              "sentMs": 2260.06295,
+              "receivedMs": 2328.880492,
+              "rttMs": 68.817542
+            },
+            {
+              "number": 114,
+              "sentMs": 2280.066052,
+              "receivedMs": 2352.86285,
+              "rttMs": 72.796798
+            },
+            {
+              "number": 115,
+              "sentMs": 2300.062758,
+              "receivedMs": 2362.383255,
+              "rttMs": 62.320497
+            },
+            {
+              "number": 116,
+              "sentMs": 2320.058565,
+              "receivedMs": 2396.253278,
+              "rttMs": 76.194713
+            },
+            {
+              "number": 117,
+              "sentMs": 2340.057327,
+              "receivedMs": 2407.273877,
+              "rttMs": 67.21655
+            },
+            {
+              "number": 118,
+              "sentMs": 2360.05457,
+              "receivedMs": 2421.849104,
+              "rttMs": 61.794534
+            },
+            {
+              "number": 119,
+              "sentMs": 2380.055351,
+              "receivedMs": 2458.486784,
+              "rttMs": 78.431433
+            },
+            {
+              "number": 120,
+              "sentMs": 2400.066135,
+              "receivedMs": 2469.03193,
+              "rttMs": 68.965795
+            },
+            {
+              "number": 121,
+              "sentMs": 2420.066407,
+              "receivedMs": 2479.926546,
+              "rttMs": 59.860139
+            },
+            {
+              "number": 122,
+              "sentMs": 2440.065105,
+              "receivedMs": 2498.731448,
+              "rttMs": 58.666343
+            },
+            {
+              "number": 123,
+              "sentMs": 2460.064388,
+              "receivedMs": 2538.761431,
+              "rttMs": 78.697043
+            },
+            {
+              "number": 124,
+              "sentMs": 2480.061426,
+              "receivedMs": 2545.823285,
+              "rttMs": 65.761859
+            },
+            {
+              "number": 125,
+              "sentMs": 2500.060496,
+              "receivedMs": 2568.743359,
+              "rttMs": 68.682863
+            },
+            {
+              "number": 126,
+              "sentMs": 2520.085253,
+              "receivedMs": 2587.075395,
+              "rttMs": 66.990142
+            },
+            {
+              "number": 127,
+              "sentMs": 2540.060134,
+              "receivedMs": 2606.526981,
+              "rttMs": 66.466847
+            },
+            {
+              "number": 128,
+              "sentMs": 2560.071375,
+              "receivedMs": 2624.639717,
+              "rttMs": 64.568342
+            },
+            {
+              "number": 129,
+              "sentMs": 2580.084504,
+              "receivedMs": 2656.26376,
+              "rttMs": 76.179256
+            },
+            {
+              "number": 130,
+              "sentMs": 2600.057355,
+              "receivedMs": 2672.190601,
+              "rttMs": 72.133246
+            },
+            {
+              "number": 131,
+              "sentMs": 2620.065471,
+              "receivedMs": 2678.136331,
+              "rttMs": 58.07086
+            },
+            {
+              "number": 132,
+              "sentMs": 2640.065212,
+              "receivedMs": 2710.007948,
+              "rttMs": 69.942736
+            },
+            {
+              "number": 133,
+              "sentMs": 2660.065891,
+              "receivedMs": 2720.748672,
+              "rttMs": 60.682781
+            },
+            {
+              "number": 134,
+              "sentMs": 2680.072793,
+              "receivedMs": 2740.96234,
+              "rttMs": 60.889547
+            },
+            {
+              "number": 135,
+              "sentMs": 2700.068689,
+              "receivedMs": 2778.944841,
+              "rttMs": 78.876152
+            },
+            {
+              "number": 136,
+              "sentMs": 2720.065319,
+              "receivedMs": 2786.11694,
+              "rttMs": 66.051621
+            },
+            {
+              "number": 137,
+              "sentMs": 2740.065752,
+              "receivedMs": 2814.598667,
+              "rttMs": 74.532915
+            },
+            {
+              "number": 138,
+              "sentMs": 2760.062644,
+              "receivedMs": 2827.637353,
+              "rttMs": 67.574709
+            },
+            {
+              "number": 139,
+              "sentMs": 2780.088511,
+              "receivedMs": 2848.689043,
+              "rttMs": 68.600532
+            },
+            {
+              "number": 140,
+              "sentMs": 2800.065839,
+              "receivedMs": 2879.397558,
+              "rttMs": 79.331719
+            },
+            {
+              "number": 141,
+              "sentMs": 2820.065036,
+              "receivedMs": 2896.111183,
+              "rttMs": 76.046147
+            },
+            {
+              "number": 142,
+              "sentMs": 2840.065334,
+              "receivedMs": 2915.530485,
+              "rttMs": 75.465151
+            },
+            {
+              "number": 143,
+              "sentMs": 2860.066453,
+              "receivedMs": 2929.670456,
+              "rttMs": 69.604003
+            },
+            {
+              "number": 144,
+              "sentMs": 2880.065204,
+              "receivedMs": 2956.17694,
+              "rttMs": 76.111736
+            },
+            {
+              "number": 145,
+              "sentMs": 2900.064728,
+              "receivedMs": 2971.036207,
+              "rttMs": 70.971479
+            },
+            {
+              "number": 146,
+              "sentMs": 2920.070082,
+              "receivedMs": 2994.177708,
+              "rttMs": 74.107626
+            },
+            {
+              "number": 147,
+              "sentMs": 2940.065643,
+              "receivedMs": 3013.47967,
+              "rttMs": 73.414027
+            },
+            {
+              "number": 149,
+              "sentMs": 2980.055993,
+              "receivedMs": 3041.38904,
+              "rttMs": 61.333047
+            },
+            {
+              "number": 150,
+              "sentMs": 3000.055142,
+              "receivedMs": 3067.0015,
+              "rttMs": 66.946358
+            },
+            {
+              "number": 151,
+              "sentMs": 3020.06729,
+              "receivedMs": 3084.740479,
+              "rttMs": 64.673189
+            },
+            {
+              "number": 152,
+              "sentMs": 3040.066683,
+              "receivedMs": 3099.695832,
+              "rttMs": 59.629149
+            },
+            {
+              "number": 153,
+              "sentMs": 3060.075553,
+              "receivedMs": 3140.655694,
+              "rttMs": 80.580141
+            },
+            {
+              "number": 154,
+              "sentMs": 3080.068716,
+              "receivedMs": 3152.291215,
+              "rttMs": 72.222499
+            },
+            {
+              "number": 155,
+              "sentMs": 3100.056873,
+              "receivedMs": 3169.68067,
+              "rttMs": 69.623797
+            },
+            {
+              "number": 156,
+              "sentMs": 3120.058177,
+              "receivedMs": 3182.416106,
+              "rttMs": 62.357929
+            },
+            {
+              "number": 157,
+              "sentMs": 3140.069384,
+              "receivedMs": 3214.973849,
+              "rttMs": 74.904465
+            },
+            {
+              "number": 158,
+              "sentMs": 3160.054573,
+              "receivedMs": 3224.821109,
+              "rttMs": 64.766536
+            },
+            {
+              "number": 159,
+              "sentMs": 3180.055728,
+              "receivedMs": 3247.443507,
+              "rttMs": 67.387779
+            }
+          ],
+          "errors": [],
+          "controller": [
+            {
+              "type": "ready"
+            },
+            {
+              "type": "done"
+            }
+          ],
+          "configuration": [
+            "qdisc add dev ifb-netbench root handle 1: prio bands 3 priomap 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1",
+            "qdisc add dev ifb-netbench parent 1:1 handle 20: netem limit 100000 delay 35ms 7ms loss 3% rate 100000kbit seed 104729",
+            "qdisc add dev ifb-netbench parent 20:1 handle 21: pfifo limit 100000",
+            "qdisc add dev ifb-netbench parent 1:2 handle 30: netem limit 100000 delay 35ms 7ms loss 3% rate 100000kbit seed 104730",
+            "qdisc add dev ifb-netbench parent 30:1 handle 31: pfifo limit 100000",
+            "filter add dev ifb-netbench parent 1: protocol ip pref 10 u32 match ip sport 4410 0xffff flowid 1:1",
+            "filter add dev lo ingress protocol ip pref 30 matchall action mirred egress redirect dev ifb-netbench"
+          ]
+        },
+        {
+          "profile": "burst-loss",
+          "type": "result",
+          "sent": 160,
+          "echoes": [
+            {
+              "number": 0,
+              "sentMs": 0.131859,
+              "receivedMs": 58.906283,
+              "rttMs": 58.774424
+            },
+            {
+              "number": 1,
+              "sentMs": 20.062189,
+              "receivedMs": 94.434537,
+              "rttMs": 74.372348
+            },
+            {
+              "number": 2,
+              "sentMs": 40.058981,
+              "receivedMs": 111.709136,
+              "rttMs": 71.650155
+            },
+            {
+              "number": 3,
+              "sentMs": 60.055109,
+              "receivedMs": 122.312937,
+              "rttMs": 62.257828
+            },
+            {
+              "number": 4,
+              "sentMs": 80.056426,
+              "receivedMs": 153.152275,
+              "rttMs": 73.095849
+            },
+            {
+              "number": 5,
+              "sentMs": 100.055521,
+              "receivedMs": 180.334984,
+              "rttMs": 80.279463
+            },
+            {
+              "number": 6,
+              "sentMs": 120.055556,
+              "receivedMs": 183.818764,
+              "rttMs": 63.763208
+            },
+            {
+              "number": 7,
+              "sentMs": 140.05521,
+              "receivedMs": 211.347511,
+              "rttMs": 71.292301
+            },
+            {
+              "number": 8,
+              "sentMs": 160.056309,
+              "receivedMs": 236.637867,
+              "rttMs": 76.581558
+            },
+            {
+              "number": 9,
+              "sentMs": 180.067111,
+              "receivedMs": 249.572237,
+              "rttMs": 69.505126
+            },
+            {
+              "number": 10,
+              "sentMs": 200.060652,
+              "receivedMs": 263.120944,
+              "rttMs": 63.060292
+            },
+            {
+              "number": 11,
+              "sentMs": 220.058978,
+              "receivedMs": 288.056153,
+              "rttMs": 67.997175
+            },
+            {
+              "number": 12,
+              "sentMs": 240.065411,
+              "receivedMs": 321.861397,
+              "rttMs": 81.795986
+            },
+            {
+              "number": 13,
+              "sentMs": 260.066044,
+              "receivedMs": 327.400516,
+              "rttMs": 67.334472
+            },
+            {
+              "number": 14,
+              "sentMs": 280.06694,
+              "receivedMs": 352.959171,
+              "rttMs": 72.892231
+            },
+            {
+              "number": 15,
+              "sentMs": 300.067339,
+              "receivedMs": 365.448312,
+              "rttMs": 65.380973
+            },
+            {
+              "number": 16,
+              "sentMs": 320.065801,
+              "receivedMs": 395.890776,
+              "rttMs": 75.824975
+            },
+            {
+              "number": 17,
+              "sentMs": 340.063234,
+              "receivedMs": 408.96682,
+              "rttMs": 68.903586
+            },
+            {
+              "number": 18,
+              "sentMs": 360.054838,
+              "receivedMs": 436.987211,
+              "rttMs": 76.932373
+            },
+            {
+              "number": 19,
+              "sentMs": 380.055241,
+              "receivedMs": 449.449619,
+              "rttMs": 69.394378
+            },
+            {
+              "number": 20,
+              "sentMs": 400.062379,
+              "receivedMs": 462.284952,
+              "rttMs": 62.222573
+            },
+            {
+              "number": 21,
+              "sentMs": 420.06426,
+              "receivedMs": 482.001418,
+              "rttMs": 61.937158
+            },
+            {
+              "number": 22,
+              "sentMs": 440.06508,
+              "receivedMs": 509.110218,
+              "rttMs": 69.045138
+            },
+            {
+              "number": 23,
+              "sentMs": 460.067812,
+              "receivedMs": 524.96821,
+              "rttMs": 64.900398
+            },
+            {
+              "number": 24,
+              "sentMs": 480.063972,
+              "receivedMs": 554.094991,
+              "rttMs": 74.031019
+            },
+            {
+              "number": 25,
+              "sentMs": 500.064595,
+              "receivedMs": 566.845349,
+              "rttMs": 66.780754
+            },
+            {
+              "number": 26,
+              "sentMs": 520.06412,
+              "receivedMs": 594.110967,
+              "rttMs": 74.046847
+            },
+            {
+              "number": 27,
+              "sentMs": 540.060103,
+              "receivedMs": 603.065568,
+              "rttMs": 63.005465
+            },
+            {
+              "number": 28,
+              "sentMs": 560.071889,
+              "receivedMs": 639.358653,
+              "rttMs": 79.286764
+            },
+            {
+              "number": 30,
+              "sentMs": 600.086669,
+              "receivedMs": 667.650029,
+              "rttMs": 67.56336
+            },
+            {
+              "number": 31,
+              "sentMs": 620.060441,
+              "receivedMs": 697.507903,
+              "rttMs": 77.447462
+            },
+            {
+              "number": 32,
+              "sentMs": 640.064706,
+              "receivedMs": 716.940445,
+              "rttMs": 76.875739
+            },
+            {
+              "number": 33,
+              "sentMs": 660.066446,
+              "receivedMs": 726.640966,
+              "rttMs": 66.57452
+            },
+            {
+              "number": 34,
+              "sentMs": 680.064425,
+              "receivedMs": 746.307573,
+              "rttMs": 66.243148
+            },
+            {
+              "number": 35,
+              "sentMs": 700.057329,
+              "receivedMs": 763.309497,
+              "rttMs": 63.252168
+            },
+            {
+              "number": 36,
+              "sentMs": 720.055673,
+              "receivedMs": 790.255012,
+              "rttMs": 70.199339
+            },
+            {
+              "number": 37,
+              "sentMs": 740.057477,
+              "receivedMs": 817.771958,
+              "rttMs": 77.714481
+            },
+            {
+              "number": 38,
+              "sentMs": 760.056091,
+              "receivedMs": 839.748953,
+              "rttMs": 79.692862
+            },
+            {
+              "number": 39,
+              "sentMs": 780.062322,
+              "receivedMs": 850.570511,
+              "rttMs": 70.508189
+            },
+            {
+              "number": 40,
+              "sentMs": 800.05667,
+              "receivedMs": 875.518103,
+              "rttMs": 75.461433
+            },
+            {
+              "number": 41,
+              "sentMs": 820.056693,
+              "receivedMs": 890.270647,
+              "rttMs": 70.213954
+            },
+            {
+              "number": 42,
+              "sentMs": 840.054365,
+              "receivedMs": 911.625815,
+              "rttMs": 71.57145
+            },
+            {
+              "number": 43,
+              "sentMs": 860.056153,
+              "receivedMs": 929.019658,
+              "rttMs": 68.963505
+            },
+            {
+              "number": 44,
+              "sentMs": 880.055542,
+              "receivedMs": 951.642992,
+              "rttMs": 71.58745
+            },
+            {
+              "number": 45,
+              "sentMs": 900.060308,
+              "receivedMs": 974.226757,
+              "rttMs": 74.166449
+            },
+            {
+              "number": 46,
+              "sentMs": 920.055869,
+              "receivedMs": 980.952741,
+              "rttMs": 60.896872
+            },
+            {
+              "number": 47,
+              "sentMs": 940.05495,
+              "receivedMs": 1016.855766,
+              "rttMs": 76.800816
+            },
+            {
+              "number": 48,
+              "sentMs": 960.065191,
+              "receivedMs": 1024.051245,
+              "rttMs": 63.986054
+            },
+            {
+              "number": 49,
+              "sentMs": 980.064443,
+              "receivedMs": 1042.485806,
+              "rttMs": 62.421363
+            },
+            {
+              "number": 50,
+              "sentMs": 1000.064368,
+              "receivedMs": 1059.677326,
+              "rttMs": 59.612958
+            },
+            {
+              "number": 51,
+              "sentMs": 1020.061002,
+              "receivedMs": 1093.290791,
+              "rttMs": 73.229789
+            },
+            {
+              "number": 52,
+              "sentMs": 1040.055458,
+              "receivedMs": 1121.077784,
+              "rttMs": 81.022326
+            },
+            {
+              "number": 53,
+              "sentMs": 1060.056871,
+              "receivedMs": 1128.187971,
+              "rttMs": 68.1311
+            },
+            {
+              "number": 54,
+              "sentMs": 1080.060429,
+              "receivedMs": 1142.942759,
+              "rttMs": 62.88233
+            },
+            {
+              "number": 55,
+              "sentMs": 1100.054849,
+              "receivedMs": 1175.029295,
+              "rttMs": 74.974446
+            },
+            {
+              "number": 56,
+              "sentMs": 1120.055177,
+              "receivedMs": 1192.501823,
+              "rttMs": 72.446646
+            },
+            {
+              "number": 57,
+              "sentMs": 1140.0552,
+              "receivedMs": 1216.040199,
+              "rttMs": 75.984999
+            },
+            {
+              "number": 58,
+              "sentMs": 1160.055358,
+              "receivedMs": 1225.44343,
+              "rttMs": 65.388072
+            },
+            {
+              "number": 59,
+              "sentMs": 1180.056217,
+              "receivedMs": 1256.918084,
+              "rttMs": 76.861867
+            },
+            {
+              "number": 60,
+              "sentMs": 1200.058762,
+              "receivedMs": 1271.568299,
+              "rttMs": 71.509537
+            },
+            {
+              "number": 61,
+              "sentMs": 1220.056034,
+              "receivedMs": 1289.423754,
+              "rttMs": 69.36772
+            },
+            {
+              "number": 62,
+              "sentMs": 1240.054725,
+              "receivedMs": 1316.004448,
+              "rttMs": 75.949723
+            },
+            {
+              "number": 63,
+              "sentMs": 1260.060823,
+              "receivedMs": 1337.487126,
+              "rttMs": 77.426303
+            },
+            {
+              "number": 64,
+              "sentMs": 1280.054406,
+              "receivedMs": 1342.150726,
+              "rttMs": 62.09632
+            },
+            {
+              "number": 65,
+              "sentMs": 1300.055286,
+              "receivedMs": 1370.08939,
+              "rttMs": 70.034104
+            },
+            {
+              "number": 66,
+              "sentMs": 1320.05489,
+              "receivedMs": 1394.828986,
+              "rttMs": 74.774096
+            },
+            {
+              "number": 67,
+              "sentMs": 1340.055152,
+              "receivedMs": 1411.914779,
+              "rttMs": 71.859627
+            },
+            {
+              "number": 68,
+              "sentMs": 1360.055821,
+              "receivedMs": 1424.663319,
+              "rttMs": 64.607498
+            },
+            {
+              "number": 69,
+              "sentMs": 1380.05434,
+              "receivedMs": 1449.500879,
+              "rttMs": 69.446539
+            },
+            {
+              "number": 70,
+              "sentMs": 1400.055033,
+              "receivedMs": 1461.477169,
+              "rttMs": 61.422136
+            },
+            {
+              "number": 71,
+              "sentMs": 1420.055354,
+              "receivedMs": 1490.893596,
+              "rttMs": 70.838242
+            },
+            {
+              "number": 72,
+              "sentMs": 1440.055614,
+              "receivedMs": 1506.401156,
+              "rttMs": 66.345542
+            },
+            {
+              "number": 73,
+              "sentMs": 1460.055423,
+              "receivedMs": 1521.840256,
+              "rttMs": 61.784833
+            },
+            {
+              "number": 74,
+              "sentMs": 1480.055314,
+              "receivedMs": 1551.076374,
+              "rttMs": 71.02106
+            },
+            {
+              "number": 75,
+              "sentMs": 1500.055288,
+              "receivedMs": 1575.903127,
+              "rttMs": 75.847839
+            },
+            {
+              "number": 77,
+              "sentMs": 1540.056475,
+              "receivedMs": 1608.726338,
+              "rttMs": 68.669863
+            },
+            {
+              "number": 78,
+              "sentMs": 1560.05531,
+              "receivedMs": 1625.303529,
+              "rttMs": 65.248219
+            },
+            {
+              "number": 79,
+              "sentMs": 1580.054999,
+              "receivedMs": 1651.497115,
+              "rttMs": 71.442116
+            },
+            {
+              "number": 80,
+              "sentMs": 1600.054469,
+              "receivedMs": 1660.6951,
+              "rttMs": 60.640631
+            },
+            {
+              "number": 81,
+              "sentMs": 1620.062219,
+              "receivedMs": 1679.121346,
+              "rttMs": 59.059127
+            },
+            {
+              "number": 82,
+              "sentMs": 1640.055927,
+              "receivedMs": 1716.449953,
+              "rttMs": 76.394026
+            },
+            {
+              "number": 83,
+              "sentMs": 1660.064423,
+              "receivedMs": 1734.914036,
+              "rttMs": 74.849613
+            },
+            {
+              "number": 84,
+              "sentMs": 1680.057503,
+              "receivedMs": 1742.122171,
+              "rttMs": 62.064668
+            },
+            {
+              "number": 85,
+              "sentMs": 1700.05776,
+              "receivedMs": 1774.274725,
+              "rttMs": 74.216965
+            },
+            {
+              "number": 86,
+              "sentMs": 1720.055421,
+              "receivedMs": 1784.338687,
+              "rttMs": 64.283266
+            },
+            {
+              "number": 87,
+              "sentMs": 1740.055408,
+              "receivedMs": 1798.907384,
+              "rttMs": 58.851976
+            },
+            {
+              "number": 88,
+              "sentMs": 1760.056022,
+              "receivedMs": 1824.170816,
+              "rttMs": 64.114794
+            },
+            {
+              "number": 92,
+              "sentMs": 1840.065158,
+              "receivedMs": 1905.889581,
+              "rttMs": 65.824423
+            },
+            {
+              "number": 93,
+              "sentMs": 1860.065737,
+              "receivedMs": 1927.488311,
+              "rttMs": 67.422574
+            },
+            {
+              "number": 94,
+              "sentMs": 1880.068823,
+              "receivedMs": 1946.422873,
+              "rttMs": 66.35405
+            },
+            {
+              "number": 95,
+              "sentMs": 1900.068016,
+              "receivedMs": 1974.750329,
+              "rttMs": 74.682313
+            },
+            {
+              "number": 96,
+              "sentMs": 1920.065395,
+              "receivedMs": 1998.677684,
+              "rttMs": 78.612289
+            },
+            {
+              "number": 97,
+              "sentMs": 1940.061029,
+              "receivedMs": 2020.506214,
+              "rttMs": 80.445185
+            },
+            {
+              "number": 98,
+              "sentMs": 1960.068437,
+              "receivedMs": 2020.51378,
+              "rttMs": 60.445343
+            },
+            {
+              "number": 99,
+              "sentMs": 1980.060478,
+              "receivedMs": 2042.741557,
+              "rttMs": 62.681079
+            },
+            {
+              "number": 100,
+              "sentMs": 2000.064412,
+              "receivedMs": 2067.802895,
+              "rttMs": 67.738483
+            },
+            {
+              "number": 101,
+              "sentMs": 2020.080972,
+              "receivedMs": 2097.282433,
+              "rttMs": 77.201461
+            },
+            {
+              "number": 102,
+              "sentMs": 2040.089852,
+              "receivedMs": 2108.742586,
+              "rttMs": 68.652734
+            },
+            {
+              "number": 103,
+              "sentMs": 2060.058723,
+              "receivedMs": 2126.945945,
+              "rttMs": 66.887222
+            },
+            {
+              "number": 104,
+              "sentMs": 2080.054972,
+              "receivedMs": 2138.494078,
+              "rttMs": 58.439106
+            },
+            {
+              "number": 105,
+              "sentMs": 2100.066222,
+              "receivedMs": 2171.488336,
+              "rttMs": 71.422114
+            },
+            {
+              "number": 106,
+              "sentMs": 2120.064993,
+              "receivedMs": 2186.560588,
+              "rttMs": 66.495595
+            },
+            {
+              "number": 107,
+              "sentMs": 2140.057102,
+              "receivedMs": 2209.615368,
+              "rttMs": 69.558266
+            },
+            {
+              "number": 108,
+              "sentMs": 2160.055938,
+              "receivedMs": 2226.20637,
+              "rttMs": 66.150432
+            },
+            {
+              "number": 109,
+              "sentMs": 2180.055347,
+              "receivedMs": 2242.699701,
+              "rttMs": 62.644354
+            },
+            {
+              "number": 110,
+              "sentMs": 2200.054494,
+              "receivedMs": 2271.171916,
+              "rttMs": 71.117422
+            },
+            {
+              "number": 111,
+              "sentMs": 2220.056335,
+              "receivedMs": 2289.805299,
+              "rttMs": 69.748964
+            },
+            {
+              "number": 112,
+              "sentMs": 2240.058605,
+              "receivedMs": 2313.376354,
+              "rttMs": 73.317749
+            },
+            {
+              "number": 113,
+              "sentMs": 2260.055359,
+              "receivedMs": 2324.567694,
+              "rttMs": 64.512335
+            },
+            {
+              "number": 114,
+              "sentMs": 2280.063112,
+              "receivedMs": 2347.870277,
+              "rttMs": 67.807165
+            },
+            {
+              "number": 115,
+              "sentMs": 2300.06457,
+              "receivedMs": 2371.443138,
+              "rttMs": 71.378568
+            },
+            {
+              "number": 116,
+              "sentMs": 2320.07091,
+              "receivedMs": 2383.000537,
+              "rttMs": 62.929627
+            },
+            {
+              "number": 117,
+              "sentMs": 2340.06222,
+              "receivedMs": 2398.41011,
+              "rttMs": 58.34789
+            },
+            {
+              "number": 118,
+              "sentMs": 2360.055797,
+              "receivedMs": 2437.995367,
+              "rttMs": 77.93957
+            },
+            {
+              "number": 119,
+              "sentMs": 2380.062745,
+              "receivedMs": 2453.666721,
+              "rttMs": 73.603976
+            },
+            {
+              "number": 120,
+              "sentMs": 2400.064268,
+              "receivedMs": 2471.917124,
+              "rttMs": 71.852856
+            },
+            {
+              "number": 121,
+              "sentMs": 2420.065753,
+              "receivedMs": 2491.016431,
+              "rttMs": 70.950678
+            },
+            {
+              "number": 122,
+              "sentMs": 2440.055926,
+              "receivedMs": 2514.907097,
+              "rttMs": 74.851171
+            },
+            {
+              "number": 123,
+              "sentMs": 2460.056368,
+              "receivedMs": 2532.181558,
+              "rttMs": 72.12519
+            },
+            {
+              "number": 124,
+              "sentMs": 2480.054922,
+              "receivedMs": 2558.20962,
+              "rttMs": 78.154698
+            },
+            {
+              "number": 125,
+              "sentMs": 2500.059153,
+              "receivedMs": 2570.709256,
+              "rttMs": 70.650103
+            },
+            {
+              "number": 126,
+              "sentMs": 2520.054956,
+              "receivedMs": 2598.409682,
+              "rttMs": 78.354726
+            },
+            {
+              "number": 127,
+              "sentMs": 2540.057831,
+              "receivedMs": 2609.741832,
+              "rttMs": 69.684001
+            },
+            {
+              "number": 128,
+              "sentMs": 2560.055074,
+              "receivedMs": 2632.27203,
+              "rttMs": 72.216956
+            },
+            {
+              "number": 129,
+              "sentMs": 2580.05519,
+              "receivedMs": 2662.192022,
+              "rttMs": 82.136832
+            },
+            {
+              "number": 130,
+              "sentMs": 2600.060584,
+              "receivedMs": 2662.198427,
+              "rttMs": 62.137843
+            },
+            {
+              "number": 131,
+              "sentMs": 2620.055012,
+              "receivedMs": 2690.377799,
+              "rttMs": 70.322787
+            },
+            {
+              "number": 132,
+              "sentMs": 2640.055376,
+              "receivedMs": 2703.817263,
+              "rttMs": 63.761887
+            },
+            {
+              "number": 133,
+              "sentMs": 2660.056475,
+              "receivedMs": 2734.603351,
+              "rttMs": 74.546876
+            },
+            {
+              "number": 134,
+              "sentMs": 2680.055497,
+              "receivedMs": 2753.755771,
+              "rttMs": 73.700274
+            },
+            {
+              "number": 135,
+              "sentMs": 2700.054763,
+              "receivedMs": 2767.960912,
+              "rttMs": 67.906149
+            },
+            {
+              "number": 136,
+              "sentMs": 2720.058315,
+              "receivedMs": 2779.00027,
+              "rttMs": 58.941955
+            },
+            {
+              "number": 137,
+              "sentMs": 2740.055609,
+              "receivedMs": 2804.669199,
+              "rttMs": 64.61359
+            },
+            {
+              "number": 138,
+              "sentMs": 2760.054502,
+              "receivedMs": 2839.843031,
+              "rttMs": 79.788529
+            },
+            {
+              "number": 139,
+              "sentMs": 2780.054539,
+              "receivedMs": 2856.452069,
+              "rttMs": 76.39753
+            },
+            {
+              "number": 140,
+              "sentMs": 2800.060707,
+              "receivedMs": 2872.558942,
+              "rttMs": 72.498235
+            },
+            {
+              "number": 141,
+              "sentMs": 2820.058015,
+              "receivedMs": 2885.678417,
+              "rttMs": 65.620402
+            },
+            {
+              "number": 142,
+              "sentMs": 2840.056735,
+              "receivedMs": 2903.095964,
+              "rttMs": 63.039229
+            },
+            {
+              "number": 143,
+              "sentMs": 2860.054987,
+              "receivedMs": 2920.406105,
+              "rttMs": 60.351118
+            },
+            {
+              "number": 144,
+              "sentMs": 2880.054919,
+              "receivedMs": 2952.668052,
+              "rttMs": 72.613133
+            },
+            {
+              "number": 145,
+              "sentMs": 2900.062053,
+              "receivedMs": 2975.935856,
+              "rttMs": 75.873803
+            },
+            {
+              "number": 146,
+              "sentMs": 2920.056227,
+              "receivedMs": 2982.418342,
+              "rttMs": 62.362115
+            },
+            {
+              "number": 147,
+              "sentMs": 2940.057555,
+              "receivedMs": 3011.461372,
+              "rttMs": 71.403817
+            },
+            {
+              "number": 148,
+              "sentMs": 2960.055612,
+              "receivedMs": 3023.054753,
+              "rttMs": 62.999141
+            },
+            {
+              "number": 149,
+              "sentMs": 2980.055201,
+              "receivedMs": 3047.508302,
+              "rttMs": 67.453101
+            },
+            {
+              "number": 150,
+              "sentMs": 3000.055179,
+              "receivedMs": 3073.166297,
+              "rttMs": 73.111118
+            },
+            {
+              "number": 151,
+              "sentMs": 3020.054787,
+              "receivedMs": 3094.492129,
+              "rttMs": 74.437342
+            },
+            {
+              "number": 152,
+              "sentMs": 3040.056476,
+              "receivedMs": 3109.08947,
+              "rttMs": 69.032994
+            },
+            {
+              "number": 153,
+              "sentMs": 3060.055696,
+              "receivedMs": 3134.239631,
+              "rttMs": 74.183935
+            },
+            {
+              "number": 156,
+              "sentMs": 3120.056859,
+              "receivedMs": 3190.795824,
+              "rttMs": 70.738965
+            }
+          ],
+          "errors": [],
+          "controller": [
+            {
+              "type": "ready"
+            },
+            {
+              "type": "done"
+            }
+          ],
+          "configuration": [
+            "qdisc add dev ifb-netbench root handle 1: prio bands 3 priomap 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1",
+            "qdisc add dev ifb-netbench parent 1:1 handle 20: netem limit 100000 delay 35ms 7ms loss gemodel 1% 25% rate 100000kbit seed 104729",
+            "qdisc add dev ifb-netbench parent 20:1 handle 21: pfifo limit 100000",
+            "qdisc add dev ifb-netbench parent 1:2 handle 30: netem limit 100000 delay 35ms 7ms loss gemodel 1% 25% rate 100000kbit seed 104730",
+            "qdisc add dev ifb-netbench parent 30:1 handle 31: pfifo limit 100000",
+            "filter add dev ifb-netbench parent 1: protocol ip pref 10 u32 match ip sport 4410 0xffff flowid 1:1",
+            "filter add dev lo ingress protocol ip pref 30 matchall action mirred egress redirect dev ifb-netbench"
+          ]
+        },
+        {
+          "profile": "constrained",
+          "type": "result",
+          "sent": 160,
+          "echoes": [
+            {
+              "number": 0,
+              "sentMs": 0.108559,
+              "receivedMs": 74.746116,
+              "rttMs": 74.637557
+            },
+            {
+              "number": 1,
+              "sentMs": 20.068631,
+              "receivedMs": 88.285111,
+              "rttMs": 68.21648
+            },
+            {
+              "number": 2,
+              "sentMs": 40.067213,
+              "receivedMs": 102.166875,
+              "rttMs": 62.099662
+            },
+            {
+              "number": 3,
+              "sentMs": 60.076931,
+              "receivedMs": 130.056635,
+              "rttMs": 69.979704
+            },
+            {
+              "number": 4,
+              "sentMs": 80.066659,
+              "receivedMs": 152.834076,
+              "rttMs": 72.767417
+            },
+            {
+              "number": 5,
+              "sentMs": 100.065852,
+              "receivedMs": 177.775317,
+              "rttMs": 77.709465
+            },
+            {
+              "number": 6,
+              "sentMs": 120.064024,
+              "receivedMs": 190.98565,
+              "rttMs": 70.921626
+            },
+            {
+              "number": 7,
+              "sentMs": 140.060157,
+              "receivedMs": 218.913675,
+              "rttMs": 78.853518
+            },
+            {
+              "number": 8,
+              "sentMs": 160.056282,
+              "receivedMs": 235.047736,
+              "rttMs": 74.991454
+            },
+            {
+              "number": 9,
+              "sentMs": 180.054581,
+              "receivedMs": 262.0618,
+              "rttMs": 82.007219
+            },
+            {
+              "number": 10,
+              "sentMs": 200.061427,
+              "receivedMs": 265.978922,
+              "rttMs": 65.917495
+            },
+            {
+              "number": 11,
+              "sentMs": 220.053735,
+              "receivedMs": 285.637307,
+              "rttMs": 65.583572
+            },
+            {
+              "number": 12,
+              "sentMs": 240.054933,
+              "receivedMs": 317.660992,
+              "rttMs": 77.606059
+            },
+            {
+              "number": 13,
+              "sentMs": 260.05532,
+              "receivedMs": 334.099073,
+              "rttMs": 74.043753
+            },
+            {
+              "number": 14,
+              "sentMs": 280.054287,
+              "receivedMs": 356.49069,
+              "rttMs": 76.436403
+            },
+            {
+              "number": 15,
+              "sentMs": 300.054188,
+              "receivedMs": 372.372217,
+              "rttMs": 72.318029
+            },
+            {
+              "number": 16,
+              "sentMs": 320.054406,
+              "receivedMs": 392.453198,
+              "rttMs": 72.398792
+            },
+            {
+              "number": 17,
+              "sentMs": 340.056596,
+              "receivedMs": 423.667284,
+              "rttMs": 83.610688
+            },
+            {
+              "number": 18,
+              "sentMs": 360.05406,
+              "receivedMs": 431.619758,
+              "rttMs": 71.565698
+            },
+            {
+              "number": 19,
+              "sentMs": 380.057725,
+              "receivedMs": 440.653118,
+              "rttMs": 60.595393
+            },
+            {
+              "number": 20,
+              "sentMs": 400.054704,
+              "receivedMs": 467.156928,
+              "rttMs": 67.102224
+            },
+            {
+              "number": 21,
+              "sentMs": 420.055385,
+              "receivedMs": 494.45654,
+              "rttMs": 74.401155
+            },
+            {
+              "number": 22,
+              "sentMs": 440.064126,
+              "receivedMs": 506.567181,
+              "rttMs": 66.503055
+            },
+            {
+              "number": 23,
+              "sentMs": 460.054695,
+              "receivedMs": 534.710036,
+              "rttMs": 74.655341
+            },
+            {
+              "number": 24,
+              "sentMs": 480.057824,
+              "receivedMs": 547.775424,
+              "rttMs": 67.7176
+            },
+            {
+              "number": 25,
+              "sentMs": 500.062598,
+              "receivedMs": 570.846265,
+              "rttMs": 70.783667
+            },
+            {
+              "number": 26,
+              "sentMs": 520.064153,
+              "receivedMs": 600.10776,
+              "rttMs": 80.043607
+            },
+            {
+              "number": 27,
+              "sentMs": 540.070021,
+              "receivedMs": 612.433194,
+              "rttMs": 72.363173
+            },
+            {
+              "number": 28,
+              "sentMs": 560.083312,
+              "receivedMs": 638.521213,
+              "rttMs": 78.437901
+            },
+            {
+              "number": 29,
+              "sentMs": 580.09329,
+              "receivedMs": 652.964865,
+              "rttMs": 72.871575
+            },
+            {
+              "number": 30,
+              "sentMs": 600.115324,
+              "receivedMs": 682.469946,
+              "rttMs": 82.354622
+            },
+            {
+              "number": 31,
+              "sentMs": 620.08735,
+              "receivedMs": 695.086973,
+              "rttMs": 74.999623
+            },
+            {
+              "number": 32,
+              "sentMs": 640.061086,
+              "receivedMs": 706.450127,
+              "rttMs": 66.389041
+            },
+            {
+              "number": 33,
+              "sentMs": 660.060959,
+              "receivedMs": 726.840679,
+              "rttMs": 66.77972
+            },
+            {
+              "number": 34,
+              "sentMs": 680.066544,
+              "receivedMs": 758.640951,
+              "rttMs": 78.574407
+            },
+            {
+              "number": 35,
+              "sentMs": 700.065739,
+              "receivedMs": 771.3992,
+              "rttMs": 71.333461
+            },
+            {
+              "number": 36,
+              "sentMs": 720.065247,
+              "receivedMs": 788.415833,
+              "rttMs": 68.350586
+            },
+            {
+              "number": 37,
+              "sentMs": 740.064845,
+              "receivedMs": 805.748912,
+              "rttMs": 65.684067
+            },
+            {
+              "number": 38,
+              "sentMs": 760.064902,
+              "receivedMs": 845.186784,
+              "rttMs": 85.121882
+            },
+            {
+              "number": 39,
+              "sentMs": 780.065588,
+              "receivedMs": 849.332098,
+              "rttMs": 69.26651
+            },
+            {
+              "number": 40,
+              "sentMs": 800.065498,
+              "receivedMs": 870.798862,
+              "rttMs": 70.733364
+            },
+            {
+              "number": 41,
+              "sentMs": 820.065262,
+              "receivedMs": 890.729522,
+              "rttMs": 70.66426
+            },
+            {
+              "number": 42,
+              "sentMs": 840.065626,
+              "receivedMs": 911.197832,
+              "rttMs": 71.132206
+            },
+            {
+              "number": 43,
+              "sentMs": 860.064272,
+              "receivedMs": 925.551218,
+              "rttMs": 65.486946
+            },
+            {
+              "number": 44,
+              "sentMs": 880.065517,
+              "receivedMs": 956.305075,
+              "rttMs": 76.239558
+            },
+            {
+              "number": 45,
+              "sentMs": 900.069921,
+              "receivedMs": 977.327107,
+              "rttMs": 77.257186
+            },
+            {
+              "number": 46,
+              "sentMs": 920.058476,
+              "receivedMs": 991.89604,
+              "rttMs": 71.837564
+            },
+            {
+              "number": 47,
+              "sentMs": 940.069535,
+              "receivedMs": 1008.792606,
+              "rttMs": 68.723071
+            },
+            {
+              "number": 48,
+              "sentMs": 960.062614,
+              "receivedMs": 1030.869472,
+              "rttMs": 70.806858
+            },
+            {
+              "number": 49,
+              "sentMs": 980.064373,
+              "receivedMs": 1054.750491,
+              "rttMs": 74.686118
+            },
+            {
+              "number": 50,
+              "sentMs": 1000.057692,
+              "receivedMs": 1079.227985,
+              "rttMs": 79.170293
+            },
+            {
+              "number": 51,
+              "sentMs": 1020.055236,
+              "receivedMs": 1089.176255,
+              "rttMs": 69.121019
+            },
+            {
+              "number": 52,
+              "sentMs": 1040.060815,
+              "receivedMs": 1111.918303,
+              "rttMs": 71.857488
+            },
+            {
+              "number": 53,
+              "sentMs": 1060.065889,
+              "receivedMs": 1132.317713,
+              "rttMs": 72.251824
+            },
+            {
+              "number": 54,
+              "sentMs": 1080.06539,
+              "receivedMs": 1149.292985,
+              "rttMs": 69.227595
+            },
+            {
+              "number": 55,
+              "sentMs": 1100.066551,
+              "receivedMs": 1175.871508,
+              "rttMs": 75.804957
+            },
+            {
+              "number": 56,
+              "sentMs": 1120.064287,
+              "receivedMs": 1200.315037,
+              "rttMs": 80.25075
+            },
+            {
+              "number": 57,
+              "sentMs": 1140.064841,
+              "receivedMs": 1223.099913,
+              "rttMs": 83.035072
+            },
+            {
+              "number": 58,
+              "sentMs": 1160.065212,
+              "receivedMs": 1231.502823,
+              "rttMs": 71.437611
+            },
+            {
+              "number": 59,
+              "sentMs": 1180.064794,
+              "receivedMs": 1252.803615,
+              "rttMs": 72.738821
+            },
+            {
+              "number": 60,
+              "sentMs": 1200.067254,
+              "receivedMs": 1270.152745,
+              "rttMs": 70.085491
+            },
+            {
+              "number": 61,
+              "sentMs": 1220.070196,
+              "receivedMs": 1287.725738,
+              "rttMs": 67.655542
+            },
+            {
+              "number": 62,
+              "sentMs": 1240.084618,
+              "receivedMs": 1305.605611,
+              "rttMs": 65.520993
+            },
+            {
+              "number": 63,
+              "sentMs": 1260.07865,
+              "receivedMs": 1322.614748,
+              "rttMs": 62.536098
+            },
+            {
+              "number": 64,
+              "sentMs": 1280.062784,
+              "receivedMs": 1350.99722,
+              "rttMs": 70.934436
+            },
+            {
+              "number": 65,
+              "sentMs": 1300.063535,
+              "receivedMs": 1365.339459,
+              "rttMs": 65.275924
+            },
+            {
+              "number": 66,
+              "sentMs": 1320.071085,
+              "receivedMs": 1396.178628,
+              "rttMs": 76.107543
+            },
+            {
+              "number": 67,
+              "sentMs": 1340.065059,
+              "receivedMs": 1406.24858,
+              "rttMs": 66.183521
+            },
+            {
+              "number": 68,
+              "sentMs": 1360.066307,
+              "receivedMs": 1432.442763,
+              "rttMs": 72.376456
+            },
+            {
+              "number": 69,
+              "sentMs": 1380.065888,
+              "receivedMs": 1443.620082,
+              "rttMs": 63.554194
+            },
+            {
+              "number": 70,
+              "sentMs": 1400.065,
+              "receivedMs": 1468.378377,
+              "rttMs": 68.313377
+            },
+            {
+              "number": 71,
+              "sentMs": 1420.065068,
+              "receivedMs": 1488.303357,
+              "rttMs": 68.238289
+            },
+            {
+              "number": 72,
+              "sentMs": 1440.065433,
+              "receivedMs": 1506.086753,
+              "rttMs": 66.02132
+            },
+            {
+              "number": 73,
+              "sentMs": 1460.062383,
+              "receivedMs": 1539.927602,
+              "rttMs": 79.865219
+            },
+            {
+              "number": 74,
+              "sentMs": 1480.059155,
+              "receivedMs": 1557.420117,
+              "rttMs": 77.360962
+            },
+            {
+              "number": 75,
+              "sentMs": 1500.05693,
+              "receivedMs": 1584.810971,
+              "rttMs": 84.754041
+            },
+            {
+              "number": 76,
+              "sentMs": 1520.069869,
+              "receivedMs": 1594.694343,
+              "rttMs": 74.624474
+            },
+            {
+              "number": 77,
+              "sentMs": 1540.059863,
+              "receivedMs": 1610.210401,
+              "rttMs": 70.150538
+            },
+            {
+              "number": 78,
+              "sentMs": 1560.068766,
+              "receivedMs": 1634.971707,
+              "rttMs": 74.902941
+            },
+            {
+              "number": 79,
+              "sentMs": 1580.074082,
+              "receivedMs": 1652.665449,
+              "rttMs": 72.591367
+            },
+            {
+              "number": 80,
+              "sentMs": 1600.067221,
+              "receivedMs": 1677.405456,
+              "rttMs": 77.338235
+            },
+            {
+              "number": 81,
+              "sentMs": 1620.135164,
+              "receivedMs": 1688.460293,
+              "rttMs": 68.325129
+            },
+            {
+              "number": 82,
+              "sentMs": 1640.065124,
+              "receivedMs": 1715.609343,
+              "rttMs": 75.544219
+            },
+            {
+              "number": 83,
+              "sentMs": 1660.057631,
+              "receivedMs": 1726.338475,
+              "rttMs": 66.280844
+            },
+            {
+              "number": 84,
+              "sentMs": 1680.055163,
+              "receivedMs": 1764.979183,
+              "rttMs": 84.92402
+            },
+            {
+              "number": 85,
+              "sentMs": 1700.063842,
+              "receivedMs": 1766.812196,
+              "rttMs": 66.748354
+            },
+            {
+              "number": 86,
+              "sentMs": 1720.055608,
+              "receivedMs": 1802.633578,
+              "rttMs": 82.57797
+            },
+            {
+              "number": 87,
+              "sentMs": 1740.06263,
+              "receivedMs": 1819.820897,
+              "rttMs": 79.758267
+            },
+            {
+              "number": 88,
+              "sentMs": 1760.062931,
+              "receivedMs": 1827.599427,
+              "rttMs": 67.536496
+            },
+            {
+              "number": 89,
+              "sentMs": 1780.054111,
+              "receivedMs": 1860.42872,
+              "rttMs": 80.374609
+            },
+            {
+              "number": 90,
+              "sentMs": 1800.055455,
+              "receivedMs": 1885.973375,
+              "rttMs": 85.91792
+            },
+            {
+              "number": 91,
+              "sentMs": 1820.054515,
+              "receivedMs": 1895.048391,
+              "rttMs": 74.993876
+            },
+            {
+              "number": 92,
+              "sentMs": 1840.055163,
+              "receivedMs": 1914.872072,
+              "rttMs": 74.816909
+            },
+            {
+              "number": 93,
+              "sentMs": 1860.055031,
+              "receivedMs": 1938.014098,
+              "rttMs": 77.959067
+            },
+            {
+              "number": 94,
+              "sentMs": 1880.057447,
+              "receivedMs": 1950.088865,
+              "rttMs": 70.031418
+            },
+            {
+              "number": 95,
+              "sentMs": 1900.055132,
+              "receivedMs": 1973.076199,
+              "rttMs": 73.021067
+            },
+            {
+              "number": 96,
+              "sentMs": 1920.05541,
+              "receivedMs": 1996.622384,
+              "rttMs": 76.566974
+            },
+            {
+              "number": 97,
+              "sentMs": 1940.054926,
+              "receivedMs": 2024.487569,
+              "rttMs": 84.432643
+            },
+            {
+              "number": 98,
+              "sentMs": 1960.056799,
+              "receivedMs": 2029.933674,
+              "rttMs": 69.876875
+            },
+            {
+              "number": 99,
+              "sentMs": 1980.059283,
+              "receivedMs": 2053.621884,
+              "rttMs": 73.562601
+            },
+            {
+              "number": 100,
+              "sentMs": 2000.05963,
+              "receivedMs": 2066.008504,
+              "rttMs": 65.948874
+            },
+            {
+              "number": 101,
+              "sentMs": 2020.060212,
+              "receivedMs": 2084.815912,
+              "rttMs": 64.7557
+            },
+            {
+              "number": 102,
+              "sentMs": 2040.056081,
+              "receivedMs": 2112.57588,
+              "rttMs": 72.519799
+            },
+            {
+              "number": 103,
+              "sentMs": 2060.055717,
+              "receivedMs": 2136.053471,
+              "rttMs": 75.997754
+            },
+            {
+              "number": 104,
+              "sentMs": 2080.054114,
+              "receivedMs": 2153.45182,
+              "rttMs": 73.397706
+            },
+            {
+              "number": 105,
+              "sentMs": 2100.055313,
+              "receivedMs": 2174.7024,
+              "rttMs": 74.647087
+            },
+            {
+              "number": 106,
+              "sentMs": 2120.054677,
+              "receivedMs": 2194.84944,
+              "rttMs": 74.794763
+            },
+            {
+              "number": 107,
+              "sentMs": 2140.054605,
+              "receivedMs": 2209.131383,
+              "rttMs": 69.076778
+            },
+            {
+              "number": 108,
+              "sentMs": 2160.05464,
+              "receivedMs": 2233.322563,
+              "rttMs": 73.267923
+            },
+            {
+              "number": 109,
+              "sentMs": 2180.056209,
+              "receivedMs": 2247.011977,
+              "rttMs": 66.955768
+            },
+            {
+              "number": 110,
+              "sentMs": 2200.056183,
+              "receivedMs": 2277.093896,
+              "rttMs": 77.037713
+            },
+            {
+              "number": 111,
+              "sentMs": 2220.055031,
+              "receivedMs": 2293.03411,
+              "rttMs": 72.979079
+            },
+            {
+              "number": 112,
+              "sentMs": 2240.056734,
+              "receivedMs": 2316.738171,
+              "rttMs": 76.681437
+            },
+            {
+              "number": 113,
+              "sentMs": 2260.057676,
+              "receivedMs": 2338.85394,
+              "rttMs": 78.796264
+            },
+            {
+              "number": 114,
+              "sentMs": 2280.054463,
+              "receivedMs": 2356.138671,
+              "rttMs": 76.084208
+            },
+            {
+              "number": 115,
+              "sentMs": 2300.05489,
+              "receivedMs": 2374.840123,
+              "rttMs": 74.785233
+            },
+            {
+              "number": 116,
+              "sentMs": 2320.054526,
+              "receivedMs": 2396.352603,
+              "rttMs": 76.298077
+            },
+            {
+              "number": 117,
+              "sentMs": 2340.055109,
+              "receivedMs": 2423.065892,
+              "rttMs": 83.010783
+            },
+            {
+              "number": 118,
+              "sentMs": 2360.054465,
+              "receivedMs": 2429.840519,
+              "rttMs": 69.786054
+            },
+            {
+              "number": 119,
+              "sentMs": 2380.054039,
+              "receivedMs": 2464.333076,
+              "rttMs": 84.279037
+            },
+            {
+              "number": 120,
+              "sentMs": 2400.054329,
+              "receivedMs": 2465.864973,
+              "rttMs": 65.810644
+            },
+            {
+              "number": 121,
+              "sentMs": 2420.0545,
+              "receivedMs": 2503.519588,
+              "rttMs": 83.465088
+            },
+            {
+              "number": 122,
+              "sentMs": 2440.054922,
+              "receivedMs": 2508.10308,
+              "rttMs": 68.048158
+            },
+            {
+              "number": 123,
+              "sentMs": 2460.060285,
+              "receivedMs": 2521.935013,
+              "rttMs": 61.874728
+            },
+            {
+              "number": 124,
+              "sentMs": 2480.054867,
+              "receivedMs": 2543.817486,
+              "rttMs": 63.762619
+            },
+            {
+              "number": 125,
+              "sentMs": 2500.055645,
+              "receivedMs": 2578.428903,
+              "rttMs": 78.373258
+            },
+            {
+              "number": 126,
+              "sentMs": 2520.059109,
+              "receivedMs": 2589.205012,
+              "rttMs": 69.145903
+            },
+            {
+              "number": 127,
+              "sentMs": 2540.055457,
+              "receivedMs": 2615.489687,
+              "rttMs": 75.43423
+            },
+            {
+              "number": 128,
+              "sentMs": 2560.056823,
+              "receivedMs": 2635.78627,
+              "rttMs": 75.729447
+            },
+            {
+              "number": 129,
+              "sentMs": 2580.055182,
+              "receivedMs": 2657.045148,
+              "rttMs": 76.989966
+            },
+            {
+              "number": 130,
+              "sentMs": 2600.060254,
+              "receivedMs": 2674.264239,
+              "rttMs": 74.203985
+            },
+            {
+              "number": 131,
+              "sentMs": 2620.056064,
+              "receivedMs": 2696.155624,
+              "rttMs": 76.09956
+            },
+            {
+              "number": 132,
+              "sentMs": 2640.058845,
+              "receivedMs": 2710.020843,
+              "rttMs": 69.961998
+            },
+            {
+              "number": 133,
+              "sentMs": 2660.057294,
+              "receivedMs": 2730.592465,
+              "rttMs": 70.535171
+            },
+            {
+              "number": 134,
+              "sentMs": 2680.05555,
+              "receivedMs": 2749.234979,
+              "rttMs": 69.179429
+            },
+            {
+              "number": 135,
+              "sentMs": 2700.058917,
+              "receivedMs": 2765.077474,
+              "rttMs": 65.018557
+            },
+            {
+              "number": 136,
+              "sentMs": 2721.599991,
+              "receivedMs": 2799.22558,
+              "rttMs": 77.625589
+            },
+            {
+              "number": 137,
+              "sentMs": 2740.086117,
+              "receivedMs": 2817.702807,
+              "rttMs": 77.61669
+            },
+            {
+              "number": 138,
+              "sentMs": 2760.066084,
+              "receivedMs": 2832.708135,
+              "rttMs": 72.642051
+            },
+            {
+              "number": 139,
+              "sentMs": 2780.06494,
+              "receivedMs": 2843.38994,
+              "rttMs": 63.325
+            },
+            {
+              "number": 140,
+              "sentMs": 2800.067012,
+              "receivedMs": 2873.24629,
+              "rttMs": 73.179278
+            },
+            {
+              "number": 141,
+              "sentMs": 2820.06892,
+              "receivedMs": 2891.650523,
+              "rttMs": 71.581603
+            },
+            {
+              "number": 142,
+              "sentMs": 2840.065879,
+              "receivedMs": 2912.539056,
+              "rttMs": 72.473177
+            },
+            {
+              "number": 143,
+              "sentMs": 2860.0648,
+              "receivedMs": 2928.850328,
+              "rttMs": 68.785528
+            },
+            {
+              "number": 144,
+              "sentMs": 2880.06595,
+              "receivedMs": 2955.351619,
+              "rttMs": 75.285669
+            },
+            {
+              "number": 145,
+              "sentMs": 2900.060418,
+              "receivedMs": 2970.744122,
+              "rttMs": 70.683704
+            },
+            {
+              "number": 146,
+              "sentMs": 2920.064642,
+              "receivedMs": 2985.731954,
+              "rttMs": 65.667312
+            },
+            {
+              "number": 147,
+              "sentMs": 2940.064382,
+              "receivedMs": 3014.09123,
+              "rttMs": 74.026848
+            },
+            {
+              "number": 148,
+              "sentMs": 2960.066295,
+              "receivedMs": 3025.150513,
+              "rttMs": 65.084218
+            },
+            {
+              "number": 149,
+              "sentMs": 2980.064232,
+              "receivedMs": 3056.409733,
+              "rttMs": 76.345501
+            },
+            {
+              "number": 150,
+              "sentMs": 3000.061663,
+              "receivedMs": 3072.505767,
+              "rttMs": 72.444104
+            },
+            {
+              "number": 151,
+              "sentMs": 3020.060002,
+              "receivedMs": 3093.760629,
+              "rttMs": 73.700627
+            },
+            {
+              "number": 152,
+              "sentMs": 3040.057371,
+              "receivedMs": 3110.68974,
+              "rttMs": 70.632369
+            },
+            {
+              "number": 153,
+              "sentMs": 3060.055363,
+              "receivedMs": 3138.727992,
+              "rttMs": 78.672629
+            },
+            {
+              "number": 154,
+              "sentMs": 3080.055986,
+              "receivedMs": 3159.173705,
+              "rttMs": 79.117719
+            },
+            {
+              "number": 155,
+              "sentMs": 3100.056238,
+              "receivedMs": 3180.725047,
+              "rttMs": 80.668809
+            },
+            {
+              "number": 156,
+              "sentMs": 3120.065453,
+              "receivedMs": 3193.496108,
+              "rttMs": 73.430655
+            },
+            {
+              "number": 157,
+              "sentMs": 3140.059734,
+              "receivedMs": 3217.348096,
+              "rttMs": 77.288362
+            },
+            {
+              "number": 158,
+              "sentMs": 3160.061661,
+              "receivedMs": 3242.938815,
+              "rttMs": 82.877154
+            },
+            {
+              "number": 159,
+              "sentMs": 3180.068759,
+              "receivedMs": 3255.841365,
+              "rttMs": 75.772606
+            }
+          ],
+          "errors": [],
+          "controller": [
+            {
+              "type": "ready"
+            },
+            {
+              "type": "done"
+            }
+          ],
+          "configuration": [
+            "qdisc add dev ifb-netbench root handle 1: prio bands 3 priomap 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1",
+            "qdisc add dev ifb-netbench parent 1:1 handle 20: netem limit 100000 delay 35ms 7ms rate 1000kbit seed 104729",
+            "qdisc add dev ifb-netbench parent 20:1 handle 21: pfifo limit 100000",
+            "qdisc add dev ifb-netbench parent 1:2 handle 30: netem limit 100000 delay 35ms 7ms rate 512kbit seed 104730",
+            "qdisc add dev ifb-netbench parent 30:1 handle 31: pfifo limit 100000",
+            "filter add dev ifb-netbench parent 1: protocol ip pref 10 u32 match ip sport 4410 0xffff flowid 1:1",
+            "filter add dev lo ingress protocol ip pref 30 matchall action mirred egress redirect dev ifb-netbench"
+          ]
+        }
+      ],
+      "throughput": [
+        {
+          "profile": "cellular",
+          "type": "result",
+          "direction": "down",
+          "bytes": 33554432,
+          "seconds": 3.258940666,
+          "kbitPerSecond": 82368.93012522247,
+          "configuredKbit": 100000,
+          "ratio": 0.8236893012522247,
+          "errors": []
+        },
+        {
+          "profile": "cellular",
+          "type": "result",
+          "direction": "up",
+          "bytes": 33554432,
+          "seconds": 3.259330411,
+          "kbitPerSecond": 82359.08059337897,
+          "configuredKbit": 100000,
+          "ratio": 0.8235908059337896,
+          "errors": []
+        },
+        {
+          "profile": "constrained",
+          "type": "result",
+          "direction": "down",
+          "bytes": 1048576,
+          "seconds": 8.912291835,
+          "kbitPerSecond": 941.2402730189547,
+          "configuredKbit": 1000,
+          "ratio": 0.9412402730189546,
+          "errors": []
+        },
+        {
+          "profile": "constrained",
+          "type": "result",
+          "direction": "up",
+          "bytes": 1048576,
+          "seconds": 17.340286018,
+          "kbitPerSecond": 483.76410811749275,
+          "configuredKbit": 512,
+          "ratio": 0.944851773666978,
+          "errors": []
+        }
+      ]
+    },
+    "environment": {
+      "lane": 0,
+      "namespace": "net:[4026534169]",
+      "node": "v26.3.0",
+      "versions": {
+        "node": "26.3.0",
+        "acorn": "8.16.0",
+        "ada": "3.4.4",
+        "amaro": "1.1.9",
+        "ares": "1.34.8",
+        "brotli": "1.2.0",
+        "cldr": "48.0",
+        "icu": "78.3",
+        "libffi": "3.5.2",
+        "lief": "0.17.0",
+        "llhttp": "9.4.1",
+        "merve": "1.2.2",
+        "modules": "147",
+        "napi": "10",
+        "nbytes": "0.1.4",
+        "ncrypto": "0.0.1",
+        "nghttp2": "1.69.0",
+        "nghttp3": "",
+        "ngtcp2": "",
+        "openssl": "3.5.8",
+        "simdjson": "4.6.2",
+        "simdutf": "9.0.0",
+        "sqlite": "3.53.3",
+        "tz": "2026b",
+        "undici": "8.3.0",
+        "unicode": "17.0",
+        "uv": "1.52.1",
+        "uvwasi": "0.0.23",
+        "v8": "14.6.202.34-node.20",
+        "zlib": "1.3.2",
+        "zstd": "1.5.7"
+      },
+      "cpu": "Intel(R) Core(TM) Ultra 5 135H",
+      "kernel": "6.18.54-gentoo-dist",
+      "tcpNoMetricsSave": "1",
+      "affinity": "Cpus_allowed_list:\t0",
+      "links": [
+        {
+          "ifindex": 1,
+          "ifname": "lo",
+          "flags": [
+            "LOOPBACK",
+            "UP",
+            "LOWER_UP"
+          ],
+          "mtu": 1280,
+          "qdisc": "noqueue",
+          "operstate": "UNKNOWN",
+          "linkmode": "DEFAULT",
+          "group": "default",
+          "txqlen": 1000,
+          "link_type": "loopback",
+          "address": "00:00:00:00:00:00",
+          "broadcast": "00:00:00:00:00:00"
+        },
+        {
+          "ifindex": 2,
+          "ifname": "ifb-netbench",
+          "flags": [
+            "BROADCAST",
+            "NOARP",
+            "UP",
+            "LOWER_UP"
+          ],
+          "mtu": 1280,
+          "qdisc": "prio",
+          "operstate": "UNKNOWN",
+          "linkmode": "DEFAULT",
+          "group": "default",
+          "txqlen": 32,
+          "link_type": "ether",
+          "address": "3a:c7:8b:87:85:78",
+          "broadcast": "ff:ff:ff:ff:ff:ff"
+        }
+      ],
+      "offloads": "Features for lo:\nrx-checksumming: on [fixed]\ntx-checksumming: on\n\ttx-checksum-ipv4: off [fixed]\n\ttx-checksum-ip-generic: on [fixed]\n\ttx-checksum-ipv6: off [fixed]\n\ttx-checksum-fcoe-crc: off [fixed]\n\ttx-checksum-sctp: on [fixed]\nscatter-gather: on\n\ttx-scatter-gather: on [fixed]\n\ttx-scatter-gather-fraglist: on [fixed]\ntcp-segmentation-offload: off\n\ttx-tcp-segmentation: off\n\ttx-tcp-ecn-segmentation: off\n\ttx-tcp-mangleid-segmentation: off\n\ttx-tcp6-segmentation: off\n\ttx-tcp-accecn-segmentation: off\ngeneric-segmentation-offload: off\ngeneric-receive-offload: off\nlarge-receive-offload: off [fixed]\nrx-vlan-offload: off [fixed]\ntx-vlan-offload: off [fixed]\nntuple-filters: off [fixed]\nreceive-hashing: off [fixed]\nhighdma: on [fixed]\nrx-vlan-filter: off [fixed]\nvlan-challenged: on [fixed]\ntx-gso-robust: off [fixed]\ntx-fcoe-segmentation: off [fixed]\ntx-gre-segmentation: off [fixed]\ntx-gre-csum-segmentation: off [fixed]\ntx-ipxip4-segmentation: off [fixed]\ntx-ipxip6-segmentation: off [fixed]\ntx-udp_tnl-segmentation: off [fixed]\ntx-udp_tnl-csum-segmentation: off [fixed]\ntx-gso-partial: off [fixed]\ntx-tunnel-remcsum-segmentation: off [fixed]\ntx-sctp-segmentation: on\ntx-esp-segmentation: off [fixed]\ntx-udp-segmentation: off\ntx-gso-list: off\ntx-nocache-copy: off [fixed]\nloopback: on [fixed]\nrx-fcs: off [fixed]\nrx-all: off [fixed]\ntx-vlan-stag-hw-insert: off [fixed]\nrx-vlan-stag-hw-parse: off [fixed]\nrx-vlan-stag-filter: off [fixed]\nl2-fwd-offload: off [fixed]\nhw-tc-offload: off [fixed]\nesp-hw-offload: off [fixed]\nesp-tx-csum-hw-offload: off [fixed]\nrx-udp_tunnel-port-offload: off [fixed]\ntls-hw-tx-offload: off [fixed]\ntls-hw-rx-offload: off [fixed]\nrx-gro-hw: off [fixed]\ntls-hw-record: off [fixed]\nrx-gro-list: off\nmacsec-hw-offload: off [fixed]\nrx-udp-gro-forwarding: off\nhsr-tag-ins-offload: off [fixed]\nhsr-tag-rm-offload: off [fixed]\nhsr-fwd-offload: off [fixed]\nhsr-dup-offload: off [fixed]\n"
+    }
+  }
+]
