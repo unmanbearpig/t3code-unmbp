@@ -1,10 +1,14 @@
 export const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
+export const PREVIEW_LEADER_CONFIG_CHANNEL = "desktop:preview-leader-config";
+export const PREVIEW_LEADER_INPUT_CHANNEL = "desktop:preview-leader-input";
 export const SET_NOTIFICATION_BADGE_CHANNEL = "desktop:set-notification-badge";
 export const PICK_PROJECT_FAVICON_CHANNEL = "desktop:pick-project-favicon";
 export const PICK_THEME_FILES_CHANNEL = "desktop:pick-theme-files";
 export const SET_THEME_CHANNEL = "desktop:set-theme";
 export const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 export const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
+export const IS_LOCAL_TERMINAL_ENVIRONMENT_CHANNEL = "desktop:is-local-terminal-environment";
+export const OPEN_IN_TERMINAL_CHANNEL = "desktop:open-in-terminal";
 export const OPEN_SYSTEM_SETTINGS_CHANNEL = "desktop:open-system-settings";
 export const PROBE_REMOTE_EDITORS_CHANNEL = "desktop:probe-remote-editors";
 export const MENU_ACTION_CHANNEL = "desktop:menu-action";

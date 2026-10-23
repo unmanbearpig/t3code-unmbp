@@ -103,6 +103,7 @@ function shouldPublishAgentAwarenessEvent(
     case "provider-thread.updated":
       return true;
     // Unsettling must not re-alert a dismissed result.
+    case "thread.settle-when-idle-set":
     case "thread.unsettled":
     case "thread.snoozed":
     case "thread.unsnoozed":

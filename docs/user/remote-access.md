@@ -149,6 +149,33 @@ tailscale serve --https=443 off
 If that port is already in use, choose another with
 `--tailscale-serve-port`. See `t3 pair --help` for other pairing options.
 
+### Optional QUIC connections
+
+Supported clients can use QUIC for direct HTTPS connections when the server
+advertises a separate UDP endpoint. Pair with your existing HTTPS server URL.
+
+To enable it, provide a trusted TLS certificate and matching key for the same
+hostname, and allow the UDP port between your devices:
+
+```bash
+t3 serve --rpc-webtransport '{"url":"https://machine.example:4443/rpc","host":"0.0.0.0","port":4443,"certPath":"/path/to/fullchain.pem","keyPath":"/path/to/key.pem"}'
+```
+
+You can provide the same JSON through `T3CODE_RPC_WEBTRANSPORT`. Replace
+certificate files atomically and restart the server before they expire.
+
+On Tailscale, the UDP endpoint must be reachable on the tailnet. Tailscale HTTPS
+sharing, SSH forwarding and T3 Connect do not forward this separate endpoint.
+The advertised UDP endpoint can work alongside Tailscale HTTPS sharing. SSH and
+T3 Connect tunnel routes keep their existing WebSocket connection, and direct
+connections fall back when QUIC is unavailable.
+A DERP connection can carry QUIC traffic, but its outer TCP connection may remove
+the performance benefit.
+
+Native Android and iOS use bundled public certificate roots for QUIC. Connections
+that rely on a private or enterprise certificate authority use the existing WSS
+path. Unsupported browsers, native clients and server hosts also retain WSS.
+
 ### Hosted web app
 
 [app.t3.codes](https://app.t3.codes) needs an HTTPS endpoint. It connects directly

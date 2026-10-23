@@ -1,3 +1,4 @@
+import { Alert } from "react-native";
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -63,6 +64,7 @@ import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import { resolveNewTaskBranchLabel } from "../threads/new-task-context-presentation";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { ScheduledTaskPromptField } from "./components/ScheduledTaskPromptField";
+import { useScheduledTaskBaseRef } from "./useScheduledTaskBaseRef";
 import {
   AndroidSettingsEnvironmentFilter,
   SettingsEnvironmentFilterHeader,
@@ -658,6 +660,16 @@ function TaskForm({
     serverEnvironment.scheduledTasksLive({ environmentId, input: {} }),
   );
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
+  const {
+    baseRef,
+    pending: baseRefPending,
+    error: baseRefError,
+  } = useScheduledTaskBaseRef({
+    environmentId,
+    cwd: projects.find((project) => project.id === draft.projectId)?.workspaceRoot ?? null,
+    chosen: draft.baseRef,
+    worktree: draft.workspace === "worktree",
+  });
   const config = useEnvironmentServerConfig(environmentId);
   const modelOptions = buildModelOptions(config, null, undefined, draft.projectId);
   const canOperate = useAtomValue(
@@ -690,9 +702,14 @@ function TaskForm({
       saving ||
       dictationPending ||
       taskMissing ||
-      environmentUnavailable
+      environmentUnavailable ||
+      baseRefPending
     )
       return;
+    if (baseRefError !== null) {
+      Alert.alert("Could not choose a base branch", baseRefError);
+      return;
+    }
     // Signatures are edited on desktop and web; send the task's current one,
     // not the copy taken when this form opened, so a newer edit survives.
     const liveTask = tasks.data?.tasks.find((task) => task.id === draft.task?.id);
@@ -757,7 +774,7 @@ function TaskForm({
             ? { type: "existing_worktree", worktreePath: draft.checkoutPath.trim() }
             : {
                 type: "worktree",
-                baseRef: draft.baseRef.trim() || "main",
+                baseRef: baseRef.trim() || "main",
                 startFromOrigin: draft.startFromOrigin,
               },
       runtimeMode: draft.runtimeMode,
@@ -921,7 +938,7 @@ function TaskForm({
             <PickerRow
               label="Base branch"
               value={resolveNewTaskBranchLabel({
-                branchName: draft.baseRef,
+                branchName: baseRef,
                 startFromOrigin: draft.startFromOrigin,
                 workspaceMode: "worktree",
               })}

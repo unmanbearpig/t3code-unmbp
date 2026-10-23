@@ -1,3 +1,5 @@
+import { RpcWebTransportConnector } from "../platform/rpcWebTransport.ts";
+import { eligibleRpcWebTransport } from "./rpcWebTransport.ts";
 import type {
   AuthClientPresentationMetadata,
   ExecutionEnvironmentDescriptor,
@@ -14,6 +16,8 @@ import {
   appendClientConnectionParams,
   type ClientOwnerParams,
   readClientOwnerParams,
+  issuePrimaryRpcTicket,
+  resolveRemoteWebSocketConnection,
 } from "../authorization/remote.ts";
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
@@ -24,6 +28,7 @@ import {
   SshConnectionProfile,
 } from "./catalog.ts";
 import * as ConnectionCredentialStore from "./credentialStore.ts";
+import * as ConnectionDescriptors from "./descriptors.ts";
 import {
   credentialMissingError,
   environmentMismatchError,
@@ -49,13 +54,15 @@ import {
   orchestrationProtocolCompatibilityError,
 } from "./compatibility.ts";
 import { credentialConnectionId } from "./routes.ts";
-import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
+
+type PreparationPurpose = "connect" | "preflight";
 
 export class ConnectionResolver extends Context.Service<
   ConnectionResolver,
   {
     readonly prepare: (
       entry: ConnectionCatalogEntry,
+      purpose?: PreparationPurpose,
     ) => Effect.Effect<PreparedConnection, ConnectionAttemptError>;
     /**
      * Authorizes a socket without the orchestration protocol gate, for hosts
@@ -95,6 +102,7 @@ const makePrimaryBroker = Effect.fn("clientRuntime.connection.broker.makePrimary
 
   return Effect.fn("clientRuntime.connection.broker.primary")(function* (
     target: PrimaryConnectionTarget,
+    purpose: PreparationPurpose,
   ) {
     const bearerToken = yield* auth.bearerToken;
     if (Option.isNone(bearerToken)) {
@@ -114,6 +122,7 @@ const makePrimaryBroker = Effect.fn("clientRuntime.connection.broker.makePrimary
       wsBaseUrl: target.wsBaseUrl,
       bearerToken: bearerToken.value,
       connectionMethod: "direct",
+      purpose,
     });
     return {
       ...authorized,
@@ -128,6 +137,7 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
 
   return Effect.fn("clientRuntime.connection.broker.bearer")(function* (
     entry: ConnectionCatalogEntry & { readonly target: BearerConnectionTarget },
+    purpose: PreparationPurpose,
   ) {
     const target = entry.target;
     const profile = yield* Effect.fromOption(entry.profile, () =>
@@ -169,13 +179,10 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
       wsBaseUrl: profile.wsBaseUrl,
       bearerToken: credential.token,
       connectionMethod: "direct",
+      purpose,
     });
     return {
-      environmentId: authorized.environmentId,
-      label: authorized.label,
-      httpBaseUrl: authorized.httpBaseUrl,
-      socketUrl: authorized.socketUrl,
-      httpAuthorization: authorized.httpAuthorization,
+      ...authorized,
       target,
     } satisfies PreparedConnection;
   });
@@ -190,11 +197,7 @@ const makeRelayBroker = Effect.fn("clientRuntime.connection.broker.makeRelay")(f
         expectedEnvironmentId: target.environmentId,
       });
       return {
-        environmentId: authorized.environmentId,
-        label: authorized.label,
-        httpBaseUrl: authorized.httpBaseUrl,
-        socketUrl: authorized.socketUrl,
-        httpAuthorization: authorized.httpAuthorization,
+        ...authorized,
         target,
       } satisfies PreparedConnection;
     },
@@ -211,6 +214,7 @@ const makeSshBroker = Effect.fn("clientRuntime.connection.broker.makeSsh")(funct
 
   return Effect.fn("clientRuntime.connection.broker.ssh")(function* (
     entry: ConnectionCatalogEntry & { readonly target: SshConnectionTarget },
+    purpose: PreparationPurpose,
   ) {
     const target = entry.target;
     const profile = yield* Effect.fromOption(entry.profile, () =>
@@ -263,13 +267,10 @@ const makeSshBroker = Effect.fn("clientRuntime.connection.broker.makeSsh")(funct
       wsBaseUrl: prepared.bootstrap.wsBaseUrl,
       bearerToken: prepared.bearerToken,
       connectionMethod: "ssh",
+      purpose,
     });
     return {
-      environmentId: authorized.environmentId,
-      label: authorized.label,
-      httpBaseUrl: authorized.httpBaseUrl,
-      socketUrl: authorized.socketUrl,
-      httpAuthorization: authorized.httpAuthorization,
+      ...authorized,
       target,
     } satisfies PreparedConnection;
   });
@@ -282,30 +283,31 @@ export const make = Effect.gen(function* () {
   const relay = yield* makeRelayBroker();
   const ssh = yield* makeSshBroker();
   const httpClient = yield* HttpClient.HttpClient;
+  const connector = yield* Effect.serviceOption(RpcWebTransportConnector);
+  const presentation = yield* ClientCapabilities.ClientPresentation;
 
   const authorize = Effect.fn("clientRuntime.connection.broker.authorize")(function* (
     entry: ConnectionCatalogEntry,
+    purpose: PreparationPurpose = "connect",
   ) {
     const target: ConnectionTarget = entry.target;
     yield* Effect.annotateCurrentSpan({
       "connection.environment.id": target.environmentId,
       "connection.target.kind": target._tag,
     });
-    const prepared = yield* (() => {
+    const prepared: PreparedConnection = yield* (() => {
       switch (target._tag) {
         case "PrimaryConnectionTarget":
-          return primary(target);
+          return primary(target, purpose);
         case "BearerConnectionTarget":
-          return bearer({ ...entry, target });
+          return bearer({ ...entry, target }, purpose);
         case "RelayConnectionTarget":
           return relay(target);
         case "SshConnectionTarget":
-          return ssh({ ...entry, target });
+          return ssh({ ...entry, target }, purpose);
       }
     })();
-    const descriptor = yield* fetchRemoteEnvironmentDescriptor({
-      httpBaseUrl: prepared.httpBaseUrl,
-    }).pipe(
+    const descriptor = yield* ConnectionDescriptors.fetch(prepared.httpBaseUrl).pipe(
       Effect.mapError(mapRemoteEnvironmentError),
       Effect.provideService(HttpClient.HttpClient, httpClient),
     );
@@ -320,19 +322,69 @@ export const make = Effect.gen(function* () {
 
   const prepare = Effect.fn("clientRuntime.connection.broker.prepare")(function* (
     entry: ConnectionCatalogEntry,
+    purpose: PreparationPurpose = "connect",
   ) {
-    const { prepared, descriptor } = yield* authorize(entry);
+    const { prepared, descriptor } = yield* authorize(entry, purpose);
     const compatibilityError = orchestrationProtocolCompatibilityError(descriptor);
     if (compatibilityError !== null) {
       return yield* compatibilityError;
     }
+    const candidate = eligibleRpcWebTransport({
+      target: prepared.target,
+      httpBaseUrl: prepared.httpBaseUrl,
+      descriptor,
+      connectorAvailable: Option.isSome(connector),
+    });
+    const rpcTicket =
+      prepared.rpcTicket ??
+      (candidate !== undefined
+        ? yield* (
+            prepared.httpAuthorization === null
+              ? issuePrimaryRpcTicket({ httpBaseUrl: prepared.httpBaseUrl })
+              : prepared.httpAuthorization._tag === "Bearer"
+                ? resolveRemoteWebSocketConnection({
+                    httpBaseUrl: prepared.httpBaseUrl,
+                    wsBaseUrl: prepared.socketUrl,
+                    bearerToken: prepared.httpAuthorization.token,
+                    clientMetadata: presentation.metadata,
+                    connectionMethod: "direct",
+                  }).pipe(Effect.map((connection) => connection.rpcTicket))
+                : Effect.succeed(undefined)
+          ).pipe(
+            Effect.provideService(HttpClient.HttpClient, httpClient),
+            Effect.option,
+            Effect.map(Option.getOrUndefined),
+          )
+        : undefined);
     return {
       ...prepared,
       socketUrl: appendOrchestrationProtocol(prepared.socketUrl),
+      ...(rpcTicket === undefined ? {} : { rpcTicket }),
+      ...(candidate === undefined || rpcTicket === undefined
+        ? {}
+        : {
+            rpcWebTransport: {
+              ...candidate,
+              ...(presentation.metadata === undefined
+                ? {}
+                : { clientMetadata: presentation.metadata }),
+            },
+          }),
     };
   });
 
-  return ConnectionResolver.of({ prepare, prepareForUpdate: authorize });
+  return ConnectionResolver.of({
+    prepare: (entry, purpose) =>
+      prepare(entry, purpose).pipe(
+        ConnectionDescriptors.withConnectionDescriptors,
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      ),
+    prepareForUpdate: (entry) =>
+      authorize(entry, "preflight").pipe(
+        ConnectionDescriptors.withConnectionDescriptors,
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+      ),
+  });
 });
 
 export const layer = Layer.effect(ConnectionResolver, make);

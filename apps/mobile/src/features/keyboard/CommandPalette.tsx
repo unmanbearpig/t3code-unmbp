@@ -1,4 +1,5 @@
 import { uuidv4 } from "../../lib/uuid";
+import { useNativeLeaderConfig } from "./leaderKeyboardShortcuts";
 import { useNavigation } from "@react-navigation/native";
 import type { EnvironmentThreadSearchMatch } from "@t3tools/client-runtime/state/thread-search";
 import { THREAD_JUMP_KEYBINDING_COMMANDS } from "@t3tools/contracts";
@@ -142,6 +143,7 @@ export function CommandPalette(props: {
   readonly onCommand: (command: HardwareKeyboardCommand) => void;
 }) {
   const navigation = useNavigation();
+  const leaderConfig = useNativeLeaderConfig(props.pathname, PALETTE_COMMANDS);
   const { themeVariables } = useAppearancePreferences();
   const { selectThread, selectThreadRoute } = useAdaptiveWorkspaceLayout();
   const runCommand = props.onCommand;
@@ -430,7 +432,11 @@ export function CommandPalette(props: {
       onDismiss={handleDismissed}
     >
       <GestureHandlerRootView className="flex-1">
-        <T3KeyboardCommands enabledCommands={PALETTE_COMMANDS} onCommand={onCommand}>
+        <T3KeyboardCommands
+          leaderConfig={leaderConfig}
+          enabledCommands={PALETTE_COMMANDS}
+          onCommand={onCommand}
+        >
           <KeyboardAvoidingView
             behavior="padding"
             className="flex-1 items-center justify-center py-4"

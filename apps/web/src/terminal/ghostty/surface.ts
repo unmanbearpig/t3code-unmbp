@@ -1,3 +1,4 @@
+import { prefersReducedMotion, subscribeAnimationPreference } from "~/lib/animationPreference";
 import { isMacPlatform } from "../../lib/utils";
 import { SELECTION_MULTI_CLICK_INTERVAL_MS } from "../../lib/selectionActions";
 import { collectWrappedTerminalLinkLine, extractTerminalLinks } from "../../terminal-links";
@@ -608,6 +609,7 @@ export class GhosttyTerminalSurface {
   private dprMedia: MediaQueryList | null = null;
   // Read live on every blink decision, and watched so that dropping the
   // preference restarts a blink cycle that has no timer left to notice it.
+  private unsubscribeAnimationPreference: (() => void) | null = null;
   private readonly reducedMotionMedia = window.matchMedia?.("(prefers-reduced-motion: reduce)");
   private inputLeft = -1;
   private inputTop = -1;
@@ -642,6 +644,7 @@ export class GhosttyTerminalSurface {
     this.installEvents();
     this.watchDevicePixelRatio();
     this.reducedMotionMedia?.addEventListener("change", this.onReducedMotionChange);
+    this.unsubscribeAnimationPreference = subscribeAnimationPreference(this.onReducedMotionChange);
     document.fonts.addEventListener("loadingdone", this.onFontsLoaded);
     this.stopObservingResize = observeResize(mount, () => this.fit());
   }
@@ -1033,6 +1036,7 @@ export class GhosttyTerminalSurface {
     this.dprMedia?.removeEventListener("change", this.onDevicePixelRatioChange);
     this.dprMedia = null;
     this.reducedMotionMedia?.removeEventListener("change", this.onReducedMotionChange);
+    this.unsubscribeAnimationPreference?.();
     if (this.selectionScrollTimer !== null) window.clearInterval(this.selectionScrollTimer);
     if (this.resizeNotifyTimer !== null) {
       window.clearTimeout(this.resizeNotifyTimer);
@@ -2024,7 +2028,7 @@ export class GhosttyTerminalSurface {
       focused: this.focused,
       cursorBlinking: snapshot.cursorBlinking,
       cursorVisible: snapshot.cursorVisible,
-      reducedMotion: this.reducedMotionMedia?.matches ?? false,
+      reducedMotion: prefersReducedMotion(),
     });
   }
 

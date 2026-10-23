@@ -1,3 +1,5 @@
+import { buildBrowseGroups } from "./CommandPalette.logic";
+import { findBrowseCompletionItem } from "./CommandPalette.logic";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import type { Thread } from "../types";
@@ -548,5 +550,52 @@ describe("returning from file and content search", () => {
     expect(closed).toEqual({ open: false, mode: "files", openIntent: null });
     expect(reduceCommandPaletteUiState(closed, { _tag: "BackToCommand" })).toEqual(closed);
     expect(reduceCommandPaletteUiState(closed, { _tag: "SetOpen", open: true })).toEqual(root);
+  });
+});
+
+describe("findBrowseCompletionItem", () => {
+  const groups = buildBrowseGroups({
+    browseEntries: [
+      { name: "projects", fullPath: "/home/test/projects" },
+      { name: "projects-old", fullPath: "/home/test/projects-old" },
+    ],
+    browseQuery: "~/proj",
+    canBrowseUp: true,
+    upIcon: null,
+    directoryIcon: null,
+    browseUp: () => {},
+    browseTo: () => {},
+  });
+
+  it("completes the first directory instead of the parent-directory action", () => {
+    expect(findBrowseCompletionItem(groups, null)?.value).toBe("browse:/home/test/projects");
+  });
+
+  it("completes the highlighted directory", () => {
+    expect(findBrowseCompletionItem(groups, "browse:/home/test/projects-old")?.value).toBe(
+      "browse:/home/test/projects-old",
+    );
+  });
+
+  it.each(["browse:up", "browse:/home/test/missing"])(
+    "falls back to the first directory for %s",
+    (highlightedItemValue) => {
+      expect(findBrowseCompletionItem(groups, highlightedItemValue)?.value).toBe(
+        "browse:/home/test/projects",
+      );
+    },
+  );
+
+  it("leaves Tab alone when there are no directory suggestions", () => {
+    expect(findBrowseCompletionItem([], null)).toBeNull();
+    expect(
+      findBrowseCompletionItem(
+        groups.map((group) => ({
+          ...group,
+          items: group.items.map((item) => ({ ...item, disabled: true })),
+        })),
+        null,
+      ),
+    ).toBeNull();
   });
 });

@@ -17,6 +17,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { FetchHttpClient, HttpClient, HttpClientError } from "effect/http";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
+import type { ConnectionBlockedReason } from "../connection/model.ts";
 
 const isEnvironmentHttpCommonError = Schema.is(EnvironmentHttpCommonError);
 
@@ -27,7 +28,15 @@ export class RemoteEnvironmentAuthFetchError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-class RemoteEnvironmentAuthInvalidJsonError extends Data.TaggedError(
+export class RemoteEnvironmentAuthBlockedError extends Data.TaggedError(
+  "RemoteEnvironmentAuthBlockedError",
+)<{
+  readonly reason: ConnectionBlockedReason;
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
+export class RemoteEnvironmentAuthInvalidJsonError extends Data.TaggedError(
   "RemoteEnvironmentAuthInvalidJsonError",
 )<{
   readonly message: string;
@@ -73,6 +82,7 @@ export type RemoteEnvironmentRequestError =
   | EnvironmentOperationForbiddenError
   | EnvironmentResourceNotFoundError
   | EnvironmentInternalError
+  | RemoteEnvironmentAuthBlockedError
   | RemoteEnvironmentAuthFetchError
   | RemoteEnvironmentAuthInvalidJsonError
   | RemoteEnvironmentAuthUndeclaredStatusError

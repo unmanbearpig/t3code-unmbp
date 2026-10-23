@@ -1,3 +1,4 @@
+import { deriveLastPromptCacheWriteAt } from "@t3tools/client-runtime/prompt-cache";
 import { ScrollToEndButton, WorkspaceFileDropOverlay } from "./chat/TimelineOverlays";
 import { usePasteToFocusComposer } from "./chat/usePasteToFocusComposer";
 import { announcedRun, isDetailBehindShell } from "./chat/threadActivityAnnouncement";
@@ -1412,6 +1413,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadLiveTokenUsage,
     activeProviderThread,
   );
+  const lastPromptCacheWriteAt = deriveLastPromptCacheWriteAt(serverProjection);
   const pendingBackgroundTasks = deriveThreadPendingBackgroundTasks(serverProjection);
   const activeWorkStartedAt =
     deriveActiveWorkStartedAt(activeActivityRun, activeRuntime, localDispatchStartedAt) ??
@@ -3413,7 +3415,7 @@ export default function ChatView(props: ChatViewProps) {
                   bottom={scrollToEndClearance + 4}
                   onScrollToEnd={() => {
                     composerRef.current?.restoreAfterTimelineReachedEnd();
-                    scrollToEnd(true);
+                    scrollToEnd();
                   }}
                 />
               )}
@@ -3589,6 +3591,7 @@ export default function ChatView(props: ChatViewProps) {
                               activeThreadModelSelection={activeThread?.modelSelection}
                               activeProjectId={activeProject?.id ?? null}
                               activeContextWindow={activeContextWindow}
+                              lastPromptCacheWriteAt={lastPromptCacheWriteAt}
                               activeTasksProgress={activeComposerTasksProgress}
                               activeTaskSteps={activeComposerTaskSteps}
                               compactThreadUnavailable={compactThreadUnavailable}

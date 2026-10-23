@@ -1,3 +1,4 @@
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
   AuthOrchestrationOperateScope,
@@ -295,8 +296,7 @@ export const OpenInPicker = memo(function OpenInPicker({
       e.preventDefault();
       void openInEditor(preferredEditor);
     };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
+    return addAppShortcutListener(window, handler);
   }, [
     canOpenEditor,
     enableShortcut,

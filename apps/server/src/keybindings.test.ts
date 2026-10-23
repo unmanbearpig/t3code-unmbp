@@ -128,6 +128,40 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }),
   );
 
+  it.effect("persists leader modifiers and migrates untouched defaults only once", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+shift+]", command: "thread.next" },
+        { key: "alt+p", command: "thread.previous" },
+      ]);
+      const service = yield* Keybindings.Keybindings;
+      yield* service.syncDefaultKeybindingsOnStartup;
+      const migrated = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(migrated.some((rule) => rule.key === "leader+n"));
+      assert.isFalse(migrated.some((rule) => rule.key === "leader+p"));
+      yield* service.removeKeybindingRule({ key: "leader+n", command: "thread.next" });
+      yield* service.syncDefaultKeybindingsOnStartup;
+      assert.isFalse(
+        (yield* readKeybindingsConfig(keybindingsConfigPath)).some(
+          (rule) => rule.key === "leader+n",
+        ),
+      );
+      const result = yield* service.upsertKeybindingRule({
+        key: "leader+shift+n",
+        command: "thread.next",
+      });
+      assert.isTrue(
+        result.some(
+          (rule) =>
+            rule.command === "thread.next" &&
+            "leader" in rule.shortcut &&
+            rule.shortcut.leader.shiftKey,
+        ),
+      );
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
   it.effect("bootstraps default keybindings when config file is missing", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -243,11 +277,115 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         const configState = yield* keybindings.loadConfigState;
         assert.deepEqual(
           configState.keybindings
-            .filter((entry) => entry.shortcut.key === "b" && entry.shortcut.shiftKey)
+            .filter(
+              (entry) =>
+                "key" in entry.shortcut && entry.shortcut.key === "b" && entry.shortcut.shiftKey,
+            )
             .map((entry) => entry.command),
           ["threadPanel.toggle", "script.custom-panel.run", "script.custom-composer.run"],
         );
       }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect(
+    "moves the saved project-thread default to leader+c and backfills the external terminal",
+    () =>
+      Effect.gen(function* () {
+        const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+        const keybindings = yield* Keybindings.Keybindings;
+        const saved = Keybindings.DEFAULT_KEYBINDINGS.filter(
+          (rule) => rule.command !== "terminal.openExternal",
+        ).map((rule) =>
+          rule.command === "chat.newLocal"
+            ? { key: "mod+shift+n", command: rule.command, when: "!terminalFocus" }
+            : rule,
+        );
+        yield* writeKeybindingsConfig(keybindingsConfigPath, saved);
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+        const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+        const terminalIndex = persisted.findIndex(
+          (rule) => rule.command === "terminal.openExternal",
+        );
+        const threadIndex = persisted.findIndex((rule) => rule.command === "chat.newLocal");
+        assert.isBelow(terminalIndex, threadIndex);
+        assert.deepEqual(persisted[threadIndex], {
+          key: "leader+c",
+          command: "chat.newLocal",
+        });
+        assert.deepEqual(persisted[terminalIndex], {
+          key: "ctrl+shift+n",
+          command: "terminal.openExternal",
+          when: "!terminalFocus && externalTerminalAvailable",
+        });
+
+        // A later user edit back to the old shortcut must survive startup.
+        yield* writeKeybindingsConfig(keybindingsConfigPath, saved);
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+        assert.deepEqual(
+          (yield* readKeybindingsConfig(keybindingsConfigPath)).filter(
+            (rule) => rule.command === "chat.newLocal",
+          ),
+          [{ key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" }],
+        );
+      }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("preserves customized project-thread shortcuts and conditions", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const custom: KeybindingRule[] = [
+        { key: "alt+n", command: "chat.newLocal", when: "!terminalFocus" },
+        { key: "mod+shift+n", command: "chat.newLocal", when: "!editableFocus" },
+      ];
+      yield* writeKeybindingsConfig(keybindingsConfigPath, custom);
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      assert.deepEqual(
+        (yield* readKeybindingsConfig(keybindingsConfigPath)).filter(
+          (rule) => rule.command === "chat.newLocal",
+        ),
+        custom,
+      );
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("preserves an existing leader+c shortcut when moving the project-thread default", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const existing: KeybindingRule[] = [
+        { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+        { key: "leader+C", command: "thread.next", when: "!terminalFocus" },
+      ];
+      yield* writeKeybindingsConfig(keybindingsConfigPath, existing);
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      assert.deepEqual(
+        (yield* readKeybindingsConfig(keybindingsConfigPath)).filter(
+          (rule) => rule.command === "chat.newLocal" || rule.command === "thread.next",
+        ),
+        existing,
+      );
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("moves the project-thread default without evicting rules from a full config", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const fillers = Array.from({ length: MAX_KEYBINDINGS_COUNT - 1 }, (_, index) => ({
+        key: "mod+alt+f1",
+        command: `script.filler-${index}.run` as const,
+      }));
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "mod+shift+n", command: "chat.newLocal", when: "!terminalFocus" },
+        ...fillers,
+      ]);
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      assert.deepEqual(yield* readKeybindingsConfig(keybindingsConfigPath), [
+        { key: "leader+c", command: "chat.newLocal" },
+        ...fillers,
+      ]);
+    }).pipe(Effect.provide(layerKeybindings())),
   );
 
   it.effect("adds a late default to an existing command once", () =>
@@ -337,7 +475,9 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       });
 
       const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
-      assert.isFalse(persisted.some((entry) => entry.command === "terminal.toggle"));
+      assert.isFalse(
+        persisted.some((entry) => entry.command === "terminal.toggle" && entry.key === "mod+j"),
+      );
       assert.isTrue(persisted.some((entry) => entry.command === "script.custom-action.run"));
 
       assert.isTrue(

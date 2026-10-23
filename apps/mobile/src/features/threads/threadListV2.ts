@@ -1,3 +1,4 @@
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import {
   canSnooze,
@@ -10,7 +11,10 @@ import {
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
+import {
+  resolveThreadProviderStack,
+  threadActivityIsDisconnected,
+} from "@t3tools/client-runtime/state/models";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import {
   createInboxReturnTracker,
@@ -59,6 +63,7 @@ export function resolveThreadListV2ProviderDrivers(
 }
 
 export type ThreadListV2Status =
+  | "disconnected"
   | "approval"
   | "input"
   | "working"
@@ -174,8 +179,10 @@ export function resolveThreadListV2Status(
     | "pendingSubagentRequest"
     | "runtime"
     | "blockedOnThreadWait"
+    | "environmentConnected"
   >,
 ): ThreadListV2Status {
+  if (threadActivityIsDisconnected(thread)) return "disconnected";
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
     return "approval";
   }
@@ -232,7 +239,7 @@ export function getThreadListV2OrderedSection(input: {
       return false;
     if (
       (input.settlementEnvironmentIds?.has(thread.environmentId) ?? true) &&
-      thread.settledOverride === "settled" &&
+      isFiledAsSettled(thread) &&
       queuedThreadKeys?.has(`${thread.environmentId}:${thread.id}`) !== true
     ) {
       return false;
@@ -414,12 +421,19 @@ export function threadListV2ListItemsAreEqual(
   }
 }
 
+/** The timestamp a row renders when it shows no status label: the settle
+    stamp on settled slim rows, otherwise the latest activity. A filed row
+    reads Working until it settles. Blank for status-labelled cards and
+    snoozed rows with a wake countdown — those never draw a time, so their
+    minute tick must not invalidate the cell. */
 function resolveThreadListV2ItemTimeLabel(
   item: ThreadListV2Item,
   showSnoozeWakeLabel: boolean,
 ): string {
   const { thread, variant, snoozed } = item;
   if (showSnoozeWakeLabel) return "";
+  if (variant === "slim" && threadActivityIsDisconnected(thread)) return "Disconnected";
+  if (thread.settleWhenIdleAt != null) return "Working";
   if (
     variant === "card" &&
     (resolveThreadListV2Status(thread) !== "ready" ||
@@ -651,7 +665,7 @@ export function buildThreadListV2Items(input: {
     }
     const hasQueuedMessages =
       queuedThreadKeys?.has(`${thread.environmentId}:${thread.id}`) === true;
-    if (supportsSettlement && thread.settledOverride === "settled" && !hasQueuedMessages) {
+    if (supportsSettlement && isFiledAsSettled(thread) && !hasQueuedMessages) {
       settled.push(thread);
     } else if (thread.pinnedAt != null) {
       pinned.push(thread);

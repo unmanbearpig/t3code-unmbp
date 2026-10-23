@@ -1,3 +1,20 @@
+import { type Thread } from "../types";
+import { updateThreadShortcutTargets } from "../threadShortcutTargets";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { makeThreadFixture } from "../test-fixtures";
+import { AsyncResult } from "effect/reactivity";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+const navigationThreads = vi.hoisted(() => [] as Thread[]);
+
+const newThread = vi.hoisted(() => vi.fn(async () => {}));
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -34,7 +51,7 @@ vi.mock("react", async (original) => ({
 }));
 vi.mock("@tanstack/react-router", () => ({ useRouter: () => router }));
 vi.mock("./useSettings", () => ({ useClientSettings: () => false }));
-vi.mock("./useHandleNewThread", () => ({ useNewThreadHandler: () => vi.fn() }));
+vi.mock("./useHandleNewThread", () => ({ useNewThreadHandler: () => newThread }));
 vi.mock("../composerDraftStore", () => ({ useComposerDraftStore: () => vi.fn() }));
 vi.mock("../terminalUiStateStore", () => ({ useTerminalUiStateStore: () => vi.fn() }));
 vi.mock("../uiStateStore", () => ({ useUiStateStore: () => vi.fn() }));
@@ -54,7 +71,12 @@ vi.mock("../state/entities", async (original) => ({
   readEnvironmentSupportsPinReorder: () => true,
   readEnvironmentSupportsSettlement: () => true,
   readEnvironmentSupportsSnooze: () => true,
-  readThreadShell: () => threadShell,
+  readThreadShell: (ref: { environmentId: string; threadId: string }) =>
+    navigationThreads.length > 0
+      ? (navigationThreads.find(
+          (thread) => thread.environmentId === ref.environmentId && thread.id === ref.threadId,
+        ) ?? null)
+      : threadShell,
 }));
 vi.mock("../state/use-atom-command", () => ({
   useAtomCommand: (command: unknown) => {
@@ -96,10 +118,151 @@ beforeEach(() => {
   for (const command of Object.values(commands)) {
     command.mockReset().mockResolvedValue({ _tag: "Success", value: undefined });
   }
-  router.navigate.mockClear();
+  router.navigate.mockReset().mockResolvedValue(undefined);
+  newThread.mockReset().mockResolvedValue(undefined);
+  navigationThreads.length = 0;
+  updateThreadShortcutTargets([], null);
   router.state.matches[0]!.params = {};
   threadShell.pinnedAt = null;
   threadShell.snoozedUntil = null;
+});
+
+describe("navigation after settlement", () => {
+  function ref(thread: Thread) {
+    return scopeThreadRef(thread.environmentId, thread.id);
+  }
+  function open(thread: Thread) {
+    router.state.matches[0]!.params = { environmentId: thread.environmentId, threadId: thread.id };
+  }
+  function recordSettlement() {
+    navigationThreads[0] = { ...navigationThreads[0]!, settledOverride: "settled" };
+  }
+
+  beforeEach(() => {
+    navigationThreads.push(
+      ...["current", "below", "last"].map((id) =>
+        makeThreadFixture({ id: ThreadId.make(id), environmentId: target.environmentId }),
+      ),
+    );
+    updateThreadShortcutTargets(navigationThreads.map(ref), ref(navigationThreads[0]!));
+    open(navigationThreads[0]!);
+    commands.settle.mockImplementation(async () => {
+      recordSettlement();
+      return AsyncResult.success(undefined);
+    });
+  });
+
+  it("advances using the order before settlement even if the sidebar reorders", async () => {
+    commands.settle.mockImplementationOnce(async () => {
+      recordSettlement();
+      updateThreadShortcutTargets(
+        [ref(navigationThreads[2]!), ref(navigationThreads[1]!), ref(navigationThreads[0]!)],
+        null,
+      );
+      return AsyncResult.success(undefined);
+    });
+    await useThreadActions().settleThread(ref(navigationThreads[0]!));
+    expect(router.navigate).toHaveBeenCalledExactlyOnceWith({
+      to: "/$environmentId/$threadId",
+      params: { environmentId: target.environmentId, threadId: "below" },
+    });
+  });
+
+  it("skips other threads settling in the same batch", async () => {
+    await useThreadActions().settleThread(ref(navigationThreads[0]!), {
+      excludedThreadKeys: new Set([scopedThreadKey(ref(navigationThreads[1]!))]),
+    });
+    expect(router.navigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: { environmentId: target.environmentId, threadId: "last" },
+      }),
+    );
+  });
+
+  it("opens a draft when no eligible threads remain", async () => {
+    navigationThreads.splice(1);
+    updateThreadShortcutTargets(navigationThreads.map(ref), ref(navigationThreads[0]!));
+    await useThreadActions().settleThread(ref(navigationThreads[0]!));
+    expect(newThread).toHaveBeenCalledExactlyOnceWith({
+      environmentId: target.environmentId,
+      projectId: navigationThreads[0]!.projectId,
+    });
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it("does not navigate when settlement fails", async () => {
+    commands.settle.mockResolvedValueOnce(
+      AsyncResult.failure(Cause.fail(new Error("settlement failed"))),
+    );
+    const result = await useThreadActions().settleThread(ref(navigationThreads[0]!));
+    expect(result._tag).toBe("Failure");
+    expect(router.navigate).not.toHaveBeenCalled();
+    expect(newThread).not.toHaveBeenCalled();
+  });
+
+  it("keeps the user's navigation while settlement is pending", async () => {
+    const pending = deferred<ReturnType<typeof AsyncResult.success<undefined>>>();
+    commands.settle.mockReturnValueOnce(pending.promise);
+    const settling = useThreadActions().settleThread(ref(navigationThreads[0]!));
+    open(navigationThreads[2]!);
+    recordSettlement();
+    pending.resolve(AsyncResult.success(undefined));
+    await settling;
+    expect(router.navigate).not.toHaveBeenCalled();
+    expect(newThread).not.toHaveBeenCalled();
+  });
+
+  it("checks candidates again when the next thread starts working during settlement", async () => {
+    const pending = deferred<ReturnType<typeof AsyncResult.success<undefined>>>();
+    commands.settle.mockReturnValueOnce(pending.promise);
+    const settling = useThreadActions().settleThread(ref(navigationThreads[0]!));
+    const next = navigationThreads[1]!;
+    navigationThreads[1] = {
+      ...next,
+      runtime: {
+        providerInstanceId: next.providerInstanceId,
+        providerName: "Codex",
+        status: "running",
+        activeRunId: null,
+        lastError: null,
+        updatedAt: next.updatedAt,
+      },
+    };
+    recordSettlement();
+    pending.resolve(AsyncResult.success(undefined));
+    await settling;
+    expect(router.navigate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: { environmentId: target.environmentId, threadId: "last" },
+      }),
+    );
+  });
+
+  it("does not navigate when settling a background thread", async () => {
+    open(navigationThreads[1]!);
+    await useThreadActions().settleThread(ref(navigationThreads[0]!));
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it("does not navigate if the thread was un-settled before the command returned", async () => {
+    commands.settle.mockResolvedValueOnce(AsyncResult.success(undefined));
+    await useThreadActions().settleThread(ref(navigationThreads[0]!));
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it("reports failed navigation while retaining successful settlement and Undo", async () => {
+    const add = vi.spyOn(toastManager, "add").mockReturnValue("toast");
+    router.navigate.mockRejectedValueOnce(new Error("route unavailable"));
+    const result = await useThreadActions().settleThread(ref(navigationThreads[0]!));
+    expect(result._tag).toBe("Success");
+    expect(add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Thread settled, but navigation failed",
+        description: "route unavailable",
+      }),
+    );
+    expect(useThreadUndoNotice.getState().notice).toMatchObject({ action: "Settled" });
+  });
 });
 afterEach(() => {
   vi.runAllTimers();

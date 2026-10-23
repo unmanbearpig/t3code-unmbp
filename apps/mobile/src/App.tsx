@@ -1,4 +1,6 @@
+import { recordStartupMilestone } from "./features/diagnostics/performance-telemetry";
 import { PermissionUpdateNotice } from "./features/connection/PermissionUpdateNotice";
+import { ReconnectGuessBanner } from "./features/diagnostics/ReconnectGuessBanner";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
@@ -50,11 +52,18 @@ const appLinking = {
 
 const Navigation = createStaticNavigation(RootStack);
 
+function navigationReady() {
+  recordStartupMilestone("startup.navigation-ready");
+}
+
 function SplashScreenCoordinator() {
   const { isReady } = useAppearancePreferences();
 
   useEffect(() => {
-    if (isReady) void SplashScreen.hide();
+    if (isReady) {
+      SplashScreen.hide();
+      recordStartupMilestone("startup.splash-hide-requested");
+    }
   }, [isReady]);
 
   return null;
@@ -106,7 +115,11 @@ function AppContent() {
               <GlobalVoiceInputControl>
                 <NativeLayoutMetricsProvider>
                   <IncomingShareProvider>
-                    <Navigation linking={appLinking} theme={navigationTheme} />
+                    <Navigation
+                      linking={appLinking}
+                      theme={navigationTheme}
+                      onReady={navigationReady}
+                    />
                   </IncomingShareProvider>
                   <Dialog.Host />
                   <ThreadArrangementHost />
@@ -115,6 +128,7 @@ function AppContent() {
               {/* Anchored-menu overlays render here — in-window, so the
                 keyboard stays up while a dropdown is open. */}
               <OverlayPortalHost />
+              <ReconnectGuessBanner />
             </VoiceInputProvider>
           </SafeAreaProvider>
         </KeyboardProvider>

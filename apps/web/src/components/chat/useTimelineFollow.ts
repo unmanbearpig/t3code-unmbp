@@ -272,9 +272,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     // The anchored end space must be gone before the scroll measures, or the
     // list lands short of the real end (#6519).
     requestAnimationFrame(() => {
-      void legendListRef.current?.scrollToEnd?.({
-        animated: animated && !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-      });
+      void legendListRef.current?.scrollToEnd?.({ animated: false });
     });
   };
   const scrollToEndStable = useStableCallback(scrollToEnd);
@@ -492,7 +490,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
         void list
           .scrollToIndex({
             index: anchorIndex,
-            animated: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+            animated: false,
             viewPosition: 0,
             viewOffset: CHAT_LIST_ANCHOR_OFFSET,
           })

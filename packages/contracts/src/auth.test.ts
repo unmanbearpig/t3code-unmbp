@@ -9,10 +9,29 @@ import {
   AuthStandardClientScopes,
   authScopeResponse,
   AuthSessionState,
+  AuthWebSocketTicketResult,
   sessionGrantsScope,
 } from "./auth.ts";
 
+const decodeWebSocketTicket = Schema.decodeSync(Schema.toCodecJson(AuthWebSocketTicketResult));
+const decodeLegacyWebSocketTicket = Schema.decodeSync(
+  Schema.toCodecJson(Schema.Struct({ ticket: Schema.String, expiresAt: Schema.DateTimeUtc })),
+);
+
 describe("authorization grants", () => {
+  it("decodes both legacy tickets and protocol diagnostics on new tickets", () => {
+    const ticket = { ticket: "ws-ticket", expiresAt: "2026-10-15T12:00:00Z" };
+    expect(decodeWebSocketTicket(ticket)).not.toHaveProperty("orchestrationProtocolVersion");
+    expect(decodeWebSocketTicket({ ...ticket, orchestrationProtocolVersion: 3 })).toMatchObject({
+      orchestrationProtocolVersion: 3,
+    });
+    expect(
+      decodeLegacyWebSocketTicket({ ...ticket, orchestrationProtocolVersion: 3 }),
+    ).toMatchObject({
+      ticket: "ws-ticket",
+    });
+  });
+
   it("decodes legacy review credentials without offering them in new grants", () => {
     expect(Schema.decodeUnknownSync(AuthEnvironmentScopes)(["review:write"])).toEqual([
       "review:write",

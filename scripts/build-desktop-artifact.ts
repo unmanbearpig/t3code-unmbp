@@ -17,6 +17,7 @@ import {
 
 import { fromYaml } from "@t3tools/shared/schemaYaml";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { CLI_RELEASE_REPOSITORY } from "@t3tools/shared/cliRelease";
 import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import rootPackageJson from "../package.json" with { type: "json" };
@@ -39,7 +40,9 @@ import { getDefaultBuildArch } from "./lib/build-target-arch.ts";
 import {
   findInlinedExternalPackages,
   selectCliRuntimeExternalDependencies,
+  webTransportInstallEnvironment,
 } from "./lib/cli-external-packages.ts";
+import { stageWebTransportPrebuilt } from "./lib/stage-webtransport.ts";
 import { loadRepoEnv } from "./lib/public-config.ts";
 import { selectDesktopRuntimeExternalDependencies } from "./lib/desktop-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
@@ -974,6 +977,7 @@ interface StagePackageJson {
   readonly main: string;
   readonly build: Record<string, unknown>;
   readonly dependencies: Record<string, unknown>;
+  readonly optionalDependencies: Record<string, string>;
   readonly devDependencies: {
     readonly electron: string;
   };
@@ -2735,31 +2739,16 @@ export function resolveDesktopRuntimeDependencies(
   );
 }
 
-export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig")(function* (
-  updateChannel: "latest" | "nightly",
-) {
-  const env = yield* Config.all({
-    updateRepository: Config.String("T3CODE_DESKTOP_UPDATE_REPOSITORY").pipe(Config.option),
-    githubRepository: Config.String("GITHUB_REPOSITORY").pipe(Config.option),
-  });
-  const rawRepo = (
-    Option.getOrUndefined(env.updateRepository)?.trim() ||
-    Option.getOrUndefined(env.githubRepository)?.trim() ||
-    ""
-  ).trim();
-  if (!rawRepo) return undefined;
-
-  const [owner, repo, ...rest] = rawRepo.split("/");
-  if (!owner || !repo || rest.length > 0) return undefined;
-
-  return {
+export const resolveGitHubPublishConfig = (updateChannel: "latest" | "nightly") => {
+  const [owner, repo] = CLI_RELEASE_REPOSITORY.split("/");
+  return Effect.succeed({
     provider: "github",
     owner,
     repo,
     releaseType: updateChannel === "nightly" ? "prerelease" : "release",
     ...(updateChannel === "nightly" ? { channel: "nightly" as const } : {}),
-  };
-});
+  });
+};
 
 export function resolveDesktopUpdateChannel(version: string): "latest" | "nightly" {
   return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
@@ -3154,6 +3143,7 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
   readonly arch: typeof BuildArch.Type;
   readonly appVersion: string;
   readonly runtimeExternalDependencies: Record<string, string>;
+  readonly runtimeExternalOptionalDependencies: Record<string, string>;
   readonly fffNodeVersion: string;
   readonly allowBuilds: Record<string, boolean>;
   readonly patchedDependencies: Record<string, string>;
@@ -3172,16 +3162,17 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
     ...input.runtimeExternalDependencies,
     ...resolveFffNativeDependencies("win", input.arch, input.fffNodeVersion),
   };
-  const sidecarPatchedDependencies = createStagePatchedDependencies(
-    input.patchedDependencies,
-    sidecarDependencies,
-  );
+  const sidecarPatchedDependencies = createStagePatchedDependencies(input.patchedDependencies, {
+    ...sidecarDependencies,
+    ...input.runtimeExternalOptionalDependencies,
+  });
   const sidecarPackageJson = {
     name: "t3code-server",
     version: input.appVersion,
     private: true,
     packageManager: rootPackageJson.packageManager,
     dependencies: sidecarDependencies,
+    optionalDependencies: input.runtimeExternalOptionalDependencies,
   };
   const sidecarPackageJsonString = yield* encodeJsonString(sidecarPackageJson);
   yield* fs.writeFileString(
@@ -3214,10 +3205,18 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
   yield* runCommand(
     ChildProcess.make(installCommand.command, installCommand.args, {
       cwd: serverStageDir,
+      extendEnv: true,
+      env: webTransportInstallEnvironment("win", input.arch),
       shell: installCommand.shell,
     }),
     { label: "vp install --prod (server sidecar)", verbose: input.verbose },
   );
+
+  yield* stageWebTransportPrebuilt({
+    nodeModulesDir: path.join(serverStageDir, "node_modules"),
+    platform: "win",
+    arch: input.arch,
+  });
 
   yield* Effect.log("[desktop-artifact] Packing server.asar...");
   yield* fs.makeDirectory(path.dirname(input.asarPath), { recursive: true });
@@ -3671,6 +3670,13 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   const resolvedServerRuntimeExternalDependencies = selectCliRuntimeExternalDependencies(
     resolvedServerDependencies,
   );
+  const resolvedServerRuntimeExternalOptionalDependencies = selectCliRuntimeExternalDependencies(
+    resolveCatalogDependencies(
+      serverPackageJson.optionalDependencies,
+      workspaceCatalog,
+      "apps/server",
+    ),
+  );
   const resolvedDesktopRuntimeDependencies = yield* Effect.try({
     try: () => resolveDesktopRuntimeDependencies(desktopPackageJson.dependencies, workspaceCatalog),
     catch: (cause) =>
@@ -3894,10 +3900,12 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
           arch: options.arch,
           fffNodeVersion: serverPackageJson.dependencies["@ff-labs/fff-node"],
         });
-  const stagePatchedDependencies = createStagePatchedDependencies(
-    workspacePatchedDependencies,
-    stageDependencies,
-  );
+  const stageOptionalDependencies =
+    options.platform === "win" ? {} : resolvedServerRuntimeExternalOptionalDependencies;
+  const stagePatchedDependencies = createStagePatchedDependencies(workspacePatchedDependencies, {
+    ...stageDependencies,
+    ...stageOptionalDependencies,
+  });
   const windowsServerAsarPath =
     options.platform === "win"
       ? path.join(stageAppDir, WINDOWS_SERVER_RESOURCE_SOURCE_DIR, WINDOWS_SERVER_ASAR_RESOURCE)
@@ -3934,6 +3942,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
       options.arch,
     ),
     dependencies: stageDependencies,
+    optionalDependencies: stageOptionalDependencies,
     devDependencies: {
       electron: electronVersion,
     },
@@ -3963,10 +3972,19 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   yield* runCommand(
     ChildProcess.make(installCommand.command, installCommand.args, {
       cwd: stageAppDir,
+      extendEnv: true,
+      env: webTransportInstallEnvironment(options.platform, options.arch),
       shell: installCommand.shell,
     }),
     { label: "vp install --prod", verbose: options.verbose },
   );
+  if (options.platform !== "win") {
+    yield* stageWebTransportPrebuilt({
+      nodeModulesDir: path.join(stageAppDir, "node_modules"),
+      platform: options.platform,
+      arch: options.arch,
+    });
+  }
   yield* stageClerkPasskeyNativeBinaries(stageAppDir, options.platform, options.arch);
   yield* stageKeyringNativeBinaries(stageAppDir, options.platform, options.arch);
 
@@ -3978,6 +3996,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
       arch: options.arch,
       appVersion,
       runtimeExternalDependencies: resolvedServerRuntimeExternalDependencies,
+      runtimeExternalOptionalDependencies: resolvedServerRuntimeExternalOptionalDependencies,
       fffNodeVersion: serverPackageJson.dependencies["@ff-labs/fff-node"],
       allowBuilds: workspaceAllowBuilds,
       patchedDependencies: workspacePatchedDependencies,

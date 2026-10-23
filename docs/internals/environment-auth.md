@@ -58,10 +58,11 @@ Issuer and resource URLs come from the request's Host and
 T3 Connect tunnel. A proxy that rewrites Host or drops the protocol header
 breaks sign-in.
 
-Bearer and DPoP clients obtain short-lived WebSocket tickets through authenticated
-HTTP so long-lived tokens stay out of socket URLs. Browser sessions can
-authenticate the upgrade with their cookie. A successful handshake grants no
-extra authority: [every RPC declares a required
+Bearer clients with a platform-provided header constructor authenticate the WebSocket
+upgrade with an `Authorization` header. Browser bearer clients and DPoP clients obtain
+short-lived tickets through authenticated HTTP so long-lived tokens stay out of
+socket URLs. Browser sessions can authenticate the upgrade with their cookie.
+A successful handshake grants no extra authority: [every RPC declares a required
 scope](../../apps/server/src/auth/RpcAuthorization.ts), and the WebSocket RPC
 group's `RpcScopeAuthorization` middleware checks it before any handler runs.
 

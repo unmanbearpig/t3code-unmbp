@@ -202,6 +202,8 @@ export const layer: Layer.Layer<
     const SUPERSEDABLE_THREAD_EVENT_TYPES = [
       "thread.archived",
       "thread.unarchived",
+      "thread.deleted",
+      "thread.settle-when-idle-set",
       "thread.settled",
       "thread.unsettled",
       "thread.snoozed",

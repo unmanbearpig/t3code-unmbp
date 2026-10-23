@@ -2,6 +2,7 @@ import {
   type PendingSubagentRequest,
   presentThreadShell,
 } from "@t3tools/client-runtime/state/models";
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { pendingSubagentRequestsByThread } from "@t3tools/client-runtime/state/threads";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
@@ -160,6 +161,8 @@ function EnvironmentNotifications({
             ? "completion"
             : null;
       if (!kind) continue;
+      // Filed and settled threads finish quietly; attention alerts still fire.
+      if (kind === "completion" && isFiledAsSettled(thread)) continue;
       const title =
         kind === "completion"
           ? "Thread completed"

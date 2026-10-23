@@ -1,3 +1,6 @@
+import { useCallback } from "react";
+import * as Runtime from "../../lib/runtime";
+import * as MobileConnectionLog from "../diagnostics/connection-log";
 import * as Dialog from "../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
@@ -224,6 +227,28 @@ function LiveThreadRouteController(props: ThreadRouteScreenProps) {
       : scopedThreadKey(selectedThread.environmentId, selectedThread.id);
   const selectedThreadDetailState = useSelectedThreadDetailState();
   useThreadPromptLink(params, routeThreadKey);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      let log: MobileConnectionLog.MobileConnectionLog["Service"] | null = null;
+      void Runtime.runtime
+        .runPromise(MobileConnectionLog.MobileConnectionLog)
+        .then((service) => {
+          if (!active) return;
+          log = service;
+          service.visible(
+            environmentId !== null && threadIdRaw !== null
+              ? { environmentId, threadId: threadIdRaw }
+              : null,
+          );
+        })
+        .catch(() => undefined);
+      return () => {
+        active = false;
+        log?.visible(null);
+      };
+    }, [environmentId, threadIdRaw]),
+  );
 
   if (environmentId === null || threadIdRaw === null) {
     return <OpeningThreadLoadingScreen />;
@@ -887,6 +912,7 @@ function ThreadRouteContent(
           detailError: Option.getOrNull(selectedThreadDetailState.error),
           detailDeleted: selectedThreadDetailState.status === "deleted",
           connectionState: routeConnectionState,
+          connectionError: routeConnectionError,
         });
   const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
   const renderThreadRouteBody = () => (

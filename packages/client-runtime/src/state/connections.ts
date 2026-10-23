@@ -118,6 +118,15 @@ export function createEnvironmentCatalogAtoms<R, E>(
     ),
   );
 
+  const connectedAtom = Atom.family((environmentId: EnvironmentIdType) =>
+    Atom.make((get) =>
+      Option.exists(
+        AsyncResult.value(get(stateAtom(environmentId))),
+        (state) => state.phase === "connected",
+      ),
+    ).pipe(Atom.withLabel(`environment-connected:${environmentId}`)),
+  );
+
   const register = createRuntimeCommand(runtime, {
     label: "environment-catalog:register",
     scheduler: commandScheduler,
@@ -195,6 +204,7 @@ export function createEnvironmentCatalogAtoms<R, E>(
     networkStatusAtom,
     networkStatusValueAtom,
     stateAtom,
+    connectedAtom,
     register,
     remove,
     removeRoute,

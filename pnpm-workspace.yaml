@@ -9,6 +9,8 @@ packages:
 # true = allowed to run build scripts; false mirrors the pnpm 10 behavior
 # where anything outside onlyBuiltDependencies was silently not built.
 allowBuilds:
+  # Patched installer downloads supported QUICHE prebuilts and never builds from source.
+  "@fails-components/webtransport-transport-http3-quiche": true
   browser-tabs-lock: false
   bufferutil: false
   core-js: false
@@ -20,6 +22,8 @@ allowBuilds:
   msgpackr-extract: true
   msw: false
   node-pty: true
+  # Native libcurl adapter used only by the HTTP/3 network benchmark.
+  node-libcurl: true
   # Ships N-API prebuilds; its install script only rebuilds from source.
   objc-js: false
   "react-native-enriched-markdown@file:apps/mobile/deps/react-native-enriched-markdown-1.2.0-t3.15-fee84114.tgz": true
@@ -353,6 +357,8 @@ patchedDependencies:
   mdast-util-math@3.0.0: patches/mdast-util-math@3.0.0.patch
   micromark-extension-llm-math@3.1.0: patches/micromark-extension-llm-math@3.1.0.patch
   micromark-extension-gfm-table@2.1.1: patches/micromark-extension-gfm-table@2.1.1.patch
+  "@fails-components/webtransport@1.6.9": patches/@fails-components__webtransport@1.6.9.patch
+  "@fails-components/webtransport-transport-http3-quiche@1.6.9": patches/@fails-components__webtransport-transport-http3-quiche@1.6.9.patch
   alchemy@2.0.0-beta.80: patches/alchemy@2.0.0-beta.80.patch
   expo-audio@58.0.9: patches/expo-audio@58.0.9.patch
   expo-network@58.0.3: patches/expo-network@58.0.3.patch

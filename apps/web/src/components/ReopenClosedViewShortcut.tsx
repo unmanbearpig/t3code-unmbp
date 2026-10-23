@@ -203,10 +203,9 @@ export function ReopenClosedViewShortcut() {
     void preview
       .setForwardedShortcuts(
         commands.flatMap((command) =>
-          effectiveShortcutsForCommand(keybindings, command, options).map((shortcut) => ({
-            command,
-            shortcut,
-          })),
+          effectiveShortcutsForCommand(keybindings, command, options).flatMap((shortcut) =>
+            "leader" in shortcut ? [] : [{ command, shortcut }],
+          ),
         ),
       )
       .catch(() => undefined);

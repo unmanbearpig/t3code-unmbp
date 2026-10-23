@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./prompt-cache": {
+      "types": "./src/promptCache.ts",
+      "default": "./src/promptCache.ts"
+    },
     "./workspace-basename-lookup": {
       "types": "./src/workspaceBasenameLookup.ts",
       "default": "./src/workspaceBasenameLookup.ts"
@@ -54,6 +58,10 @@
     "./secret-request": {
       "types": "./src/secretRequest.ts",
       "default": "./src/secretRequest.ts"
+    },
+    "./scheduled-task-base-ref": {
+      "types": "./src/scheduledTaskBaseRef.ts",
+      "default": "./src/scheduledTaskBaseRef.ts"
     },
     "./scheduled-task-webhook": {
       "types": "./src/scheduledTaskWebhook.ts",

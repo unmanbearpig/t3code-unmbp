@@ -3,6 +3,27 @@
 Customize shortcuts in **Settings → Keybindings** on web and desktop. That page
 also lists the command IDs and defaults available in your version.
 
+## Leader shortcuts
+
+Press and release **Ctrl+.**, then press **N** for the next thread, **P** for the
+previous thread, or **1–9** to jump to a displayed thread. The numbers choose
+results in the command palette and models in the model picker. **B** toggles the
+sidebar, **J** toggles the terminal, **K** opens commands, **M** opens the model
+picker, **C** starts a thread in the current project, and **Shift+N** opens the
+new-thread project chooser when there is more than one project.
+
+Change or disable the trigger in **Settings → Keybindings → Leader key**. The
+trigger belongs to this device. Leader shortcuts work throughout web and desktop,
+including Settings, the composer, terminals, and the embedded browser. Escape,
+two seconds without a successor, or losing focus cancels the sequence. An unbound
+successor keeps its normal behavior. Keys use your keyboard layout.
+
+Use `leader+n`, `leader+1`, or `leader+shift+n` in a binding. When recording a
+shortcut in Settings, press the trigger followed by the successor. Additional
+modifiers apply to the successor; release Ctrl before pressing a plain leader key.
+On mobile, set the trigger in **Settings → Keyboard**; hardware keyboards support
+leader bindings for the available native navigation commands.
+
 ## Composer controls
 
 In **Settings → General → Send shortcut**, choose whether Enter sends, requires
@@ -75,6 +96,45 @@ In the composer, Return sends and `Shift+Return` inserts a new line. `Cmd+Return
 also sends. To make Return insert a new line instead, change the Return key
 behavior in Settings → Keyboard.
 
+A fresh Ctrl+D in an empty composer settles the thread and opens the next thread
+you can act on, skipping Working and Waiting threads. Holding the key does not
+settle more threads. Ctrl+D inside a terminal keeps its terminal behavior.
+
+## Emacs / readline editing
+
+Ctrl+J inserts a newline in the web and desktop composer and other multiline
+text boxes, even when Emacs / readline editing is off.
+
+Enable **Settings → General → Emacs / readline editing** to use these keys in
+the web and desktop message composer, in both rich text and plain Markdown modes.
+The composer takes priority over conflicting app shortcuts while it has focus.
+Turn the setting off to restore the default behavior. Super/Command is unchanged.
+Ctrl+D deletes the selected text or the following character. At the end of a
+nonempty prompt it does nothing. In an empty prompt it settles the thread and
+opens the next thread you can act on. Use `ctrl+d` for Control on every platform.
+
+| Keys                                                        | Action                                                            |
+| ----------------------------------------------------------- | ----------------------------------------------------------------- |
+| Ctrl+A / Ctrl+E                                             | Beginning / end of the hard line                                  |
+| Ctrl+B / Ctrl+F                                             | Previous / next character                                         |
+| Ctrl+P / Ctrl+N                                             | Previous / next visual line, or suggestion while its menu is open |
+| Alt+B / Alt+F, Alt+Left / Alt+Right, Ctrl+Left / Ctrl+Right | Previous / next word                                              |
+| Alt+Up / Alt+Down                                           | Beginning / end of the hard line                                  |
+| Alt+< / Alt+>                                               | Beginning / end of the prompt                                     |
+| Ctrl+H / Ctrl+D                                             | Delete the preceding / following character                        |
+| Ctrl+K / Ctrl+U                                             | Kill to the end / beginning of the hard line                      |
+| Ctrl+W, Alt+Backspace, Ctrl+Backspace                       | Kill the preceding word                                           |
+| Alt+D, Alt+Delete, Ctrl+Delete                              | Kill the following word                                           |
+| Ctrl+Y                                                      | Yank the killed text                                              |
+| Ctrl+T                                                      | Transpose adjacent characters                                     |
+| Ctrl+J / Ctrl+O                                             | Insert a newline / open a line without moving past it             |
+
+Add Shift to movement keys to select text. Alt+< and Alt+> move to prompt
+boundaries without extending the selection. Ctrl+K at line end kills the newline.
+Consecutive kills combine; yank retains formatting and embedded references.
+The kill buffer belongs to the mounted composer, so switching threads or toggling
+rich text can clear it. Terminal key handling is unchanged.
+
 ## Edit the configuration file
 
 Keybindings live on the environment's machine, in
@@ -104,7 +164,8 @@ Project scripts use `script.{id}.run`, such as `script.test.run`.
 
 Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 `mod` means Command on macOS and Control elsewhere. Other modifiers are
-`cmd` / `meta`, `ctrl` / `control`, `alt` / `option`, and `shift`.
+`cmd` / `meta`, `ctrl` / `control`, `alt` / `option`, `shift`, and `leader`.
+`leader` starts a two-stroke sequence using this device’s configured trigger.
 
 ## When conditions
 
@@ -158,11 +219,23 @@ field gets its own undo back. Terminals always keep their native shortcut.
 through the pages you have visited, like a browser's back and forward buttons.
 
 `chat.new` may ask you to choose a project when there is more than one.
-`chat.newLocal` skips that chooser. Both use your
+`chat.newLocal` (`leader+c`) skips that chooser. Both use your
 [new-thread defaults](./thread-sidebar.md#start-a-thread). `chat.newWithoutProject`
 (`mod+alt+n`) starts a thread [without a project](./thread-sidebar.md#start-without-a-project).
 
 ## Reserved shortcuts
+
+In the desktop app, `Ctrl+Shift+N` opens your selected external terminal in its own
+window for a project on the same computer. It uses the thread's worktree when one
+is selected. Connections through LAN, Tailscale, or T3 Connect also work when the
+environment runs on this computer. Choose foot, kitty,
+or Alacritty in **Settings → General → External terminal** and change the shortcut
+under **Terminal: Open External Window** in Keybindings. Install the terminal on
+the desktop app's computer first. The shortcut does nothing for environments on
+other computers or in the web and mobile clients.
+
+The `externalTerminalAvailable` condition is true when the desktop app has verified
+that the current project's environment runs on this computer.
 
 In the desktop app, `mod+w` closes the focused terminal or the active right-panel
 tab. When nothing remains to close, it closes the window. In a browser, `mod+w`

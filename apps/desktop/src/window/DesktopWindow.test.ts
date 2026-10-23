@@ -127,6 +127,7 @@ function makeFakeBrowserWindow() {
     getBounds: window.getBounds,
     getNormalBounds: window.getNormalBounds,
     isDestroyed: window.isDestroyed,
+    isWebContentsDestroyed: webContents.isDestroyed,
     isFullScreen: window.isFullScreen,
     isMaximized: window.isMaximized,
     isMinimized: window.isMinimized,
@@ -141,6 +142,7 @@ function makeFakeBrowserWindow() {
     setWindowButtonPosition: window.setWindowButtonPosition,
     setBackgroundThrottling: webContents.setBackgroundThrottling,
     setAutoHideCursor: window.setAutoHideCursor,
+    setTitleBarOverlay: window.setTitleBarOverlay,
     setFullScreen: window.setFullScreen,
     setOpacity: window.setOpacity,
     webContentsListeners,
@@ -193,23 +195,27 @@ const layerElectronTheme = Layer.succeed(ElectronTheme.ElectronTheme, {
   onUpdated: () => Effect.void,
 } satisfies ElectronTheme.ElectronTheme["Service"]);
 
-const layerDesktopEnvironment = DesktopEnvironment.layer(environmentInput).pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      NodeServices.layer,
-      DesktopConfig.layerTest({
-        T3CODE_PORT: "3773",
-        VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
-      }),
+const makeLayerDesktopEnvironment = (platform: NodeJS.Platform = environmentInput.platform) =>
+  DesktopEnvironment.layer({ ...environmentInput, platform }).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        DesktopConfig.layerTest({
+          T3CODE_PORT: "3773",
+          VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
+        }),
+      ),
     ),
-  ),
-);
+  );
+
+const layerDesktopEnvironment = makeLayerDesktopEnvironment();
 
 const desktopWindowBoundsEquivalence = Schema.toEquivalence(
   DesktopAppSettings.DesktopWindowBoundsSchema,
 );
 
 function layerTest(input: {
+  readonly platform?: NodeJS.Platform;
   readonly window: Electron.BrowserWindow;
   readonly createCount: Ref.Ref<number>;
   readonly mainWindow: Ref.Ref<Option.Option<Electron.BrowserWindow>>;
@@ -298,7 +304,7 @@ function layerTest(input: {
           recordMetrics: () => Effect.void,
           shutdown: Effect.void,
         }),
-        layerDesktopEnvironment,
+        makeLayerDesktopEnvironment(input.platform),
         layerDesktopAppSettings,
         layerDesktopClientSettings,
         layerDesktopServerExposure,
@@ -546,6 +552,41 @@ describe("DesktopWindow", () => {
         assert.isFalse(prevented);
       }).pipe(Effect.provide(layer));
     }),
+  );
+
+  it.effect.each(["window", "webContents"] as const)(
+    "ignores native trackpad release after %s destruction",
+    (destroyed) =>
+      Effect.gen(function* () {
+        const fakeWindow = makeFakeBrowserWindow();
+        const createCount = yield* Ref.make(0);
+        const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+        const layer = layerTest({ window: fakeWindow.window, createCount, mainWindow });
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+          const onInput = fakeWindow.webContentsListeners.get("input-event");
+          if (!onInput) return yield* Effect.die("input-event listener was not registered");
+          fakeWindow.send.mockClear();
+          if (destroyed === "window") {
+            fakeWindow.isDestroyed.mockReturnValue(true);
+            Object.defineProperty(fakeWindow.window, "webContents", {
+              get: () => {
+                throw new TypeError("Object has been destroyed");
+              },
+            });
+          } else {
+            fakeWindow.isWebContentsDestroyed.mockReturnValue(true);
+            fakeWindow.send.mockImplementation(() => {
+              throw new TypeError("Object has been destroyed");
+            });
+          }
+
+          onInput({}, { type: "gestureScrollEnd" });
+          assert.equal(fakeWindow.send.mock.calls.length, 0);
+        }).pipe(Effect.provide(layer));
+      }),
   );
 
   // Chromium hands the main window's zoom level down to embedded preview
@@ -1082,5 +1123,43 @@ describe("DesktopWindow", () => {
         assert.equal(onReveal.mock.calls.length, 0);
       }).pipe(Effect.provide(layer));
     }),
+  );
+
+  it.effect.each(["linux", "win32", "darwin"] satisfies ReadonlyArray<NodeJS.Platform>)(
+    "keeps platform window decorations through appearance updates on %s",
+    (platform) =>
+      Effect.gen(function* () {
+        const fakeWindow = makeFakeBrowserWindow();
+        const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+        const layer = layerTest({
+          platform,
+          window: fakeWindow.window,
+          createCount: yield* Ref.make(0),
+          mainWindow: yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none()),
+          createdWindowOptions,
+        });
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+          yield* desktopWindow.syncAppearance;
+
+          const options = createdWindowOptions[0]!;
+          assert.isUndefined(options.frame);
+          if (platform === "linux") {
+            assert.equal(options.titleBarStyle, "default");
+            assert.isUndefined(options.titleBarOverlay);
+            assert.equal(fakeWindow.setTitleBarOverlay.mock.calls.length, 0);
+          } else if (platform === "win32") {
+            assert.equal(options.titleBarStyle, "hidden");
+            assert.deepEqual(fakeWindow.setTitleBarOverlay.mock.calls, [[options.titleBarOverlay]]);
+          } else {
+            assert.equal(options.titleBarStyle, "hiddenInset");
+            assert.deepEqual(options.trafficLightPosition, { x: 16, y: 19 });
+            assert.isUndefined(options.titleBarOverlay);
+            assert.equal(fakeWindow.setTitleBarOverlay.mock.calls.length, 0);
+          }
+        }).pipe(Effect.provide(layer));
+      }),
   );
 });

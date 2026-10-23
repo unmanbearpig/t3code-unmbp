@@ -1,5 +1,7 @@
+import { resolveShortcutCommand } from "../../keybindings";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
+import { addAppShortcutListener, registerLeaderShortcutHandler } from "~/appShortcutEvents";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
@@ -212,6 +214,7 @@ import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
 import { getComposerPromptInjectionState, getComposerReasoningStep } from "./composerProviderState";
 import { readPromptUltrathink } from "./TraitsPicker";
+import { PromptCacheElapsed } from "./PromptCacheElapsed";
 import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
@@ -448,6 +451,7 @@ export interface ChatComposerProps {
   activeProjectId: ProjectId | null;
 
   activeContextWindow: ContextWindowSnapshot | null;
+  lastPromptCacheWriteAt: number | null;
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
@@ -585,6 +589,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     reportedModelSelection,
     activeProjectId,
     activeContextWindow,
+    lastPromptCacheWriteAt,
     compactThreadUnavailable,
     compactDisabled,
     compactDisabledReason,
@@ -2244,6 +2249,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const expandMobileComposerStable = useStableCallback(expandMobileComposer);
 
   const { onComposerCommandKey } = useComposerCommandKey({
+    composerEmacsEditingEnabled: settings.composerEmacsEditingEnabled,
     keybindings,
     sendShortcut: settings.sendShortcut,
     routeKind,
@@ -2280,6 +2286,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     applyPromptReplacement,
     submitComposer,
   });
+
+  useEffect(() =>
+    registerLeaderShortcutHandler((event) => {
+      const target = event.target ?? document.activeElement;
+      if (!(target instanceof Node) || !composerFormRef.current?.contains(target)) return;
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          composerFocus: true,
+          draftThreadRoute: routeKind === "draft",
+          turnRunning: phase === "running",
+        },
+      });
+      if (!command?.startsWith("composer.send")) return;
+      if (onComposerCommandKey(event.key, event)) event.preventDefault();
+    }, true),
+  );
 
   const {
     stashQueue,
@@ -3907,6 +3929,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
+                    lastPromptCacheWriteAt={lastPromptCacheWriteAt}
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}

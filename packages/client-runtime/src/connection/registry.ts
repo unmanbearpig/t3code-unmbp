@@ -1,3 +1,4 @@
+import { ReconnectExperiment } from "./reconnectExperiment.ts";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -5,6 +6,7 @@ import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -202,6 +204,7 @@ interface EnvironmentServiceScope {
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const registryScope = yield* Scope.Scope;
+  const experiment = yield* ReconnectExperiment;
   const storage = yield* Persistence.ConnectionTargetStore;
   const registrations = yield* Persistence.ConnectionRegistrationStore;
   const cache = yield* Persistence.EnvironmentCacheStore;
@@ -261,6 +264,17 @@ export const make = Effect.gen(function* () {
   );
   const entries =
     yield* SubscriptionRef.make<ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>>(initialEntries);
+  const reportEnvironments = (current: ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>) =>
+    experiment?.environments?.(
+      [...current.values()]
+        .filter((entry) => entry.enabled)
+        .map((entry) => entry.target.environmentId),
+    );
+  reportEnvironments(initialEntries);
+  yield* SubscriptionRef.changes(entries).pipe(
+    Stream.runForEach((current) => Effect.sync(() => reportEnvironments(current))),
+    Effect.forkScoped,
+  );
   const networkStatus = yield* SubscriptionRef.make(yield* connectivity.status);
   const serviceScopes = yield* SubscriptionRef.make<
     ReadonlyMap<EnvironmentId, EnvironmentServiceScope>
@@ -863,8 +877,9 @@ export const make = Effect.gen(function* () {
     );
 
   // Plain HTTP routes are unusable from an HTTPS page, which blocks mixed content.
+  const pageLocation: unknown = Reflect.get(globalThis, "location");
   const allowInsecureRoutes =
-    typeof globalThis.location === "undefined" || globalThis.location.protocol !== "https:";
+    !Predicate.hasProperty(pageLocation, "protocol") || pageLocation.protocol !== "https:";
 
   /**
    * Learned routes reuse the active route's credential, so they do not revoke GitHub routing

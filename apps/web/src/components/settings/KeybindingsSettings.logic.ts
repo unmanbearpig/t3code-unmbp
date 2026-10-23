@@ -1,18 +1,20 @@
 import {
   STATIC_KEYBINDING_COMMANDS,
   type KeybindingCommand,
-  type KeybindingShortcut,
+  type AppKeybindingShortcut,
   type KeybindingWhenNode,
   type ResolvedKeybindingRule,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import {
   DEFAULT_RESOLVED_KEYBINDINGS,
+  keybindingShortcutInput,
   parseKeybindingWhenExpression,
   US_SHIFTED_TO_UNSHIFTED_KEYS,
 } from "@t3tools/shared/keybindings";
 
 import { shortcutKeyFromEvent } from "../../keybindings";
+import { leaderStrokeKey } from "@t3tools/shared/leaderKey";
 import { isMacPlatform } from "../../lib/utils";
 import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
 
@@ -61,6 +63,7 @@ export type KeybindingCommandOption = KeybindingCommand;
 const CORE_WHEN_VARIABLES = [
   "terminalFocus",
   "terminalOpen",
+  "externalTerminalAvailable",
   "isWeb",
   "isDesktop",
   "true",
@@ -78,15 +81,8 @@ export const DEFAULT_WHEN_VARIABLE =
   ) ?? "terminalFocus";
 const KNOWN_WHEN_VARIABLES = new Set(DEFAULT_WHEN_VARIABLES);
 
-export function shortcutToKeybindingInput(shortcut: KeybindingShortcut): string {
-  const parts: string[] = [];
-  if (shortcut.modKey) parts.push("mod");
-  if (shortcut.metaKey) parts.push("meta");
-  if (shortcut.ctrlKey) parts.push("ctrl");
-  if (shortcut.altKey) parts.push("alt");
-  if (shortcut.shiftKey) parts.push("shift");
-  parts.push(shortcut.key === " " ? "space" : shortcut.key === "escape" ? "esc" : shortcut.key);
-  return parts.join("+");
+export function shortcutToKeybindingInput(shortcut: AppKeybindingShortcut): string {
+  return keybindingShortcutInput(shortcut);
 }
 
 export function whenAstToExpression(node: KeybindingWhenNode | undefined): string {
@@ -361,6 +357,7 @@ export function buildKeybindingCommandOptions(
 }
 
 export function commandLabel(command: KeybindingCommand): string {
+  if (command === "terminal.openExternal") return "Terminal: Open External Window";
   if (command === "composer.sendAlternate") return "Composer: Opposite Queue or Steer Action";
   if (command === "composer.sendBackground") return "Composer: Start in Background";
   if (command === "composer.sendAndNewThread") return "Composer: Send and Start New Thread";
@@ -437,10 +434,15 @@ export function keybindingFromKeyboardEvent(
   platform: string,
   options?: {
     readonly layoutCharacter?: boolean;
+    readonly leaderKey?: boolean;
   },
 ): string | null {
   const keyToken = normalizeShortcutKeyToken(
-    options?.layoutCharacter ? recordedLayoutShortcutKey(event) : shortcutKeyFromEvent(event),
+    options?.leaderKey
+      ? leaderStrokeKey(event)
+      : options?.layoutCharacter
+        ? recordedLayoutShortcutKey(event)
+        : shortcutKeyFromEvent(event),
   );
   if (!keyToken) return null;
 

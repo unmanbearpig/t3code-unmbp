@@ -1,3 +1,4 @@
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import type { PullRequestInvolvement, PullRequestListState } from "@t3tools/contracts";
 import { Plug2Icon, SearchIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
@@ -151,8 +152,7 @@ export function PullRequestsColumn({
       input?.focus();
       input?.select();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return addAppShortcutListener(window, onKeyDown);
   }, [condensed]);
   if (!condensed && searchOpen) setSearchOpen(false);
   useEffect(() => {

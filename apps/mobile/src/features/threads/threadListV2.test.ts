@@ -40,6 +40,17 @@ import {
   threadHasUnseenCompletion,
   type ThreadListV2ListItem,
 } from "./threadListV2";
+function runningRuntime() {
+  return {
+    status: "running" as const,
+    providerName: "Codex",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    runtimeMode: "full-access" as const,
+    activeRunId: null,
+    lastError: null,
+    updatedAt: NOW,
+  };
+}
 
 const environmentId = EnvironmentId.make("environment-1");
 const decodeThreadShell = Schema.decodeUnknownSync(OrchestrationV2ThreadShell);
@@ -75,6 +86,49 @@ describe("resolveThreadListV2SnoozeMenuSelection", () => {
 });
 
 describe("resolveThreadListV2Status", () => {
+  it.each(["preparing", "queued", "starting", "running", "waiting", "idle"] as const)(
+    "shows disconnected for cached %s work and returns it to Working on reconnect",
+    (status) => {
+      const thread = makeThread({
+        id: ThreadId.make("offline-work"),
+        title: "Offline work",
+        environmentConnected: false,
+        runtime: {
+          status,
+          activeRunId: RunId.make("cached-run"),
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          providerName: "Codex",
+          lastError: null,
+          updatedAt: NOW,
+        },
+      });
+      const layout = (thread: EnvironmentThreadShell) =>
+        buildThreadListV2Items({
+          threads: [thread],
+          environmentId: null,
+          searchQuery: "",
+          now: NOW,
+          workingShelfEnabled: true,
+        });
+      expect(resolveThreadListV2Status(thread)).toBe("disconnected");
+      expect(layout(thread)).toMatchObject({
+        workingCount: 0,
+        items: [{ thread, variant: "card" }],
+      });
+      const connected = { ...thread, environmentConnected: true };
+      expect(resolveThreadListV2Status(connected)).toBe(status === "idle" ? "waiting" : "working");
+      expect(layout(connected)).toMatchObject({ workingCount: 1, items: [] });
+    },
+  );
+
+  it("preserves confirmed completion while the environment is disconnected", () => {
+    const thread = presentThreadShell(
+      environmentId,
+      makeRawThreadShell({ latestRunId: RunId.make("finished"), status: "completed" }),
+    );
+    expect(resolveThreadListV2Status({ ...thread, environmentConnected: false })).toBe("ready");
+  });
+
   it("presents decoded thread waits as Waiting while preserving requests and older servers", () => {
     const raw = makeRawThreadShell({
       status: "running",
@@ -163,6 +217,23 @@ describe("sortThreadsForListV2", () => {
 });
 
 describe("getThreadListV2OrderedSection", () => {
+  it("files a working thread on the settled shelf, labelled Working", () => {
+    const thread = makeThread({
+      id: ThreadId.make("filed"),
+      title: "Filed",
+      settleWhenIdleAt: NOW,
+      runtime: runningRuntime(),
+    });
+    expect(
+      getThreadListV2OrderedSection({ threads: [thread], section: "active", now: NOW }),
+    ).toEqual([]);
+    const row = buildTickList([thread], BASE_MS, []).find((item) => item.type === "v2-thread");
+    expect(row?.type === "v2-thread" && row.timeLabel).toBe("Working");
+    const offline = buildTickList([{ ...thread, environmentConnected: false }], BASE_MS, []).find(
+      (item) => item.type === "v2-thread",
+    );
+    expect(offline?.type === "v2-thread" && offline.timeLabel).toBe("Disconnected");
+  });
   it("uses each saved order and excludes settled, snoozed, and archived rows", () => {
     const threads = [
       makeThread({ id: ThreadId.make("active-later"), title: "Later", activeOrderKey: "t" }),

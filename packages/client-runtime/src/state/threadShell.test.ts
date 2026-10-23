@@ -23,6 +23,7 @@ const remoteEnvironmentId = EnvironmentId.make("remote-environment-v2");
 const otherProjectId = ProjectId.make("other-project");
 
 function makeHarness(environmentIds: ReadonlyArray<EnvironmentId> = [environmentId]) {
+  const connectedAtom = Atom.family((_environmentId: EnvironmentId) => Atom.make(true));
   const snapshotAtom = Atom.family((_environmentId: EnvironmentId) =>
     Atom.make<OrchestrationV2ShellSnapshot | null>(v2ShellSnapshot),
   );
@@ -48,11 +49,64 @@ function makeHarness(environmentIds: ReadonlyArray<EnvironmentId> = [environment
     registry: AtomRegistry.make(),
     snapshotAtom,
     catalogValueAtom,
-    threads: createEnvironmentThreadShellAtoms({ catalogValueAtom, snapshotAtom }),
+    connectedAtom,
+    threads: createEnvironmentThreadShellAtoms({ catalogValueAtom, snapshotAtom, connectedAtom }),
   };
 }
 
 describe("v2 thread shell lists", () => {
+  it("updates cached activity on disconnect and restores it on reconnect without changing run state", () => {
+    const { registry, threads, snapshotAtom, connectedAtom } = makeHarness([
+      environmentId,
+      remoteEnvironmentId,
+    ]);
+    const source = {
+      ...v2ThreadShell,
+      status: "running" as const,
+      activityRunStatus: "running" as const,
+      latestRunId: RunId.make("cached-run"),
+      activeRunId: RunId.make("cached-run"),
+    };
+    registry.set(snapshotAtom(environmentId), { ...v2ShellSnapshot, threads: [source] });
+    const ref = { environmentId, threadId: source.id };
+    const shell = threads.threadShellAtom(ref);
+    const quiet = threads.quietThreadShellAtom(ref);
+    const dispose = registry.mount(threads.navigationThreadShellsAtom);
+    const disposeQuiet = registry.mount(quiet);
+    const connected = registry.get(shell)!;
+    const quietConnected = registry.get(quiet);
+    const other = registry.get(
+      threads.threadShellAtom({ ...ref, environmentId: remoteEnvironmentId }),
+    );
+    expect(isThreadWorking(connected)).toBe(true);
+
+    registry.set(connectedAtom(environmentId), false);
+    const disconnected = registry.get(shell)!;
+    expect(disconnected.environmentConnected).toBe(false);
+    expect(disconnected.source).toBe(source);
+    expect(disconnected.runtime).toEqual(connected.runtime);
+    expect(isThreadWorking(disconnected)).toBe(false);
+    expect(registry.get(quiet)).not.toBe(quietConnected);
+    expect(registry.get(quiet)?.environmentConnected).toBe(false);
+    expect(registry.get(threads.navigationThreadShellsAtom)[0]).toBe(disconnected);
+    expect(registry.get(threads.threadShellsAtom)[0]).toBe(disconnected);
+    expect(
+      registry.get(
+        threads.threadShellsForProjectRefsAtom([{ environmentId, projectId: source.projectId }]),
+      )[0],
+    ).toBe(disconnected);
+    expect(
+      registry.get(threads.threadShellAtom({ ...ref, environmentId: remoteEnvironmentId })),
+    ).toBe(other);
+
+    registry.set(connectedAtom(environmentId), true);
+    expect(registry.get(shell)).toBe(connected);
+    expect(isThreadWorking(registry.get(quiet)!)).toBe(true);
+    disposeQuiet();
+    dispose();
+    registry.dispose();
+  });
+
   it("preserves ordered reference arrays when a middle thread changes", () => {
     const { registry, threads, snapshotAtom } = makeHarness();
     const snapshot = {

@@ -138,6 +138,7 @@ For authorized mobile verification, a missing or outdated native client is a bui
 
 ## Pull requests
 
+- Fork-specific commits keep a Conventional Commit prefix and end their subject with `[unmbp]`.
 - Never make a PR unless the developer explicitly asks you to do so.
 - If `origin` is git.cafe, follow [GitCafe mirror](docs/operations/development.md#gitcafe-mirror-optional): use `cafe` for existing PRs, issues, comments and labels, but push and open PRs on GitHub, where CI runs.
 - Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`.

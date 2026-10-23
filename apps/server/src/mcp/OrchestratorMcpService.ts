@@ -1,5 +1,8 @@
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import {
   CommandId,
+  type GitCommandError,
   type RunId,
   isProviderAvailable,
   MessageId,
@@ -95,8 +98,6 @@ import {
 } from "../orchestration-v2/DispatchModeLimit.ts";
 import { runOutcome } from "../orchestration-v2/RestartBackgroundNote.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
-import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
 import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -282,14 +283,6 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function scheduledTaskWorkspaceStrategy(
-  boundToThread: boolean,
-): ScheduledTask["workspaceStrategy"] {
-  return boundToThread
-    ? { type: "root" }
-    : { type: "worktree", baseRef: "main", startFromOrigin: true };
-}
-
 function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): OrchestratorMcpScheduledTask {
   return {
     scheduledTaskId: task.id,
@@ -298,6 +291,7 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
     enabled: task.enabled,
     projectId: task.projectId,
     boundThreadId: task.threadId,
+    workspace: task.workspaceStrategy.type,
     schedule: task.schedule,
     nextRunAt: task.nextRunAt,
     lastRunStatus: task.lastRunStatus,
@@ -1059,13 +1053,13 @@ function timelineItem(input: {
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
+  const gitDriver = yield* GitVcsDriver.GitVcsDriver;
+  const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const providerAdapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
   const projects = yield* ProjectService.ProjectService;
-  const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
-  const gitDriver = yield* GitVcsDriver.GitVcsDriver;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
 
   const requireProject = (projectId: ProjectId) =>
@@ -1805,6 +1799,82 @@ const make = Effect.gen(function* () {
     return task;
   });
 
+  /**
+   * Workspace strategy for a scheduled task created/updated over MCP. Bound
+   * runs post into the existing thread, so the strategy is unused and stays
+   * root. Unbound runs get a fresh worktree unless root is asked for; an
+   * explicit worktree is refused up front when one cannot be made.
+   */
+  /** Keep main when it exists, then try origin's default and the current branch. */
+  const defaultScheduledTaskWorktree = Effect.fn(
+    "OrchestratorMcpService.defaultScheduledTaskWorktree",
+  )(function* (
+    projectId: ProjectId,
+  ): Effect.fn.Return<ScheduledTask["workspaceStrategy"], OrchestratorMcpFailure> {
+    const { workspaceRoot: cwd } = yield* requireProject(projectId);
+    const worktreeFrom = (baseRef: string) =>
+      ({ type: "worktree", baseRef, startFromOrigin: true }) as const;
+    const unreadable = failure(
+      "orchestration_error",
+      "Could not read the project's branches to pick a base branch; try again.",
+    );
+    const readGit = <A>(read: Effect.Effect<A, GitCommandError>) =>
+      read.pipe(Effect.mapError(() => unreadable));
+    const probe = yield* readGit(
+      gitDriver.execute({
+        operation: "OrchestratorMcpService.scheduledTaskBase",
+        cwd,
+        args: ["rev-parse", "--git-dir"],
+        allowNonZeroExit: true,
+        // English diagnostics on any host locale, so the stderr check below holds.
+        env: { LC_ALL: "C" },
+      }),
+    );
+    if (probe.exitCode !== 0) {
+      if (probe.stderr.toLowerCase().includes("not a git repository")) {
+        return worktreeFrom("main");
+      }
+      return yield* unreadable;
+    }
+    const localBranches = yield* readGit(gitDriver.listLocalBranchNames(cwd));
+    const branchExists = (branch: string) =>
+      localBranches.includes(branch)
+        ? Effect.succeed(true)
+        : readGit(gitDriver.remoteBranchExists({ cwd, remoteName: "origin", refName: branch }));
+    if (yield* branchExists("main")) return worktreeFrom("main");
+    const originDefault = yield* readGit(gitDriver.resolveDefaultBranchName(cwd, "origin"));
+    // origin/HEAD can still name a branch deleted since; skip it then.
+    if (originDefault !== null && (yield* branchExists(originDefault))) {
+      return worktreeFrom(originDefault);
+    }
+    const { branch } = yield* readGit(gitDriver.statusDetailsLocal(cwd));
+    return worktreeFrom(branch ?? "main");
+  });
+
+  const scheduledTaskWorkspaceStrategy = Effect.fn(
+    "OrchestratorMcpService.scheduledTaskWorkspaceStrategy",
+  )(function* (
+    projectId: ScheduledTask["projectId"],
+    boundToThread: boolean,
+    workspace: "root" | "worktree" | undefined,
+  ): Effect.fn.Return<ScheduledTask["workspaceStrategy"], OrchestratorMcpFailure> {
+    if (boundToThread || workspace === "root") return { type: "root" };
+    const worktree = yield* defaultScheduledTaskWorktree(projectId);
+    if (workspace !== undefined) {
+      yield* threadLaunch
+        .checkWorktreeBase({ projectId, workspaceStrategy: worktree })
+        .pipe(
+          Effect.mapError((error) =>
+            failure(
+              "invalid_request",
+              `${error.message} Pass workspace:"root" to run in the project folder.`,
+            ),
+          ),
+        );
+    }
+    return worktree;
+  });
+
   return OrchestratorMcpService.of({
     scheduleTask: Effect.fn("OrchestratorMcpService.scheduleTask")(function* (scope, input) {
       const { parent, limits } = yield* loadCaller(scope);
@@ -1834,7 +1904,11 @@ const make = Effect.gen(function* () {
         schedule: input.schedule,
         projectId,
         threadId: bindToCurrentThread && parent !== undefined ? parent.thread.id : null,
-        workspaceStrategy: scheduledTaskWorkspaceStrategy(bindToCurrentThread),
+        workspaceStrategy: yield* scheduledTaskWorkspaceStrategy(
+          projectId,
+          bindToCurrentThread,
+          input.workspace,
+        ),
         modelSelection,
         runtimeMode: limits.runtimeMode,
         interactionMode: limits.interactionMode,
@@ -1905,10 +1979,16 @@ const make = Effect.gen(function* () {
         // Rebinding changes where runs execute, so the workspace strategy must
         // follow: unbinding a root-strategy task would otherwise run loose
         // prompts in the shared project checkout.
+        const rebound = (threadId === null) !== (existing.threadId === null);
         const workspaceStrategy =
-          input.bindToCurrentThread === undefined
+          !rebound &&
+          (input.workspace === undefined || input.workspace === existing.workspaceStrategy.type)
             ? existing.workspaceStrategy
-            : scheduledTaskWorkspaceStrategy(input.bindToCurrentThread);
+            : yield* scheduledTaskWorkspaceStrategy(
+                existing.projectId,
+                threadId !== null,
+                input.workspace,
+              );
         const upsertInput: ScheduledTaskUpsertInput = {
           id: existing.id,
           title: input.title ?? existing.title,
@@ -2935,17 +3015,4 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer: Layer.Layer<
-  OrchestratorMcpService,
-  never,
-  | Crypto.Crypto
-  | ThreadManagementService.ThreadManagementService
-  | ThreadLaunchService.ThreadLaunchService
-  | GitVcsDriver.GitVcsDriver
-  | ProviderRegistry.ProviderRegistry
-  | ProviderAdapterRegistry.ProviderAdapterRegistryV2
-  | ScheduledTaskService.ScheduledTaskService
-  | ProjectService.ProjectService
-  | SecretRequests.SecretRequests
-  | ServerSettings.ServerSettingsService
-> = Layer.effect(OrchestratorMcpService, make);
+export const layer = Layer.effect(OrchestratorMcpService, make);

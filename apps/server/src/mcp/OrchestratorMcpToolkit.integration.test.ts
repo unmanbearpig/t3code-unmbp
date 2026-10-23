@@ -1,3 +1,4 @@
+import { scheduledTaskDependenciesLayer } from "./McpToolAccess.testkit.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import {
@@ -180,9 +181,17 @@ describe("orchestrator MCP toolkit", () => {
       Effect.gen(function* () {
         const cwd = yield* checkpointWorkspace("delegated-task-status");
         const rawTranscript = yield* readDelegatedTaskStatusTranscript(result);
-        const transcript = yield* CodexOrchestratorReplayHarness.decodeTranscript(
-          materializeReplayTranscriptWorkspace(rawTranscript, cwd),
-        );
+        const workspaceTranscript = materializeReplayTranscriptWorkspace(rawTranscript, cwd);
+        // The recorder stopped Codex after its last frame, but this test keeps
+        // the parent turn running past the recording. Replaying that exit would
+        // end the session and fail the parent run.
+        const transcript = yield* CodexOrchestratorReplayHarness.decodeTranscript({
+          ...workspaceTranscript,
+          entries:
+            workspaceTranscript.entries.at(-1)?.type === "runtime_exit"
+              ? workspaceTranscript.entries.slice(0, -1)
+              : workspaceTranscript.entries,
+        });
         const layerOrchestrator = ProviderReplayHarness.layerProviderReplay(
           {
             name: "delegated-task-status/codex",
@@ -220,6 +229,7 @@ describe("orchestrator MCP toolkit", () => {
           Layer.provide(layerProviderRegistry),
           Layer.provide(ServerSettings.layerTest()),
           Layer.provide(layerUnusedScheduledTaskStub),
+          Layer.provide(scheduledTaskDependenciesLayer),
           Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
           Layer.provideMerge(
             SecretRequests.layer.pipe(

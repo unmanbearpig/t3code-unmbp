@@ -121,11 +121,25 @@ on web and desktop. The store apps work with both stable and Nightly servers. Te
 - **Android:** download an APK from the
   [Android beta releases](https://github.com/pingdotgg/t3code/releases?q=android-beta-).
 
-If the app crashes during launch, open Settings → Diagnostics on the next launch
-that succeeds. It lists startup crashes from the last 7 days with the error and
-component stack that store crash reports leave out. Copy the report and paste it
-into a GitHub issue. Error messages can quote values from the app, so read it over
-before sharing.
+Open Settings → About → Diagnostics to copy a report when something goes wrong.
+Every mobile build keeps a local activity and JavaScript error log, including development
+builds. It retains up to 500 entries for 7 days, survives restarts, and can be cleared there.
+Builds with app updates enabled also include Expo's startup crash records. After a crash,
+open Diagnostics on the next successful launch. Read the report before sharing it in a
+GitHub issue, since error messages can quote values from the app.
+
+For slow mobile reconnects, open **Settings → About T3 Code → Diagnostics** and
+expand a recent connection. The phone keeps the last 200 records locally, including
+background time, connection stages, and the visible thread's catch-up result.
+**Copy connection log** copies all records; **Share connection log** exports a JSON
+file through the phone's share sheet. The log excludes credentials, addresses, and
+thread content. **Clear connection log** removes the saved records.
+
+Diagnostics also measures startup, foreground JavaScript scheduling delays, cache work,
+RPC requests, and incoming data processing. Connection-log exports include current-process
+timing summaries, device context, and retained slow measurements from recent sessions.
+Percentiles use the latest 128 measurements per operation. Background time is excluded from
+JavaScript scheduling delays. Clearing the activity log also resets performance measurements.
 
 ## Providers
 

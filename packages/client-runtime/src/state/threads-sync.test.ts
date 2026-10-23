@@ -1,3 +1,5 @@
+import { ReconnectExperiment } from "../connection/reconnectExperiment.ts";
+import * as Diagnostics from "../connection/diagnostics.ts";
 import {
   EnvironmentId,
   EventId,
@@ -121,6 +123,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
   const loaderCalls = yield* Ref.make(0);
   const lastSubscribeAfterSequence = yield* Ref.make<number | undefined>(undefined);
   const lastRequestCompletionMarker = yield* Ref.make(false);
+  const lastLegacyCatchUpPacing = yield* Ref.make<boolean | undefined>(undefined);
   const lastAcceptBoundedSnapshot = yield* Ref.make<true | undefined>(undefined);
   const lastAcceptCompactTurnItems = yield* Ref.make<true | undefined>(undefined);
   const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
@@ -139,6 +142,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
     [ORCHESTRATION_V2_WS_METHODS.subscribeThread]: (input: {
       readonly afterSequence?: number;
       readonly requestCompletionMarker?: true;
+      readonly legacyCatchUpPacing?: boolean;
       readonly acceptBoundedSnapshot?: true;
       readonly acceptCompactTurnItems?: true;
     }) =>
@@ -148,6 +152,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
           Effect.andThen(
             Ref.set(lastRequestCompletionMarker, input.requestCompletionMarker === true),
           ),
+          Effect.andThen(Ref.set(lastLegacyCatchUpPacing, input.legacyCatchUpPacing)),
           Effect.andThen(Ref.set(lastAcceptBoundedSnapshot, input.acceptBoundedSnapshot)),
           Effect.andThen(Ref.set(lastAcceptCompactTurnItems, input.acceptCompactTurnItems)),
           Effect.as(streamFrom(inputs)),
@@ -264,6 +269,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
     loaderCalls,
     lastSubscribeAfterSequence,
     lastRequestCompletionMarker,
+    lastLegacyCatchUpPacing,
     lastAcceptBoundedSnapshot,
     lastAcceptCompactTurnItems,
     supervisorState,
@@ -1253,7 +1259,14 @@ describe("EnvironmentThreads", () => {
 
   it.effect("keeps replayed updates synchronizing until the completion marker arrives", () =>
     Effect.gen(function* () {
-      const harness = yield* makeHarness({ cached: BASE_PROJECTION, completionMarker: true });
+      const observations = yield* Queue.unbounded<Diagnostics.ConnectionDiagnosticEvent>();
+      const harness = yield* makeHarness({ cached: BASE_PROJECTION, completionMarker: true }).pipe(
+        Effect.provideService(Diagnostics.ConnectionDiagnostics, {
+          record: (event) => {
+            Queue.offerUnsafe(observations, event);
+          },
+        }),
+      );
       yield* awaitThreadState(
         harness.observed,
         (value) => value.status === "synchronizing" && Option.isSome(value.data),
@@ -1272,6 +1285,12 @@ describe("EnvironmentThreads", () => {
           value.data.value.thread.title === "Caught-up title",
       );
       expect(catchingUp.status).toBe("synchronizing");
+      expect(yield* Queue.take(observations)).toMatchObject({
+        kind: "thread-sync",
+        milestone: "started",
+        mode: "replay",
+        completion: "marker",
+      });
 
       yield* Queue.offer(harness.inputs, synchronized());
       const live = yield* awaitThreadState(
@@ -1279,6 +1298,13 @@ describe("EnvironmentThreads", () => {
         (value) => value.status === "live" && Option.isSome(value.data),
       );
       expect(Option.getOrThrow(live.data).thread.title).toBe("Caught-up title");
+      const completed = yield* Queue.take(observations);
+      expect(completed).toMatchObject({
+        kind: "thread-sync",
+        milestone: "live",
+        mode: "replay",
+        completion: "marker",
+      });
     }),
   );
 
@@ -1343,3 +1369,17 @@ describe("EnvironmentThreads", () => {
     }),
   );
 });
+
+it.effect.each(["old", "new"] as const)(
+  "requests legacy thread pacing only for the %s arm",
+  (arm) =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ cached: BASE_PROJECTION, completionMarker: true }).pipe(
+        Effect.provideService(ReconnectExperiment, { begin: () => undefined, arm: () => arm }),
+      );
+      yield* Queue.offer(h.inputs, synchronized());
+      yield* awaitThreadState(h.observed, (state) => state.status === "live");
+      expect(yield* Ref.get(h.lastRequestCompletionMarker)).toBe(true);
+      expect(yield* Ref.get(h.lastLegacyCatchUpPacing)).toBe(arm === "old" ? true : undefined);
+    }),
+);

@@ -1,3 +1,7 @@
+import { useReducedMotion } from "~/hooks/useReducedMotion";
+import { updateThreadShortcutTargets } from "~/threadShortcutTargets";
+import { addAppShortcutListener } from "~/appShortcutEvents";
+import { useExternalTerminal } from "../hooks/useExternalTerminal";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { Spinner } from "~/components/ui/spinner";
@@ -3253,6 +3257,7 @@ function useLegacySidebarThreads(input: {
 }
 
 export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
+  const { available: externalTerminalAvailable } = useExternalTerminal();
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const navigate = useNavigate();
   const sidebarThreadSortOrder = useClientSettings((s) => s.sidebarThreadSortOrder);
@@ -3340,6 +3345,7 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
     context: {
       terminalFocus: false,
       terminalOpen: false,
+      externalTerminalAvailable,
     },
   };
   const newThreadShortcutLabel =
@@ -3394,22 +3400,33 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
     dragInProgressRef.current = false;
   };
 
-  const animatedProjectListsRef = useRef(new WeakSet<HTMLElement>());
+  const reducedMotion = useReducedMotion();
+  const animatedProjectListsRef = useRef(
+    new WeakMap<HTMLElement, ReturnType<typeof autoAnimate>>(),
+  );
   const attachProjectListAutoAnimateRef = (node: HTMLElement | null) => {
-    if (!node || animatedProjectListsRef.current.has(node)) {
+    if (!node) return;
+    const existing = animatedProjectListsRef.current.get(node);
+    if (existing) {
+      if (reducedMotion) existing.disable();
+      else existing.enable();
       return;
     }
-    autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS);
-    animatedProjectListsRef.current.add(node);
+    if (reducedMotion) return;
+    animatedProjectListsRef.current.set(node, autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS));
   };
 
-  const animatedThreadListsRef = useRef(new WeakSet<HTMLElement>());
+  const animatedThreadListsRef = useRef(new WeakMap<HTMLElement, ReturnType<typeof autoAnimate>>());
   const attachThreadListAutoAnimateRef = (node: HTMLElement | null) => {
-    if (!node || animatedThreadListsRef.current.has(node)) {
+    if (!node) return;
+    const existing = animatedThreadListsRef.current.get(node);
+    if (existing) {
+      if (reducedMotion) existing.disable();
+      else existing.enable();
       return;
     }
-    autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS);
-    animatedThreadListsRef.current.add(node);
+    if (reducedMotion) return;
+    animatedThreadListsRef.current.set(node, autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS));
   };
 
   const isManualProjectSorting = sidebarProjectSortOrder === "manual";
@@ -3442,6 +3459,16 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
   useEffect(() => {
     updateThreadJumpHintsVisibility(shouldShowThreadJumpHintsNow);
   }, [shouldShowThreadJumpHintsNow, updateThreadJumpHintsVisibility]);
+
+  useEffect(() => {
+    updateThreadShortcutTargets(
+      visibleSidebarThreadKeys.flatMap((key) => {
+        const thread = sidebarThreadByKey.get(key);
+        return thread ? [scopeThreadRef(thread.environmentId, thread.id)] : [];
+      }),
+      routeThreadRef,
+    );
+  }, [visibleSidebarThreadKeys, sidebarThreadByKey, routeThreadRef]);
 
   const onWindowKeyDown = useEffectEvent((event: globalThis.KeyboardEvent) => {
     const shortcutContext = {
@@ -3499,10 +3526,7 @@ export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRou
   });
   useEffect(() => {
     const handleWindowKeyDown = (event: globalThis.KeyboardEvent) => onWindowKeyDown(event);
-    window.addEventListener("keydown", handleWindowKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleWindowKeyDown);
-    };
+    return addAppShortcutListener(window, handleWindowKeyDown);
   }, []);
 
   useEffect(() => {

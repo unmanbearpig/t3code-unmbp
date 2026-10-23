@@ -1,3 +1,4 @@
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   generateSpreadPinOrderKeys,
@@ -288,7 +289,7 @@ export function threadDropLifecycle(
   return {
     pin: false,
     unpin: thread.pinnedAt != null,
-    unsettle: thread.settledOverride === "settled",
+    unsettle: isFiledAsSettled(thread),
     unsnooze: effectiveSnoozed(thread, { now }),
   };
 }

@@ -227,8 +227,8 @@ const RPC_METHODS_WITH_TRACING_DISABLED: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * `ws.ts` adds it to the server's group after `RpcScopeAuthorization`, so it wraps
- * authorization and also records rejected calls.
+ * Records each authenticated RPC's span and request metrics. `AuthenticatedRpcSession.ts` adds it to the server's group
+ * after `RpcScopeAuthorization`, so it wraps authorization and also records rejected calls.
  */
 export class RpcInstrumentation extends RpcMiddleware.Service<RpcInstrumentation>()(
   "t3/server/RpcInstrumentation",

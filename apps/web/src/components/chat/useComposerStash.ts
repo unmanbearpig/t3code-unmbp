@@ -1,3 +1,4 @@
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import type { ChatComposerProps } from "./ChatComposer";
 import {
   type ComposerContextRecord,
@@ -720,8 +721,7 @@ export function useComposerStash(input: {
       }
       void stashCurrentPromptStable();
     };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
+    return addAppShortcutListener(window, handler, true);
   }, [
     activePendingProgress,
     isComposerModelPickerOpen,

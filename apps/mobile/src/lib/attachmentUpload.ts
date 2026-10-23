@@ -18,6 +18,8 @@ import {
   PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
+import type { File } from "expo-file-system";
+import { Platform } from "react-native";
 
 import { appAtomRegistry } from "../state/atom-registry";
 import { assetEnvironment } from "../state/assets";
@@ -230,6 +232,58 @@ async function composerImageAttachmentDataUrl(
   }
 }
 
+async function uploadAttachmentFile(
+  file: File,
+  url: string,
+  mimeType: string,
+  signal: AbortSignal,
+  onProgress?: (progress: number) => void,
+) {
+  const headers = { "Content-Type": mimeType };
+  if (Platform.OS === "android") {
+    // Keep Android transfers on the URI uploader instead of FileSystemUploadTask.
+    const { createUploadTask, FileSystemUploadType } = await import("expo-file-system/legacy");
+    if (signal.aborted) throw new Error("Upload cancelled.");
+    const task = createUploadTask(
+      url,
+      file.uri,
+      { httpMethod: "POST", uploadType: FileSystemUploadType.BINARY_CONTENT, headers },
+      onProgress
+        ? ({ totalBytesSent, totalBytesExpectedToSend }) => {
+            if (totalBytesExpectedToSend > 0) {
+              onProgress(totalBytesSent / totalBytesExpectedToSend);
+            }
+          }
+        : undefined,
+    );
+    const abort = () => {
+      void task.cancelAsync().catch(() => {
+        // The transfer may have already finished when cancellation arrives.
+      });
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      return await task.uploadAsync();
+    } finally {
+      signal.removeEventListener("abort", abort);
+    }
+  }
+  const { UploadType } = await import("expo-file-system");
+  return file.upload(url, {
+    httpMethod: "POST",
+    uploadType: UploadType.BINARY_CONTENT,
+    headers,
+    signal,
+    ...(onProgress
+      ? {
+          onProgress: ({ bytesSent, totalBytes }) => {
+            if (totalBytes > 0) onProgress(bytesSent / totalBytes);
+          },
+        }
+      : {}),
+  });
+}
+
 async function uploadFileBytes(
   environmentId: EnvironmentId,
   attachment: DraftComposerAttachment,
@@ -237,7 +291,7 @@ async function uploadFileBytes(
   signal: AbortSignal,
   onProgress?: (progress: number) => void,
 ): Promise<void> {
-  const { File, Paths, UploadType } = await import("expo-file-system");
+  const { File, Paths } = await import("expo-file-system");
   if (signal.aborted) throw new Error("Upload cancelled.");
   if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) {
     throw new Error("This connection cannot upload attachments.");
@@ -258,19 +312,14 @@ async function uploadFileBytes(
         encoding: "base64",
       });
     }
-    const result = await file.upload(url, {
-      httpMethod: "POST",
-      uploadType: UploadType.BINARY_CONTENT,
-      headers: { "Content-Type": composerAttachmentWireMimeType(attachment) },
+    const result = await uploadAttachmentFile(
+      file,
+      url,
+      composerAttachmentWireMimeType(attachment),
       signal,
-      ...(onProgress
-        ? {
-            onProgress: ({ bytesSent, totalBytes }) => {
-              if (totalBytes > 0) onProgress(bytesSent / totalBytes);
-            },
-          }
-        : {}),
-    });
+      onProgress,
+    );
+    if (!result) throw new Error("Upload cancelled.");
     if (result.status < 200 || result.status >= 300) {
       throw new Error(`Upload failed for '${attachment.name}' (${result.status}).`);
     }

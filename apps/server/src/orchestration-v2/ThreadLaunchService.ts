@@ -1,3 +1,5 @@
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
@@ -157,6 +159,20 @@ export class ThreadLaunchBaseRefError extends Schema.TaggedError<ThreadLaunchBas
   }
 }
 
+/** A new worktree was asked for in a project folder that is not a Git repository. */
+export class ThreadLaunchNotRepositoryError extends Schema.TaggedError<ThreadLaunchNotRepositoryError>()(
+  "ThreadLaunchNotRepositoryError",
+  {
+    projectId: ProjectId,
+    projectTitle: Schema.String,
+    workspaceRoot: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Project "${this.projectTitle}" (${this.workspaceRoot}) is not a Git repository, so it cannot get a worktree.`;
+  }
+}
+
 export class ThreadLaunchService extends Context.Service<
   ThreadLaunchService,
   {
@@ -172,7 +188,7 @@ export class ThreadLaunchService extends Context.Service<
      */
     readonly checkWorktreeBase: (
       input: Pick<ThreadLaunchInput, "projectId" | "workspaceStrategy">,
-    ) => Effect.Effect<void, ThreadLaunchBaseRefError>;
+    ) => Effect.Effect<void, ThreadLaunchBaseRefError | ThreadLaunchNotRepositoryError>;
     readonly retryPreparation: (
       input: ThreadLaunchPreparationInput,
     ) => Effect.Effect<
@@ -209,6 +225,8 @@ const make = Effect.gen(function* () {
   const ids = yield* IdAllocator.IdAllocatorV2;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const preparationScope = yield* Scope.make("sequential");
   const scheduledLaunches = yield* Ref.make<ReadonlySet<CommandId>>(new Set());
   yield* Effect.addFinalizer(() => Scope.close(preparationScope, Exit.void));
@@ -253,17 +271,40 @@ const make = Effect.gen(function* () {
     }
   });
 
+  // Git also answers "not a repository" for one it refuses to read, such as a
+  // checkout owned by another user. Only a folder with no `.git` in it or
+  // above it is plainly not one.
+  const hasGitAbove = Effect.fn("ThreadLaunchService.hasGitAbove")(function* (cwd: string) {
+    let folder = path.resolve(cwd);
+    while (true) {
+      if (yield* fileSystem.exists(path.join(folder, ".git"))) return true;
+      const parent = path.dirname(folder);
+      if (parent === folder) return false;
+      folder = parent;
+    }
+  });
+
   const checkWorktreeBase: ThreadLaunchService["Service"]["checkWorktreeBase"] = Effect.fn(
     "ThreadLaunchService.checkWorktreeBase",
   )(function* (input) {
     const strategy = input.workspaceStrategy;
     // `:/text` is a commit search, which cannot be asked for a commit type.
-    if (strategy.type !== "worktree" || strategy.baseRef.startsWith(":")) return;
+    if (strategy.type !== "worktree") return;
     const { baseRef } = strategy;
-    const unresolved = yield* Effect.gen(function* () {
+    const problem = yield* Effect.gen(function* () {
       const project = Option.getOrUndefined(yield* projects.getById(input.projectId));
       if (project === undefined) return undefined;
       const cwd = project.workspaceRoot;
+      if (!(yield* git.isRepository(cwd)))
+        return (yield* hasGitAbove(cwd))
+          ? undefined
+          : new ThreadLaunchNotRepositoryError({
+              projectId: project.id,
+              projectTitle: project.title,
+              workspaceRoot: cwd,
+            });
+      // `:/text` is a commit search, which cannot be asked for a commit type.
+      if (baseRef.startsWith(":")) return undefined;
       // `git worktree add` reads `-` as the previous checkout.
       if (yield* git.hasCommit({ cwd, refName: baseRef === "-" ? "@{-1}" : baseRef }))
         return undefined;
@@ -275,15 +316,15 @@ const make = Effect.gen(function* () {
       // `git worktree add` also starts from a remote-tracking branch of that
       // name; any ref carrying it is reason enough to let Git decide.
       if (yield* git.hasRefNamed({ cwd, refName: baseRef })) return undefined;
-      return (yield* git.hasCommit({ cwd, refName: "HEAD" })) ? project : undefined;
-    }).pipe(Effect.orElseSucceed(() => undefined));
-    if (unresolved !== undefined)
-      return yield* new ThreadLaunchBaseRefError({
-        projectId: unresolved.id,
-        projectTitle: unresolved.title,
-        workspaceRoot: unresolved.workspaceRoot,
+      if (!(yield* git.hasCommit({ cwd, refName: "HEAD" }))) return undefined;
+      return new ThreadLaunchBaseRefError({
+        projectId: project.id,
+        projectTitle: project.title,
+        workspaceRoot: cwd,
         baseRef,
       });
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (problem !== undefined) return yield* problem;
   });
 
   const prepareInBackground = Effect.fn("ThreadLaunchService.prepareInBackground")(function* (

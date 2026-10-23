@@ -1,3 +1,4 @@
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   type ProviderInstanceId,
@@ -333,10 +334,7 @@ function WindowKeyDownListener({ onKeyDown }: { onKeyDown: (event: KeyboardEvent
   const handleKeyDown = useEffectEvent(onKeyDown);
   useEffect(() => {
     const listener = (event: KeyboardEvent) => handleKeyDown(event);
-    window.addEventListener("keydown", listener, true);
-    return () => {
-      window.removeEventListener("keydown", listener, true);
-    };
+    return addAppShortcutListener(window, listener, true);
   }, []);
   return null;
 }

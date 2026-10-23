@@ -149,10 +149,11 @@ export function HtmlRenderDocument(props: {
   });
   const blocked = [...keybindings, ...(environmentKeybindings ?? [])]
     .filter((binding) => !HTML_RENDER_SHORTCUT_COMMANDS.has(binding.command))
-    .map((binding) => resolve(binding.shortcut));
+    .flatMap((binding) => ("leader" in binding.shortcut ? [] : [resolve(binding.shortcut)]));
   const shortcutsByKey = new Map<string, HtmlRenderShortcut>();
   for (const { command, shortcut } of keybindings) {
     if (
+      !("leader" in shortcut) &&
       HTML_RENDER_SHORTCUT_COMMANDS.has(command) &&
       (shortcut.metaKey || shortcut.ctrlKey || shortcut.modKey)
     ) {

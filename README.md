@@ -1,4 +1,22 @@
-# T3 Code
+# t3code-unmbp
+
+This is `unmbp`'s personal fork of [T3 Code](https://github.com/pingdotgg/t3code). I maintain it for my own use. The main changes make T3 Code work more like the CLI, especially keyboard shortcuts and prompt editing.
+
+## Changes from upstream
+
+- Adds opt-in Emacs / readline editing in the composer, including character, line, and word navigation, kill/yank, transpose, and Option-style shortcuts in rich text and plain Markdown. On Linux, Ctrl+A reaches the composer instead of being intercepted by the desktop menu. See [keyboard shortcuts](./docs/user/keybindings.md#emacs--readline-editing).
+- Makes Ctrl+J insert a newline in the composer and other multiline text boxes, even when Emacs editing is off.
+- Gives Ctrl+D terminal-style behavior with Emacs editing enabled: delete forwards in a nonempty prompt, or follow the settle binding on a fresh press in an empty prompt.
+- Uses a connected server's keyboard shortcuts when the desktop's local backend is disabled.
+- Completes directory paths with Tab in the Add project dialog, using the highlighted folder or the first matching folder.
+- Disables animated scrolling in chat, citation, settings, and tab navigation. PageUp/PageDown move immediately and use native keyboard repeat. Chromium smooth scrolling is disabled on Linux.
+- Uses native window decorations on Linux to remove Electron's extra window border. macOS and Windows keep their existing window styling.
+- Ignores late trackpad events after the window or its web contents have been destroyed, preventing an uncaught exception during desktop teardown.
+- Treats Codex version `0.0.0` as an unknown source build rather than a known incompatible release.
+
+Download this fork from [GitHub Releases](https://github.com/unmanbearpig/t3code-unmbp/releases), or build it from source using the [development guide](./docs/operations/development.md). The installation commands and release links below point to upstream T3 Code.
+
+## Upstream project
 
 T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
 

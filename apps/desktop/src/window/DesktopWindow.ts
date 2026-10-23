@@ -241,6 +241,12 @@ function getWindowTitleBarOptions(
     };
   }
 
+  if (platform === "linux") {
+    // Electron's hidden titlebar adds a client-side resize border on Linux.
+    // Let the window manager supply decorations, as it does for other apps.
+    return { titleBarStyle: "default" };
+  }
+
   return {
     titleBarStyle: "hidden",
     titleBarOverlay: {
@@ -671,7 +677,10 @@ export const make = Effect.gen(function* () {
       }
     });
     window.webContents.on("input-event", (_event, input) => {
-      if (input.type === "gestureScrollEnd") window.webContents.send(TRACKPAD_SCROLL_END_CHANNEL);
+      // A final gesture can arrive while Electron is tearing down the window.
+      if (input.type !== "gestureScrollEnd" || window.isDestroyed()) return;
+      const webContents = window.webContents;
+      if (!webContents.isDestroyed()) webContents.send(TRACKPAD_SCROLL_END_CHANNEL);
     });
     // Ctrl+wheel never reaches the menu accelerators: Chromium reports it here
     // and leaves applying the zoom to the app. A preview guest under the

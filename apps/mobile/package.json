@@ -45,7 +45,8 @@
     "measure-renders": "node scripts/measure-renders.mts",
     "generate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-uniwind-themes.mts",
     "test": "vp test run --project unit --project react",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eas-build-post-install": "node modules/t3-quic/scripts/prepare-native.mjs prepare"
   },
   "dependencies": {
     "@clerk/expo": "catalog:",
@@ -177,6 +178,7 @@
         "@expo/ui",
         "expo-ui",
         "expo-notifications",
+        "expo-sharing",
         "react-native-screens",
         "react-native-reanimated",
         "@react-native-menu/menu",

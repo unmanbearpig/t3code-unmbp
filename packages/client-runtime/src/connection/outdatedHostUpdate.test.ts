@@ -21,6 +21,7 @@ import { describeOutdatedHost, updateOutdatedHost } from "./outdatedHostUpdate.t
 import * as EnvironmentRegistry from "./registry.ts";
 import * as ConnectionResolver from "./resolver.ts";
 import * as RelayEnvironmentDiscovery from "../relay/discovery.ts";
+import * as ClientCapabilities from "../platform/capabilities.ts";
 
 const TARGET = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("environment-old"),
@@ -152,97 +153,121 @@ class OutdatedHostSocket {
 }
 
 describe("updateOutdatedHost", () => {
-  it.effect("updates a protocol-1 host over a bare socket, then switches it back on", () =>
-    Effect.gen(function* () {
-      const blocked = orchestrationProtocolCompatibilityError(descriptor(undefined, "0.0.45"));
-      expect(blocked).toMatchObject({ serverUpdateRequired: true });
+  it.effect.each(["ticket", "header"] as const)(
+    "updates a protocol-1 host with %s auth, then switches it back on",
+    (authentication) =>
+      Effect.gen(function* () {
+        const blocked = orchestrationProtocolCompatibilityError(descriptor(undefined, "0.0.45"));
+        expect(blocked).toMatchObject({ serverUpdateRequired: true });
 
-      const sockets: Array<OutdatedHostSocket> = [];
-      let served: ExecutionEnvironmentDescriptor = descriptor(undefined, "0.0.45");
-      const entries = yield* SubscriptionRef.make<
-        ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>
-      >(
-        new Map([
-          [
-            TARGET.environmentId,
-            {
-              target: TARGET,
-              profile: Option.none(),
-              enabled: false,
-              unsupportedReason: blocked?.message ?? "",
-              serverUpdateRequired: true,
-            },
-          ],
-        ]),
-      );
-      const calls: Array<string> = [];
-      const registry = EnvironmentRegistry.EnvironmentRegistry.of({
-        entries,
-        setCompatibility: (_environmentId: EnvironmentId, error: unknown) =>
-          Effect.sync(() => calls.push(`compatibility:${error === null ? "clear" : "block"}`)),
-        setEnabled: (_environmentId: EnvironmentId, enabled: boolean) =>
-          Effect.sync(() => calls.push(`enabled:${enabled}`)),
-      } as unknown as EnvironmentRegistry.EnvironmentRegistry["Service"]);
-      const resolver = ConnectionResolver.ConnectionResolver.of({
-        prepare: () => Effect.die(new Error("The update must bypass the protocol gate.")),
-        prepareForUpdate: () =>
-          Effect.sync(() => served).pipe(
-            Effect.map((current) => ({
-              descriptor: current,
-              prepared: {
-                environmentId: TARGET.environmentId,
-                label: TARGET.label,
-                httpBaseUrl: TARGET.httpBaseUrl,
-                socketUrl: "wss://build.example.test/ws?wsTicket=ticket",
-                httpAuthorization: null,
+        const httpClient = HttpClient.make((request) =>
+          Effect.sync(() =>
+            HttpClientResponse.fromWeb(request, new Response(encodeDescriptor(served))),
+          ),
+        );
+        const sockets: Array<OutdatedHostSocket> = [];
+        const upgradeHeaders: Readonly<Record<string, string>>[] = [];
+        let served: ExecutionEnvironmentDescriptor = descriptor(undefined, "0.0.45");
+        const socketUrl =
+          authentication === "ticket"
+            ? "wss://build.example.test/ws?wsTicket=ticket"
+            : "wss://build.example.test/ws";
+        const makeSocket = (url: string) => {
+          const socket = new OutdatedHostSocket(url, () => {
+            served = descriptor(ORCHESTRATION_PROTOCOL_VERSION, "0.0.46");
+          });
+          sockets.push(socket);
+          return socket as unknown as globalThis.WebSocket;
+        };
+        const entries = yield* SubscriptionRef.make<
+          ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>
+        >(
+          new Map([
+            [
+              TARGET.environmentId,
+              {
                 target: TARGET,
+                profile: Option.none(),
+                enabled: false,
+                unsupportedReason: blocked?.message ?? "",
+                serverUpdateRequired: true,
               },
-            })),
-          ),
-      });
-      const httpClient = HttpClient.make((request) =>
-        Effect.sync(() =>
-          HttpClientResponse.fromWeb(request, new Response(encodeDescriptor(served))),
-        ),
-      );
-
-      const result = yield* updateOutdatedHost(
-        TARGET.environmentId,
-        { targetVersion: "0.0.46" },
-        () => Effect.void,
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            Layer.succeed(EnvironmentRegistry.EnvironmentRegistry, registry),
-            Layer.succeed(ConnectionResolver.ConnectionResolver, resolver),
-            Layer.succeed(
-              RelayEnvironmentDiscovery.RelayEnvironmentDiscovery,
-              RelayEnvironmentDiscovery.RelayEnvironmentDiscovery.of({
-                state: yield* SubscriptionRef.make(
-                  RelayEnvironmentDiscovery.EMPTY_RELAY_ENVIRONMENT_DISCOVERY_STATE,
-                ),
-                refresh: Effect.void,
-              }),
+            ],
+          ]),
+        );
+        const calls: Array<string> = [];
+        const registry = EnvironmentRegistry.EnvironmentRegistry.of({
+          entries,
+          setCompatibility: (_environmentId: EnvironmentId, error: unknown) =>
+            Effect.sync(() => calls.push(`compatibility:${error === null ? "clear" : "block"}`)),
+          setEnabled: (_environmentId: EnvironmentId, enabled: boolean) =>
+            Effect.sync(() => calls.push(`enabled:${enabled}`)),
+        } as unknown as EnvironmentRegistry.EnvironmentRegistry["Service"]);
+        const resolver = ConnectionResolver.ConnectionResolver.of({
+          prepare: () => Effect.die(new Error("The update must bypass the protocol gate.")),
+          prepareForUpdate: () =>
+            Effect.sync(() => served).pipe(
+              Effect.map((current) => ({
+                descriptor: current,
+                prepared: {
+                  environmentId: TARGET.environmentId,
+                  label: TARGET.label,
+                  httpBaseUrl: TARGET.httpBaseUrl,
+                  socketUrl,
+                  httpAuthorization: { _tag: "Bearer" as const, token: "paired-mobile-bearer" },
+                  target: TARGET,
+                },
+              })),
             ),
-            Layer.succeed(HttpClient.HttpClient, httpClient),
-            Layer.succeed(Socket.WebSocketConstructor, (url) => {
-              const socket = new OutdatedHostSocket(url, () => {
-                served = descriptor(ORCHESTRATION_PROTOCOL_VERSION, "0.0.46");
-              });
-              sockets.push(socket);
-              return socket as unknown as globalThis.WebSocket;
-            }),
-          ),
-        ),
-      );
+        });
 
-      expect(sockets[0]?.url).not.toContain("orchestrationProtocol");
-      expect(sockets[0]?.requests.map((request) => request.tag)).toEqual([
-        WS_METHODS.serverUpdateServer,
-      ]);
-      expect(result.targetVersion).toBe("0.0.46");
-      expect(calls).toEqual(["compatibility:clear", "enabled:true"]);
-    }),
+        const result = yield* updateOutdatedHost(
+          TARGET.environmentId,
+          { targetVersion: "0.0.46" },
+          () => Effect.void,
+        ).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              Layer.succeed(EnvironmentRegistry.EnvironmentRegistry, registry),
+              Layer.succeed(ConnectionResolver.ConnectionResolver, resolver),
+              Layer.succeed(
+                RelayEnvironmentDiscovery.RelayEnvironmentDiscovery,
+                RelayEnvironmentDiscovery.RelayEnvironmentDiscovery.of({
+                  state: yield* SubscriptionRef.make(
+                    RelayEnvironmentDiscovery.EMPTY_RELAY_ENVIRONMENT_DISCOVERY_STATE,
+                  ),
+                  refresh: Effect.void,
+                }),
+              ),
+              Layer.succeed(HttpClient.HttpClient, httpClient),
+              Layer.succeed(Socket.WebSocketConstructor, (url) => {
+                expect(authentication).toBe("ticket");
+                return makeSocket(url);
+              }),
+              authentication === "header"
+                ? Layer.succeed(
+                    ClientCapabilities.WebSocketConstructorWithHeaders,
+                    (url, headers) => {
+                      upgradeHeaders.push(headers);
+                      return makeSocket(url);
+                    },
+                  )
+                : Layer.empty,
+            ),
+          ),
+        );
+
+        expect(sockets[0]?.url).toBe(socketUrl);
+        expect(upgradeHeaders).toEqual(
+          authentication === "header" ? [{ Authorization: "Bearer paired-mobile-bearer" }] : [],
+        );
+        expect(sockets[0]?.url).not.toContain("orchestrationProtocol");
+        expect(sockets[0]?.requests.map((request) => request.tag)).toEqual([
+          WS_METHODS.serverUpdateServer,
+        ]);
+        expect(result.targetVersion).toBe("0.0.46");
+        expect(calls).toEqual(["compatibility:clear", "enabled:true"]);
+      }),
   );
 
   it.effect("refuses a host that cannot update itself without opening a socket", () =>

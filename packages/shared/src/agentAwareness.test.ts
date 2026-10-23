@@ -211,4 +211,50 @@ describe("projectThreadAwarenessV2", () => {
       }),
     ).toMatchObject({ phase: "running", headline: "Agent is working" });
   });
+
+  it("keeps deferred completion out of mobile push while preserving failures", () => {
+    const input = { environmentId: "env-1" as EnvironmentId, project };
+    expect(
+      projectThreadAwarenessV2({
+        ...input,
+        thread: v2Thread({ status: "completed", settleWhenIdleAt: updatedAt }),
+      }),
+    ).toBeNull();
+    expect(
+      projectThreadAwarenessV2({
+        ...input,
+        thread: v2Thread({ status: "completed", settledOverride: "settled" }),
+      }),
+    ).toBeNull();
+    expect(
+      projectThreadAwarenessV2({
+        ...input,
+        thread: v2Thread({ status: "failed", settleWhenIdleAt: updatedAt }),
+      }),
+    ).toMatchObject({ phase: "failed" });
+  });
+
+  it("keeps a filed thread visible while its subagent is still working", () => {
+    const input = { environmentId: "env-1" as EnvironmentId, project };
+    expect(
+      projectThreadAwarenessV2({
+        ...input,
+        thread: v2Thread({
+          status: "completed",
+          settleWhenIdleAt: updatedAt,
+          pendingBackgroundTasks: [{ taskId: "review", kind: "subagent" }],
+        }),
+      }),
+    ).toMatchObject({ phase: "running", headline: "Agent is working" });
+    expect(
+      projectThreadAwarenessV2({
+        ...input,
+        thread: v2Thread({
+          status: "completed",
+          settleWhenIdleAt: updatedAt,
+          pendingBackgroundTasks: [],
+        }),
+      }),
+    ).toBeNull();
+  });
 });

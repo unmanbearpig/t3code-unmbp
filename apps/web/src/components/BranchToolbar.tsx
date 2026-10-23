@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/animationPreference";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-actions";
 import { readLocalApi } from "../localApi";
@@ -547,7 +548,7 @@ function useLabelsOverflow(element: HTMLDivElement | null): boolean {
     }
     labelAnimationsRef.current.clear();
 
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (prefersReducedMotion()) return;
 
     for (const [label, previousRect] of previousRects) {
       if (!label.isConnected) continue;

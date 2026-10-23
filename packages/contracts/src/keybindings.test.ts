@@ -1,8 +1,9 @@
+const isPhysicalShortcut = Schema.is(KeybindingShortcut);
 import { assert, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 
-import { ResolvedKeybindingsConfig } from "./keybindings.ts";
+import { KeybindingShortcut, ResolvedKeybindingsConfig } from "./keybindings.ts";
 
 const decode = <S extends Schema.Top>(
   schema: S,
@@ -13,6 +14,8 @@ const decode = <S extends Schema.Top>(
     Schema.SchemaError,
     never
   >;
+
+const encodeResolvedKeybindings = Schema.encodeEffect(ResolvedKeybindingsConfig);
 
 const shortcut = {
   key: "p",
@@ -48,5 +51,15 @@ it.effect("drops malformed resolved rule entries", () =>
       parsed.map((rule) => rule.command),
       ["terminal.toggle"],
     );
+  }),
+);
+
+it.effect("round trips leader rules and rejects them as physical accelerators", () =>
+  Effect.gen(function* () {
+    const rule = { command: "thread.next", shortcut: { leader: shortcut } } as const;
+    const parsed = yield* decode(ResolvedKeybindingsConfig, [rule]);
+    assert.deepEqual(yield* encodeResolvedKeybindings(parsed), [rule]);
+    // An older client's physical shortcut decoder must not interpret a suffix as a bare key.
+    assert.isFalse(isPhysicalShortcut(rule.shortcut));
   }),
 );

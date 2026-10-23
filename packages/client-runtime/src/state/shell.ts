@@ -1,3 +1,4 @@
+import { ReconnectExperiment } from "../connection/reconnectExperiment.ts";
 import {
   ORCHESTRATION_V2_WS_METHODS,
   type EnvironmentId,
@@ -20,13 +21,19 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult, Atom } from "effect/reactivity";
 
 import * as EnvironmentRegistry from "../connection/registry.ts";
+import * as Diagnostics from "../connection/diagnostics.ts";
 import { connectionProjectionPhase } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
+import * as Performance from "../platform/performance.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
-import { subscribeDynamic } from "../rpc/client.ts";
+import {
+  getSessionServerStartedAt,
+  isRpcClientError,
+  subscribeDynamicMapped,
+} from "../rpc/client.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import * as ShellSnapshotLoader from "./shellSnapshotHttp.ts";
 import type { DeferredShellSnapshot } from "./shellPullRequests.ts";
@@ -67,12 +74,36 @@ function withoutDeferredPullRequests(value: DeferredShellSnapshot): Orchestratio
 
 const SHELL_SYNCHRONIZATION_ERROR_MESSAGE = "Could not synchronize environment data.";
 
+interface ShellSubscription {
+  readonly session: RpcSession;
+  environment: ServerConfig["environment"] | undefined;
+  serverStartedAt: string | undefined;
+  startupProof: Effect.Effect<void> | undefined;
+  supportsCompletionMarker: boolean;
+  awaitingCompletion: boolean;
+  authoritative: boolean;
+  synchronized: boolean;
+  failed: boolean;
+}
+
 export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")(function* () {
   const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
   const cache = yield* Persistence.EnvironmentCacheStore;
   const snapshotLoader = yield* ShellSnapshotLoader.ShellSnapshotLoader;
   const wakeups = yield* Effect.serviceOption(ConnectionWakeups.ConnectionWakeups);
   const environmentId = supervisor.target.environmentId;
+  const diagnostics = yield* Diagnostics.ConnectionDiagnostics;
+  const performance = yield* Performance.PerformanceTelemetry;
+  const experiment = yield* ReconnectExperiment;
+  let diagnosticSyncActive = false;
+  let diagnosticCompletion: "marker" | "legacy" = "legacy";
+  const observeSync = (milestone: "started" | "live" | "failed") =>
+    diagnostics?.record({
+      environmentId,
+      kind: "shell-sync",
+      milestone,
+      completion: diagnosticCompletion,
+    });
   const cached = yield* cache.loadShell(environmentId).pipe(
     Effect.catch((error) =>
       Effect.logWarning("Could not load cached environment shell.").pipe(
@@ -90,9 +121,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     status: shellStatusForSnapshot(cachedSnapshot),
     error: Option.none(),
   });
-  const awaitingCompletion = yield* Ref.make(false);
-  const lastAuthoritativeSession = yield* Ref.make<RpcSession | null>(null);
-  const activeSubscriptionSession = yield* Ref.make<RpcSession | null>(null);
+  let activeSubscription: ShellSubscription | undefined;
   const latestLiveSnapshot = yield* Ref.make<Option.Option<OrchestrationV2ShellSnapshot>>(
     Option.none(),
   );
@@ -134,16 +163,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
 
   yield* runCachePersistence(persistence, persist).pipe(Effect.forkScoped);
 
-  const setDisconnected = Ref.set(awaitingCompletion, false).pipe(
-    Effect.andThen(
-      SubscriptionRef.update(state, (current) => ({
-        ...current,
-        status: shellStatusForSnapshot(current.snapshot),
-      })),
-    ),
-    Effect.andThen(flushLiveShellSnapshot.pipe(Effect.forkScoped)),
-    Effect.asVoid,
-  );
+  const setDisconnected = SubscriptionRef.update(state, (current) => ({
+    ...current,
+    status: shellStatusForSnapshot(current.snapshot),
+  })).pipe(Effect.andThen(flushLiveShellSnapshot.pipe(Effect.forkScoped)), Effect.asVoid);
   const setSynchronizing = SubscriptionRef.update(state, (current) => ({
     ...current,
     status: "synchronizing" as const,
@@ -159,7 +182,16 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         },
   );
   const setStreamError = (error: unknown) =>
-    Ref.set(awaitingCompletion, false).pipe(
+    Effect.sync(() => {
+      if (diagnosticSyncActive) {
+        diagnosticSyncActive = false;
+        observeSync("failed");
+      }
+      if (activeSubscription !== undefined) {
+        activeSubscription.synchronized = false;
+        activeSubscription.failed = true;
+      }
+    }).pipe(
       Effect.andThen(Effect.logWarning("Could not synchronize the environment shell.")),
       Effect.annotateLogs({
         environmentId,
@@ -178,69 +210,91 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   // time, so neither can overwrite what the other wrote in between.
   const snapshotWriteLock = yield* Semaphore.make(1);
 
-  const applyItems = Effect.fn("EnvironmentShellState.applyItems")(function* (
-    items: ReadonlyArray<OrchestrationV2ShellStreamItem>,
-    pendingLinkIds?: ReadonlySet<ThreadId>,
-  ) {
-    const initial = yield* SubscriptionRef.get(state);
-    let waiting = yield* Ref.get(awaitingCompletion);
-    let next = initial;
-    let receivedSnapshot = false;
-    for (const item of items) {
-      if (item.kind === "synchronized") {
-        waiting = false;
-        if (Option.isSome(next.snapshot)) {
-          next = { ...next, status: "live", error: Option.none() };
+  const applyItems = Effect.fn("EnvironmentShellState.applyItems")(
+    function* (
+      items: ReadonlyArray<OrchestrationV2ShellStreamItem>,
+      pendingLinkIds?: ReadonlySet<ThreadId>,
+      subscription = activeSubscription,
+    ) {
+      // An old stream's buffered items must not mutate or certify its replacement,
+      // including a foreground resubscription on the very same RpcSession.
+      if (
+        subscription === undefined ||
+        subscription.failed ||
+        subscription !== activeSubscription ||
+        Option.getOrNull(yield* SubscriptionRef.get(supervisor.session)) !== subscription.session
+      )
+        return;
+      const initial = yield* SubscriptionRef.get(state);
+      let waiting = subscription.awaitingCompletion;
+      let next = initial;
+      for (const item of items) {
+        if (item.kind === "synchronized") {
+          waiting = false;
+          if (Option.isSome(next.snapshot)) {
+            subscription.synchronized =
+              subscription.supportsCompletionMarker &&
+              subscription.authoritative &&
+              subscription.serverStartedAt !== undefined;
+            next = { ...next, status: "live", error: Option.none() };
+          }
+          continue;
         }
-        continue;
+        const nextSnapshot =
+          item.kind === "snapshot"
+            ? mergeShellSnapshotProjects(
+                Option.getOrNull(next.snapshot),
+                item.snapshot,
+                item.resolvedRepositoryIdentityRoots === undefined
+                  ? undefined
+                  : {
+                      resolvedRepositoryIdentityRoots: item.resolvedRepositoryIdentityRoots,
+                    },
+              )
+            : Option.match(next.snapshot, {
+                onNone: () => null,
+                onSome: (snapshot) =>
+                  item.sequence > snapshot.snapshotSequence
+                    ? applyShellStreamEvent(snapshot, item)
+                    : snapshot,
+              });
+        if (nextSnapshot === null) continue;
+        if (item.kind === "snapshot" && item.resolvedRepositoryIdentityRoots === undefined) {
+          subscription.authoritative = true;
+          subscription.synchronized = false;
+        }
+        next = {
+          snapshot: Option.some(nextSnapshot),
+          status: waiting ? "synchronizing" : "live",
+          error: Option.none(),
+        };
       }
-      const nextSnapshot =
-        item.kind === "snapshot"
-          ? mergeShellSnapshotProjects(
-              Option.getOrNull(next.snapshot),
-              item.snapshot,
-              item.resolvedRepositoryIdentityRoots === undefined
-                ? undefined
-                : {
-                    resolvedRepositoryIdentityRoots: item.resolvedRepositoryIdentityRoots,
-                  },
-            )
-          : Option.match(next.snapshot, {
-              onNone: () => null,
-              onSome: (snapshot) =>
-                item.sequence > snapshot.snapshotSequence
-                  ? applyShellStreamEvent(snapshot, item)
-                  : snapshot,
-            });
-      if (nextSnapshot === null) continue;
-      receivedSnapshot ||= item.kind === "snapshot";
-      next = {
-        snapshot: Option.some(nextSnapshot),
-        status: waiting ? "synchronizing" : "live",
-        error: Option.none(),
-      };
-    }
-    yield* Ref.set(awaitingCompletion, waiting);
-    if (next === initial) return;
-    if (pendingLinkIds !== undefined && Option.isSome(next.snapshot)) {
-      pendingLinkRows = new Set(
-        next.snapshot.value.threads.filter((thread) => pendingLinkIds.has(thread.id)),
-      );
-    }
-    if (Option.isSome(next.snapshot)) {
-      yield* Ref.set(latestLiveSnapshot, next.snapshot);
-    }
-    yield* SubscriptionRef.set(state, next);
-    if (receivedSnapshot) {
-      const session = yield* Ref.get(activeSubscriptionSession);
-      if (session !== null) {
-        yield* Ref.set(lastAuthoritativeSession, session);
+      subscription.awaitingCompletion = waiting;
+      if (next === initial) return;
+      if (pendingLinkIds !== undefined && Option.isSome(next.snapshot)) {
+        pendingLinkRows = new Set(
+          next.snapshot.value.threads.filter((thread) => pendingLinkIds.has(thread.id)),
+        );
       }
-    }
-    if (next.snapshot !== initial.snapshot && Option.isSome(next.snapshot)) {
-      yield* Queue.offer(persistence, next.snapshot.value);
-    }
-  }, snapshotWriteLock.withPermit);
+      if (Option.isSome(next.snapshot)) {
+        yield* Ref.set(latestLiveSnapshot, next.snapshot);
+      }
+      yield* SubscriptionRef.set(state, next);
+      if (diagnosticSyncActive && next.status === "live") {
+        diagnosticSyncActive = false;
+        observeSync("live");
+      }
+      if (next.snapshot !== initial.snapshot && Option.isSome(next.snapshot)) {
+        yield* Queue.offer(persistence, next.snapshot.value);
+      }
+    },
+    (effect, items, _pendingLinkIds?: ReadonlySet<ThreadId>, _subscription = activeSubscription) =>
+      Performance.measure(effect, performance, {
+        operation: "shell.apply-batch",
+        itemCount: items.length,
+      }),
+    snapshotWriteLock.withPermit,
+  );
 
   const stateScope = yield* Effect.scope;
   // Each full snapshot supersedes the previous one's fill; links from an older snapshot must
@@ -317,24 +371,104 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
 
   yield* setSynchronizing;
   yield* Effect.forkScoped(
-    subscribeDynamic(
+    subscribeDynamicMapped(
       ORCHESTRATION_V2_WS_METHODS.subscribeShell,
       Effect.fn("EnvironmentShellState.makeSubscribeInput")(function* (session) {
-        yield* Ref.set(activeSubscriptionSession, session);
-        const supportsCompletionMarker = yield* session.initialConfig.pipe(
-          Effect.map((config) => config.shellResumeCompletionMarker === true),
-          Effect.orElseSucceed(() => false),
-        );
-        yield* Ref.set(awaitingCompletion, supportsCompletionMarker);
+        // Consume eligibility before any async work. If this initial load or
+        // replay is interrupted, the next attempt must refresh authoritatively.
+        const previous = activeSubscription;
+        const subscription: ShellSubscription = {
+          session,
+          environment: undefined,
+          serverStartedAt: undefined,
+          startupProof: undefined,
+          supportsCompletionMarker: false,
+          awaitingCompletion: false,
+          authoritative: false,
+          synchronized: false,
+          failed: false,
+        };
+        activeSubscription = subscription;
+        const config = yield* session.initialConfig.pipe(Effect.option);
+        const supportsCompletionMarker =
+          Option.isSome(config) && config.value.shellResumeCompletionMarker === true;
+        if (experiment)
+          diagnostics?.record({
+            kind: "replay-capability",
+            environmentId,
+            legacyPacingSupported:
+              Option.isSome(config) && config.value.legacyCatchUpPacing === true,
+          });
+        const completionOptions = supportsCompletionMarker
+          ? {
+              requestCompletionMarker: true as const,
+              ...(experiment?.arm(environmentId) === "old"
+                ? { legacyCatchUpPacing: true as const }
+                : {}),
+            }
+          : {};
+        subscription.environment = Option.getOrUndefined(config)?.environment;
+        subscription.supportsCompletionMarker = supportsCompletionMarker;
+        subscription.awaitingCompletion = supportsCompletionMarker;
         yield* setSynchronizing;
+        diagnosticSyncActive = diagnostics !== null;
+        diagnosticCompletion = supportsCompletionMarker ? "marker" : "legacy";
+        observeSync("started");
 
-        // Foreground resubscriptions on the same live session can resume from
-        // the in-memory cursor. A new session reloads the authoritative HTTP
-        // snapshot so a valid cursor cannot preserve incomplete cached data.
-        const hasAuthoritativeSnapshot = (yield* Ref.get(lastAuthoritativeSession)) === session;
-        let canResume = hasAuthoritativeSnapshot;
+        // Config has no process identity. The lifecycle stream replays the
+        // ready timestamp published once at startup, even on a fresh socket.
+        // Checking it also catches a reset whose new head passed our cursor.
+        // If an older/broken server cannot provide it, keep the HTTP path.
+        if (supportsCompletionMarker) {
+          const readStartupProof = Effect.gen(function* () {
+            const serverStartedAt = yield* getSessionServerStartedAt(session);
+            if (
+              subscription !== activeSubscription ||
+              subscription.failed ||
+              Option.getOrNull(yield* SubscriptionRef.get(supervisor.session)) !== session
+            )
+              return;
+            subscription.serverStartedAt = serverStartedAt;
+            if (
+              !subscription.awaitingCompletion &&
+              subscription.authoritative &&
+              serverStartedAt !== undefined
+            ) {
+              subscription.synchronized = true;
+            }
+          });
+          if (previous?.session === session && previous.serverStartedAt !== undefined) {
+            subscription.serverStartedAt = previous.serverStartedAt;
+          } else if (previous?.synchronized === true && experiment?.arm(environmentId) !== "old") {
+            yield* readStartupProof;
+          } else {
+            // Cold/interrupted bases require HTTP regardless of startup identity.
+            // Read proof alongside the shell stream so neither HTTP nor usable
+            // shell state waits for it. Late proof can certify a completed base.
+            subscription.startupProof = readStartupProof;
+          }
+        }
+
+        // A cursor is safe only above a complete base loaded in this runtime
+        // and caught up to a completion marker. Disk caches and metadata-only
+        // enrichment cannot establish that provenance. Identity/version changes
+        // and legacy servers take the HTTP path even on the same session.
+        let canResume =
+          experiment?.arm(environmentId) !== "old" &&
+          supportsCompletionMarker &&
+          previous?.synchronized === true &&
+          subscription.serverStartedAt !== undefined &&
+          previous.serverStartedAt === subscription.serverStartedAt &&
+          subscription.environment !== undefined &&
+          subscription.environment.environmentId === environmentId &&
+          previous.environment?.environmentId === subscription.environment.environmentId &&
+          previous.environment.serverVersion === subscription.environment.serverVersion &&
+          previous.environment.orchestrationProtocolVersion ===
+            subscription.environment.orchestrationProtocolVersion;
+        subscription.authoritative = canResume;
         let current = yield* SubscriptionRef.get(state);
-        if (!hasAuthoritativeSnapshot || Option.isNone(current.snapshot)) {
+        if (!canResume || Option.isNone(current.snapshot)) {
+          subscription.authoritative = false;
           const prepared = yield* SubscriptionRef.get(supervisor.prepared).pipe(
             Effect.flatMap(
               Option.match({
@@ -362,7 +496,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
                 ? []
                 : httpSnapshot.value.threads.map((thread) => thread.id),
             );
-            yield* applyItems([{ kind: "snapshot", snapshot }], pendingLinkIds);
+            yield* applyItems([{ kind: "snapshot", snapshot }], pendingLinkIds, subscription);
             canResume = true;
             current = yield* SubscriptionRef.get(state);
             if (Option.isSome(current.snapshot)) {
@@ -372,7 +506,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         }
 
         if (!canResume || Option.isNone(current.snapshot)) {
-          return supportsCompletionMarker ? { requestCompletionMarker: true as const } : {};
+          return completionOptions;
         }
         if (!supportsCompletionMarker) {
           yield* SubscriptionRef.update(state, (value) => ({
@@ -380,18 +514,67 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
             status: "live" as const,
             error: Option.none(),
           }));
+          if (diagnosticSyncActive) {
+            diagnosticSyncActive = false;
+            observeSync("live");
+          }
         }
         return {
           afterSequence: current.snapshot.value.snapshotSequence,
-          ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
+          ...completionOptions,
         };
       }),
+      (_session, stream) => {
+        const subscription = activeSubscription;
+        const source =
+          subscription?.startupProof === undefined
+            ? stream
+            : stream.pipe(
+                Stream.merge(Stream.fromEffect(subscription.startupProof).pipe(Stream.drain), {
+                  haltStrategy: "left",
+                }),
+              );
+        return source.pipe(
+          Stream.map((item) => ({ subscription, item })),
+          Stream.tapCause((cause) => {
+            // Closing a socket or cancelling a subscription after completion
+            // leaves its applied base intact. Protocol/application failures do
+            // not carry that guarantee. An unfinished replay is never warm.
+            if (
+              Cause.hasInterruptsOnly(cause) ||
+              cause.reasons.every(
+                (reason) =>
+                  reason._tag === "Fail" &&
+                  isRpcClientError(reason.error) &&
+                  reason.error.reason._tag !== "RpcClientDefect",
+              )
+            )
+              return Effect.void;
+            return Effect.sync(() => {
+              if (subscription !== undefined) {
+                subscription.synchronized = false;
+                subscription.failed = true;
+              }
+            });
+          }),
+        );
+      },
       {
         onExpectedFailure: (cause) => setStreamError(Cause.squash(cause)),
+        onDefect: (cause) => setStreamError(Cause.squash(cause)),
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },
-    ).pipe(Stream.runForEachArray((items) => applyItems(items))),
+    ).pipe(
+      Stream.runForEachArray((items) => {
+        const subscription = activeSubscription;
+        return applyItems(
+          items.filter((value) => value.subscription === subscription).map((value) => value.item),
+          undefined,
+          subscription,
+        );
+      }),
+    ),
   );
   yield* SubscriptionRef.changes(supervisor.state).pipe(
     Stream.runForEach((connectionState) => {

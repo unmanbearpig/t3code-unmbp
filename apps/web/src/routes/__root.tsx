@@ -1,4 +1,6 @@
 import { PermissionUpdateNotice } from "../components/PermissionUpdateNotice";
+import { AppGlobalShortcuts } from "../components/AppGlobalShortcuts";
+import { LeaderKeyCoordinator } from "../components/LeaderKeyCoordinator";
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
@@ -85,6 +87,7 @@ import {
 
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { installDesktopPasteAsText } from "../lib/desktopPasteAsText";
+import { installTextareaNewlineShortcut } from "../lib/textboxNewline";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
 
 export const Route = createRootRoute({
@@ -143,6 +146,7 @@ function RootRouteNotFoundView() {
 
 function RootRouteView() {
   useEffect(() => installDesktopPasteAsText(window.desktopBridge, window), []);
+  useEffect(() => installTextareaNewlineShortcut(window), []);
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();
   const primaryEnvironmentAuthenticated = authGateState.status === "authenticated";
@@ -189,6 +193,8 @@ function RootRouteView() {
           <CustomSnoozeDialogHost />
           <CommandPalette>
             <AppSidebarLayout>
+              <LeaderKeyCoordinator />
+              <AppGlobalShortcuts />
               <Outlet />
             </AppSidebarLayout>
           </CommandPalette>
@@ -210,6 +216,8 @@ function RootRouteView() {
   const appShell = (
     <CommandPalette>
       <AppSidebarLayout>
+        <LeaderKeyCoordinator />
+        <AppGlobalShortcuts />
         <Outlet />
       </AppSidebarLayout>
     </CommandPalette>

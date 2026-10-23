@@ -1,3 +1,4 @@
+import { MOBILE_PALETTE_THEMES } from "./mobileTheme";
 import { describe, expect, it } from "vite-plus/test";
 import {
   BUILT_IN_THEME_IDS,
@@ -69,7 +70,7 @@ describe("mobile themes", () => {
 
   it.each(MOBILE_THEME_IDS)("uses the web color roles for %s in both appearances", (themeId) => {
     for (const appearance of ["light", "dark"] as const) {
-      const theme = BUILT_IN_THEMES.find((candidate) => candidate.id === themeId);
+      const theme = MOBILE_PALETTE_THEMES.find((candidate) => candidate.id === themeId);
       const colors = theme
         ? getThemeColorsForAppearance(theme, appearance)!
         : appearance === "dark"
@@ -169,10 +170,15 @@ describe("mobile themes", () => {
         const variables = getMobileThemeRuntimeVariables(themeId, appearance, platform);
         const sheet = variables["--color-sheet-solid"];
         const group = variables["--color-grouped-card"];
-        expect(
-          contrastRatio(group, sheet),
-          `${platform} ${appearance}: grouped surface on sheet`,
-        ).toBeGreaterThanOrEqual(1.025);
+        if (themeId === "unmbp" && appearance === "dark") {
+          expect(group).toBe("#000000");
+          expect(sheet).toBe("#000000");
+        } else {
+          expect(
+            contrastRatio(group, sheet),
+            `${platform} ${appearance}: grouped surface on sheet`,
+          ).toBeGreaterThanOrEqual(1.025);
+        }
         for (const role of [
           "--color-foreground",
           "--color-foreground-secondary",
@@ -299,5 +305,36 @@ describe("mobile themes", () => {
         contrastRatio(variables["--color-md-user-code-text"], codeSurface),
       ).toBeGreaterThanOrEqual(4.5);
     }
+  });
+
+  it.each(["ios", "android"])("keeps unmbp's idle dark surfaces black on %s", (platform) => {
+    const variables = getMobileThemeRuntimeVariables("unmbp", "dark", platform);
+    for (const role of [
+      "--color-screen",
+      "--color-thread-canvas",
+      "--color-card",
+      "--color-card-alt",
+      "--color-grouped-card",
+      "--color-sheet-solid",
+      "--color-drawer",
+      "--color-secondary",
+      "--color-subtle",
+      "--color-user-bubble",
+      "--color-md-code-bg",
+      "--color-header",
+      "--color-composer-surface",
+      "--color-glass-fallback",
+    ] as const) {
+      expect(flattenThemeColor(variables[role], "#000000"), role).toBe("#000000");
+    }
+    expect(variables["--color-thread-hover"]).toBe("#1c1c1c");
+    expect(variables["--color-thread-selected"]).toBe("#222222");
+    expect(
+      contrastRatio(
+        variables["--color-thread-selected-foreground"],
+        variables["--color-thread-selected"],
+      ),
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(getMobileThemeVariables("unmbp", "light")["--color-screen"]).toBe("#ffffff");
   });
 });
