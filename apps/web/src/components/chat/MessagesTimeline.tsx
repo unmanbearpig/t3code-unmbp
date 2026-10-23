@@ -161,9 +161,6 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END = {
   },
 } as const satisfies MaintainScrollAtEndOptions;
 const EMPTY_RUN_IDS: ReadonlySet<RunId> = new Set();
-// ---------------------------------------------------------------------------
-// Props (public API)
-// ---------------------------------------------------------------------------
 
 export interface MessagesTimelineHistoryControls {
   readonly hasMoreHistory: boolean;

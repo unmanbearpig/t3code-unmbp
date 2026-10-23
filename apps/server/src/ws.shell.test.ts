@@ -63,6 +63,7 @@ describe("shell subscription initial RPC chunks", () => {
       const dependencies = Layer.mergeAll(
         NodeSqliteClient.layer({ filename: ":memory:" }),
         Layer.mock(ThreadManagementService.ThreadManagementService)({
+          listActiveSubagentThreadIds: () => Effect.succeed([]),
           readShellSnapshot: () =>
             Effect.succeed(
               Effect.succeed({
@@ -178,6 +179,7 @@ describe("shell subscription initial RPC chunks", () => {
         const dependencies = Layer.mergeAll(
           NodeSqliteClient.layer({ filename: ":memory:" }),
           Layer.mock(ThreadManagementService.ThreadManagementService)({
+            listActiveSubagentThreadIds: () => Effect.succeed([]),
             readShellSnapshot: () =>
               Effect.succeed(
                 Effect.succeed({
@@ -381,7 +383,9 @@ const makeParkedReplay = Effect.fnUntraced(function* (unknownRows = 0) {
           return store.streamProjectedApplicationEvents(input);
         }),
     }),
-    Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+    Layer.mock(ThreadManagementService.ThreadManagementService)({
+      listActiveSubagentThreadIds: () => Effect.succeed([]),
+    }),
     Layer.mock(ProjectService.ProjectService)({
       getShell: (projectId) =>
         Effect.gen(function* () {

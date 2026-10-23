@@ -1,7 +1,7 @@
 import { resolveShortcutCommand } from "../../keybindings";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
-import { addAppShortcutListener, registerLeaderShortcutHandler } from "~/appShortcutEvents";
+import { registerLeaderShortcutHandler } from "~/appShortcutEvents";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
@@ -214,7 +214,6 @@ import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
 import { getComposerPromptInjectionState, getComposerReasoningStep } from "./composerProviderState";
 import { readPromptUltrathink } from "./TraitsPicker";
-import { PromptCacheElapsed } from "./PromptCacheElapsed";
 import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,

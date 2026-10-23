@@ -38,12 +38,10 @@ import {
 import {
   createContext,
   use,
-  useCallback,
   useEffect,
   useEffectEvent,
   useImperativeHandle,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -998,21 +996,15 @@ function ComposerPromptEditorTiptapInner(
     restoreFocusRef,
   } = props;
   const richText = !literalText && (richTextEnabled ?? false);
-  const clampEditorCursor = useCallback(
-    (text: string, position: number) =>
-      literalText
-        ? Math.max(
-            0,
-            Math.min(text.length, Number.isFinite(position) ? Math.floor(position) : text.length),
-          )
-        : clampCollapsedComposerCursor(text, position),
-    [literalText],
-  );
-  const expandEditorCursor = useCallback(
-    (text: string, position: number) =>
-      literalText ? position : expandCollapsedComposerCursor(text, position),
-    [literalText],
-  );
+  const clampEditorCursor = (text: string, position: number) =>
+    literalText
+      ? Math.max(
+          0,
+          Math.min(text.length, Number.isFinite(position) ? Math.floor(position) : text.length),
+        )
+      : clampCollapsedComposerCursor(text, position);
+  const expandEditorCursor = (text: string, position: number) =>
+    literalText ? position : expandCollapsedComposerCursor(text, position);
   const emacsEditingEnabled = useClientSettings((settings) => settings.composerEmacsEditingEnabled);
   const emacsEditingEnabledRef = useRef(emacsEditingEnabled);
   useLayoutEffect(() => {
@@ -1144,45 +1136,33 @@ function ComposerPromptEditorTiptapInner(
     onChangeRef.current(nextValue, nextCursor, nextExpandedCursor, suppressTrigger, contextIds);
   };
 
-  const editorAttributes = useMemo(
-    () => (state: EditorState) => ({
-      class: cn(
-        "composer-tiptap -m-1 block max-h-52 min-h-19.5 overflow-y-auto p-1 whitespace-pre-wrap wrap-break-word bg-transparent leading-relaxed text-foreground focus:outline-none",
-        className,
-      ),
-      "data-testid": "composer-editor",
-      "data-composer-rich-text": richText ? "true" : "false",
-      "data-composer-emacs": emacsEditingEnabled ? "true" : "false",
-      "data-composer-empty": String(isComposerEmacsDocumentEmpty(state.doc)),
-      role: "textbox",
-      "aria-multiline": "true",
-      ...(ariaLabel ? { "aria-label": ariaLabel } : {}),
-      ...(disabled ? { "aria-readonly": "true" } : {}),
-      ...(!disabled && suggestionListId
-        ? {
-            "aria-autocomplete": "list",
-            "aria-haspopup": "listbox",
-            ...(activeSuggestionId
-              ? {
-                  "aria-controls": suggestionListId,
-                  "aria-activedescendant": activeSuggestionId,
-                }
-              : {}),
-          }
-        : {}),
-      "aria-placeholder": placeholder,
-    }),
-    [
-      activeSuggestionId,
-      ariaLabel,
+  const editorAttributes = (state: EditorState) => ({
+    class: cn(
+      "composer-tiptap -m-1 block max-h-52 min-h-19.5 overflow-y-auto p-1 whitespace-pre-wrap wrap-break-word bg-transparent leading-relaxed text-foreground focus:outline-none",
       className,
-      disabled,
-      placeholder,
-      richText,
-      suggestionListId,
-      emacsEditingEnabled,
-    ],
-  );
+    ),
+    "data-testid": "composer-editor",
+    "data-composer-rich-text": richText ? "true" : "false",
+    "data-composer-emacs": emacsEditingEnabled ? "true" : "false",
+    "data-composer-empty": String(isComposerEmacsDocumentEmpty(state.doc)),
+    role: "textbox",
+    "aria-multiline": "true",
+    ...(ariaLabel ? { "aria-label": ariaLabel } : {}),
+    ...(disabled ? { "aria-readonly": "true" } : {}),
+    ...(!disabled && suggestionListId
+      ? {
+          "aria-autocomplete": "list",
+          "aria-haspopup": "listbox",
+          ...(activeSuggestionId
+            ? {
+                "aria-controls": suggestionListId,
+                "aria-activedescendant": activeSuggestionId,
+              }
+            : {}),
+        }
+      : {}),
+    "aria-placeholder": placeholder,
+  });
 
   const editor = useEditor(
     {

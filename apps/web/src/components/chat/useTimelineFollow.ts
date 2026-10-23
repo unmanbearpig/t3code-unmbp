@@ -258,7 +258,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     pageScrollControllerRef.current?.releaseActiveKey();
   };
   const onComposerPageScrollReleaseStable = useStableCallback(onComposerPageScrollRelease);
-  const scrollToEnd = (animated: boolean = false) => {
+  const scrollToEnd = (_animated: boolean = false) => {
     cancelPositionRestoreRef.current?.();
     isAtEndRef.current = true;
     timelineScrollModeRef.current = "following-end";
