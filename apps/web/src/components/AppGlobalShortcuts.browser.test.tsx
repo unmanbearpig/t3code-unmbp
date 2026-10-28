@@ -16,6 +16,7 @@ import { AppGlobalShortcuts } from "./AppGlobalShortcuts";
 
 const state = vi.hoisted(() => ({
   keybindings: [] as ResolvedKeybindingsConfig,
+  paletteOpen: false,
   activeThread: {
     environmentId: "local",
     projectId: "project",
@@ -29,6 +30,10 @@ const state = vi.hoisted(() => ({
   },
 }));
 
+vi.mock("../commandPaletteBus", () => ({
+  isCommandPaletteOpen: () => state.paletteOpen,
+  openCommandPalette: vi.fn(),
+}));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => state.keybindings }));
 vi.mock("../state/server", () => ({ primaryServerKeybindingsAtom: {} }));
 vi.mock("../hooks/useHandleNewThread", () => ({
@@ -65,6 +70,7 @@ vi.mock("../terminalUiStateStore", () => ({
 vi.mock("../rightPanelStore", () => ({
   useRightPanelStore: () => false,
   selectActiveRightPanel: () => null,
+  selectThreadRightPanelState: () => ({}),
 }));
 vi.mock("./ui/toast", () => ({ stackedThreadToast: vi.fn(), toastManager: { add: vi.fn() } }));
 
@@ -74,6 +80,7 @@ function setup() {
   const previous = Object.getOwnPropertyDescriptor(window, "desktopBridge");
   const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux");
   state.keybindings = DEFAULT_RESOLVED_KEYBINDINGS;
+  state.paletteOpen = false;
   state.activeThread = {
     environmentId: "local",
     projectId: "project",
@@ -169,8 +176,10 @@ it("does not launch while the command palette or shortcut recorder owns input", 
   const palette = document.createElement("div");
   palette.dataset.commandPalette = "";
   screen.container.append(palette);
+  state.paletteOpen = true;
   expect(press().defaultPrevented).toBe(false);
   palette.remove();
+  state.paletteOpen = false;
   const recorder = document.createElement("input");
   recorder.dataset.keybindingCapture = "";
   screen.container.append(recorder);

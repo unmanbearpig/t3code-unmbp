@@ -1,6 +1,5 @@
-import type { DesktopTerminalTarget } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 
 import { externalTerminalCandidateUrls } from "../lib/externalTerminal";
 import { useProjects } from "../state/entities";
@@ -37,32 +36,37 @@ export function useExternalTerminal() {
   const probe = window.desktopBridge?.isLocalTerminalEnvironment;
   const launch = window.desktopBridge?.openInTerminal;
   const [locality, setLocality] = useState<{
-    target: DesktopTerminalTarget;
+    key: string;
     available: boolean;
   } | null>(null);
 
+  const targetKey = target === null ? null : JSON.stringify(target);
+  const readTarget = useEffectEvent(() => target);
+
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- probes the native desktop terminal and ignores responses after unmount
   useEffect(() => {
-    if (target === null || probe === undefined || launch === undefined) return;
+    const currentTarget = readTarget();
+    if (targetKey === null || currentTarget === null || probe === undefined || launch === undefined)
+      return;
     let cancelled = false;
-    void probe(target).then(
+    void probe(currentTarget).then(
       (available) => {
-        if (!cancelled) setLocality({ target, available });
+        if (!cancelled) setLocality({ key: targetKey, available });
       },
       () => {
-        if (!cancelled) setLocality({ target, available: false });
+        if (!cancelled) setLocality({ key: targetKey, available: false });
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [target, probe, launch]);
+  }, [targetKey, probe, launch]);
 
   const available =
     cwd !== null &&
     probe !== undefined &&
     launch !== undefined &&
-    locality?.target === target &&
+    locality?.key === targetKey &&
     locality?.available === true;
 
   const open = async () => {

@@ -81,7 +81,10 @@ describe("workspace connection status", () => {
 });
 
 it("blinds both syncing and ready arms without changing ordinary status presentation", () => {
-  const old = workspaceState({ hasPendingShellSnapshot: true });
+  const old = workspaceState({
+    hasPendingShellSnapshot: true,
+    hasSyncingConnectedEnvironment: true,
+  });
   const fresh = workspaceState();
   expect(workspaceConnectionStatusPresentation(old, true)).toBeNull();
   expect(workspaceConnectionStatusPresentation(fresh, true)).toBeNull();

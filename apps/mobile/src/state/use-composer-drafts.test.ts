@@ -131,6 +131,8 @@ const incomingShareStorageMocks = vi.hoisted(() => ({
   ),
 }));
 
+vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
+
 vi.mock("expo-file-system", () => ({
   Directory: composerDraftFileMocks.Directory,
   File: composerDraftFileMocks.File,
