@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/animationPreference";
 import type { LegendListRef } from "@legendapp/list/react";
 import type { AssistantCitation, MessageId, ScopedThreadRef } from "@t3tools/contracts";
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
@@ -114,7 +115,7 @@ function observeAssistantCitationSource({
   if (activation.dismissed) return;
   const scrollNode = list.getScrollableNode();
   if (!(scrollNode instanceof HTMLElement)) return;
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reducedMotion = prefersReducedMotion();
   let highlighted: Highlight | null = null;
   let ownedRange: Range | null = null;
   let selected: { range: Range; snapshot: Range } | null = null;
@@ -122,6 +123,7 @@ function observeAssistantCitationSource({
   let scrolling = false;
   let stopped = false;
   let pulseAnimation: Animation | null = null;
+  let highlightTimeout: ReturnType<typeof setTimeout> | null = null;
   let canReplaceSelection = !activation.scrolled;
   const ownsSelection = (selection: Selection | null) =>
     selected !== null &&
@@ -141,6 +143,7 @@ function observeAssistantCitationSource({
     if (selected && ownsSelection(selection)) selection?.removeRange(selected.range);
     selected = null;
     delete root.dataset.citationHighlighted;
+    root.style.removeProperty(CITATION_HIGHLIGHT_OPACITY);
   };
   const finishHighlight = () => {
     if (stopped) return;
@@ -181,7 +184,7 @@ function observeAssistantCitationSource({
       );
       if (Math.abs(offset - state.scroll) > 1) {
         scrolling = true;
-        void list.scrollToOffset({ offset, animated: !reducedMotion }).then(
+        void list.scrollToOffset({ offset, animated: false }).then(
           () => {
             scrolling = false;
             if (!stopped && !activation.dismissed) schedule();
@@ -234,6 +237,17 @@ function observeAssistantCitationSource({
         finishHighlight();
         return;
       }
+    }
+    if (prefersReducedMotion()) {
+      const pulse = (activation.pulse ??= { startedAt: performance.now(), reducedMotion: true });
+      root.style.setProperty(CITATION_HIGHLIGHT_OPACITY, String(CITATION_HIGHLIGHT_PEAK));
+      if (highlightTimeout === null) {
+        highlightTimeout = setTimeout(
+          finishHighlight,
+          Math.max(0, CITATION_HIGHLIGHT_TOTAL_MS - (performance.now() - pulse.startedAt)),
+        );
+      }
+      return;
     }
     if (!pulseAnimation) {
       const pulse = (activation.pulse ??= {
@@ -322,6 +336,7 @@ function observeAssistantCitationSource({
     stopped = true;
     cancelScroll();
     pulseAnimation?.cancel();
+    if (highlightTimeout !== null) clearTimeout(highlightTimeout);
     if (frame !== null) cancelAnimationFrame(frame);
     observer.disconnect();
     stopObservingResize();

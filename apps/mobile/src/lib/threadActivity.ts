@@ -64,6 +64,7 @@ import {
 } from "@t3tools/shared/toolActivity";
 import { claudeResumeCompactionAge } from "@t3tools/shared/claudeCompaction";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
+import { getFoldedUserInputAnswerMessageIds } from "@t3tools/shared/orchestrationV2Timeline";
 import { truncate } from "@t3tools/shared/String";
 import type { HtmlRenderReference } from "@t3tools/shared/htmlRender";
 import type { McpAppReference } from "@t3tools/shared/mcpApp";
@@ -2169,12 +2170,10 @@ export function buildThreadFeed(
   };
   // Thread-wide facts that change rows anywhere in the feed. A cached prefix
   // is reused only while these match the build that produced it.
-  const foldedAnswerMessageIds = new Set<string>();
+  const foldedAnswerMessageIds = getFoldedUserInputAnswerMessageIds(visibleTurnItems);
   const delegatedChildrenByRun = new Map<RunId, Set<string>>();
   for (const { item } of visibleTurnItems) {
-    if (item.type === "user_input_request" && item.questionAnswer) {
-      foldedAnswerMessageIds.add(`async-answer:${item.questionAnswer.requestId}`);
-    } else if (item.type === "subagent" && item.origin === "app_owned" && item.runId !== null) {
+    if (item.type === "subagent" && item.origin === "app_owned" && item.runId !== null) {
       const children = delegatedChildrenByRun.get(item.runId) ?? new Set<string>();
       children.add(item.subagentId);
       delegatedChildrenByRun.set(item.runId, children);

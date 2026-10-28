@@ -1,4 +1,11 @@
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+/**
+ * Naming shared by the release workflow, the runtime installers, and
+ * install scripts for the per-platform CLI archives attached to GitHub
+ * Releases. Every consumer derives the same file names from a version and a
+ * platform key, so a rename here is a release-breaking change.
+ */
+
+export const CLI_RELEASE_REPOSITORY = "unmanbearpig/t3code-unmbp";
 export const CLI_RELEASES_PAGE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases`;
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";

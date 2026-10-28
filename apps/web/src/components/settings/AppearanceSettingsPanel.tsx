@@ -331,6 +331,16 @@ export function AppearanceSettingsPanel() {
             />
           }
         />
+        <SettingsRow
+          {...searchableSetting("animations")}
+          control={
+            <Switch
+              checked={!settings.disableAnimations}
+              onCheckedChange={(enabled) => updateSettings({ disableAnimations: !enabled })}
+              aria-label="Animations"
+            />
+          }
+        />
         <AdvancedSettings
           targetIds={[
             searchableSetting("panel-animations").id,
@@ -345,7 +355,7 @@ export function AppearanceSettingsPanel() {
             description="Set how fast panels open and close."
             control={
               <div className="grid w-full grid-cols-[5rem_minmax(0,1fr)] items-center gap-3 sm:w-auto sm:grid-cols-[7rem_13rem] sm:gap-4">
-                <PanelAnimationsPreview durationMs={settings.panelAnimationDurationMs} />
+                <PanelAnimationsPreview durationMs={settings.disableAnimations ? 0 : settings.panelAnimationDurationMs} />
                 <div className="flex w-full items-center gap-3">
                   <output
                     className="min-w-16 rounded-md bg-muted px-2 py-1 text-center font-mono text-xs font-medium tabular-nums text-foreground"
@@ -354,6 +364,7 @@ export function AppearanceSettingsPanel() {
                     {settings.panelAnimationDurationMs} ms
                   </output>
                   <input
+                    disabled={settings.disableAnimations}
                     aria-label="Panel animation duration"
                     className="settings-slider min-w-0 flex-1"
                     id="panel-animation-duration"

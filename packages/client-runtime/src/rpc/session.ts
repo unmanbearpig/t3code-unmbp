@@ -1,9 +1,24 @@
+import { appendClientConnectionParams } from "../authorization/remote.ts";
+import { RpcWebTransportConnector } from "../platform/rpcWebTransport.ts";
+import { makeRpcWebTransportCooldown } from "./webTransportCooldown.ts";
+import {
+  prepareRpcWebTransportClient,
+  makeRpcWebTransportClientProtocol,
+  withRpcWebTransportProbe,
+} from "./webTransportProtocol.ts";
+import { AttemptReconnectArm, ReconnectExperiment } from "../connection/reconnectExperiment.ts";
 import {
   type ServerConfig,
   type ServerConfigStreamEvent,
   WsSubscribeServerConfigRpc,
   WS_METHODS,
 } from "@t3tools/contracts";
+import {
+  RPC_WEBTRANSPORT_LIMITS,
+  RpcWebTransportError,
+  type ReliableSession,
+} from "@t3tools/shared/rpcWebTransport";
+import * as Clock from "effect/Clock";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -11,14 +26,18 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
+import * as Redacted from "effect/Redacted";
+import * as Result from "effect/Result";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
-import type * as Scope from "effect/Scope";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as HttpClient from "effect/http/HttpClient";
 import type * as Rpc from "effect/rpc/Rpc";
 import * as RpcClient from "effect/rpc/RpcClient";
 import * as RpcClientError from "effect/rpc/RpcClientError";
@@ -27,6 +46,9 @@ import * as Socket from "effect/socket/Socket";
 
 import { makeWsRpcProtocolClient, PING_TIMEOUT, type WsRpcProtocolClient } from "./protocol.ts";
 import { NETWORK_BLOCKING_HINT, UNRESPONSIVE_HOST_HINT } from "../errors/network.ts";
+import { makeWebSocketLayer } from "./webSocket.ts";
+import { issueRemoteWebSocketTicket } from "../authorization/remote.ts";
+import * as ClientCapabilities from "../platform/capabilities.ts";
 import type {
   ConnectionAttemptError,
   ConnectionTransientError,
@@ -41,11 +63,12 @@ import {
   type ServerConfigProjection,
   withoutEnvironmentThemes,
 } from "../state/serverConfigProjection.ts";
-import { environmentMismatchError } from "../connection/errors.ts";
-
-const SOCKET_OPEN_TIMEOUT = "15 seconds";
+import { environmentMismatchError, mapRemoteEnvironmentError } from "../connection/errors.ts";
+import { orchestrationProtocolCompatibilityError } from "../connection/compatibility.ts";
 
 export interface RpcSession {
+  /** Selected protocol, for runtime diagnostics without exposing admission URLs. */
+  readonly transport?: "websocket" | "webtransport";
   readonly client: WsRpcProtocolClient;
   readonly initialConfig: Effect.Effect<ServerConfig, ConnectionAttemptError>;
   readonly subscribeServerConfig: (
@@ -162,11 +185,25 @@ function socketFailureLocation(via: "relay" | "direct") {
   return { hop: via === "relay" ? "tunnel" : "server", via } as const;
 }
 
+function closeReliableSession(session: ReliableSession) {
+  try {
+    session.close(0);
+  } catch {
+    /* Logical cancellation does not await native close. */
+  }
+}
+
 /** @public */
 export const make = Effect.fn("RpcSessionFactory.make")(function* (
   options: RpcSessionOptions = {},
 ) {
-  const webSocketConstructor = yield* Socket.WebSocketConstructor;
+  const webSocketLayer = yield* makeWebSocketLayer;
+  const webTransportConnector = yield* Effect.serviceOption(RpcWebTransportConnector);
+  const cooldown = yield* makeRpcWebTransportCooldown;
+  const httpClient = yield* HttpClient.HttpClient;
+  const constructorWithHeaders = yield* Effect.serviceOption(
+    ClientCapabilities.WebSocketConstructorWithHeaders,
+  );
   const serverConfigInput: ServerConfigSubscriptionInput = {
     ...(options.environmentThemes === true ? { environmentThemes: true } : {}),
     ...(options.usageLimitSources === true ? { usageLimitSources: true } : {}),
@@ -181,6 +218,8 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
   const connect = Effect.fnUntraced(function* (connection: PreparedConnection) {
     const via = connection.target._tag === "RelayConnectionTarget" ? "relay" : "direct";
     const networkHint = via === "relay" ? ` ${NETWORK_BLOCKING_HINT}` : "";
+    const oldArm = (yield* AttemptReconnectArm) === "old";
+    const experiment = yield* ReconnectExperiment;
     const mapRpcError = (error: Parameters<typeof mapSessionRpcError>[0]) =>
       mapSessionRpcError(error, networkHint, via);
     yield* Effect.annotateCurrentSpan({
@@ -189,10 +228,80 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
 
     const connected = yield* Deferred.make<void>();
     const disconnected = yield* Deferred.make<never, ConnectionTransientError>();
+    const sessionScope = yield* Effect.scope;
+    let socketOpened = false;
+    const authorization = connection.httpAuthorization;
+    const usesBearerUpgradeHeaders =
+      !oldArm && authorization?._tag === "Bearer" && Option.isSome(constructorWithHeaders);
+    // Native WebSocket failures omit the HTTP rejection. Share one diagnostic
+    // across readiness, config and closure consumers, only before an upgrade opens.
+    // Its fiber belongs to the session so canceling a waiter cannot issue it twice.
+    const diagnostic = yield* Effect.cached(
+      (usesBearerUpgradeHeaders
+        ? issueRemoteWebSocketTicket({
+            httpBaseUrl: connection.httpBaseUrl,
+            bearerToken: authorization.token,
+            timeoutMs: 3_000,
+          }).pipe(
+            Effect.match({
+              onFailure: (error) => Option.some(mapRemoteEnvironmentError(error)),
+              onSuccess: (issued) =>
+                issued.orchestrationProtocolVersion === undefined
+                  ? Option.none<ConnectionAttemptError>()
+                  : Option.fromNullishOr(
+                      orchestrationProtocolCompatibilityError({
+                        label: connection.label,
+                        orchestrationProtocolVersion: issued.orchestrationProtocolVersion,
+                      }),
+                    ),
+            }),
+            Effect.provideService(HttpClient.HttpClient, httpClient),
+          )
+        : Effect.succeed(Option.none<ConnectionAttemptError>())
+      ).pipe(Effect.forkIn(sessionScope)),
+    );
+    const diagnoseError = (error: ConnectionAttemptError) =>
+      transport !== "websocket" ||
+      !usesBearerUpgradeHeaders ||
+      socketOpened ||
+      error._tag === "ConnectionBlockedError"
+        ? Effect.fail(error)
+        : diagnostic.pipe(
+            Effect.flatMap(Fiber.join),
+            Effect.flatMap((diagnosed) => Effect.fail(Option.getOrElse(diagnosed, () => error))),
+          );
+    // This session never reopens its socket. Once it ends, waiting for the
+    // socket writer's open latch cannot succeed, including an RPC interrupt
+    // already waiting there when the transport drops.
+    const transportClosed = yield* Deferred.make<void>();
+    const stopTransportWrites = Effect.suspend(() =>
+      (experiment?.arm(connection.environmentId) ?? (oldArm ? "old" : "new")) === "old"
+        ? Effect.void
+        : Deferred.succeed(transportClosed, undefined).pipe(Effect.asVoid),
+    );
+    const writeWhileLive = (write: Effect.Effect<void, Socket.SocketError>) =>
+      Deferred.isDone(transportClosed).pipe(
+        Effect.flatMap((closed) =>
+          closed ? Effect.void : Effect.raceFirst(write, Deferred.await(transportClosed)),
+        ),
+      );
+    // Set when the socket closes because the server stopped answering, so the failure says so
+    // instead of looking like the server closed the connection.
     const pingTimedOut = yield* Ref.make(false);
+    let transport: "websocket" | "webtransport" = "websocket";
+    let ownerDisposing = false;
+    let disposeSelectedTransport: Effect.Effect<void> | undefined;
+    let selectedAttempt: Effect.Success<ReturnType<typeof cooldown.begin>>;
+    const recordTransportFailure = Effect.suspend(() =>
+      selectedAttempt !== undefined && !ownerDisposing
+        ? cooldown.failed(selectedAttempt)
+        : Effect.void,
+    );
     const hooks = RpcClient.ConnectionHooks.of({
       onConnect: Deferred.succeed(connected, undefined).pipe(Effect.asVoid),
-      onDisconnect: Effect.all([Deferred.isDone(connected), Ref.get(pingTimedOut)]).pipe(
+      onDisconnect: stopTransportWrites.pipe(
+        Effect.andThen(recordTransportFailure),
+        Effect.andThen(Effect.all([Deferred.isDone(connected), Ref.get(pingTimedOut)])),
         Effect.flatMap(([wasConnected, timedOut]) =>
           Deferred.fail(
             disconnected,
@@ -202,7 +311,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
               // opened, the path worked, and a host that goes quiet is more
               // often overloaded or asleep than blocked.
               detail: !wasConnected
-                ? `${connection.label} could not establish a WebSocket connection.${networkHint}`
+                ? `${connection.label} could not establish a ${transport === "websocket" ? "WebSocket" : "WebTransport"} connection.${networkHint}`
                 : timedOut
                   ? `${connection.label} stopped responding for ${PING_TIMEOUT_SECONDS}s. ${UNRESPONSIVE_HOST_HINT}`
                   : `${connection.label} disconnected.`,
@@ -213,41 +322,152 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
         Effect.asVoid,
       ),
     });
-    // The protocol never reopens its socket, so every frame counted here came
-    // from this session's one socket.
     let inboundFrames = 0;
-    const countingWebSocketConstructor: typeof webSocketConstructor = (url, options) => {
-      const socket = webSocketConstructor(url, options);
-      socket.addEventListener("message", () => {
-        inboundFrames += 1;
-      });
-      return socket;
-    };
-    const layerSocket = Socket.layerWebSocket(connection.socketUrl, {
-      openTimeout: SOCKET_OPEN_TIMEOUT,
-    }).pipe(
-      Layer.provide(Layer.succeed(Socket.WebSocketConstructor, countingWebSocketConstructor)),
-    );
-    const layerProtocol = Layer.effect(
-      RpcClient.Protocol,
-      RpcClient.makeProtocolSocket({
-        pingTimeout: PING_TIMEOUT,
-        retryTransientErrors: false,
-        retryPolicy: Schedule.recurs(0),
-        onPingTimeout: Ref.set(pingTimedOut, true),
-      }),
-    ).pipe(
-      Layer.provide(
-        Layer.mergeAll(
-          layerSocket,
-          RpcSerialization.layerJson,
-          Layer.succeed(RpcClient.ConnectionHooks, hooks),
-        ),
-      ),
-    );
-    const protocolContext = yield* Layer.build(layerProtocol).pipe(
-      Effect.withSpan("environment.websocket.connect"),
-    );
+    const candidate = connection.rpcWebTransport;
+    const ticket = connection.rpcTicket;
+    const attempt =
+      candidate !== undefined &&
+      ticket !== undefined &&
+      Option.isSome(webTransportConnector) &&
+      ticket.expiresAtEpochMs > (yield* Clock.currentTimeMillis)
+        ? yield* cooldown.begin(connection.environmentId, candidate)
+        : undefined;
+    const selected =
+      attempt === undefined ||
+      candidate === undefined ||
+      ticket === undefined ||
+      Option.isNone(webTransportConnector)
+        ? undefined
+        : yield* Effect.gen(function* () {
+            const candidateScope = yield* Scope.make();
+            yield* Effect.addFinalizer((exit) =>
+              Effect.sync(() => {
+                ownerDisposing = true;
+              }).pipe(Effect.andThen(Scope.close(candidateScope, exit))),
+            );
+            const url = new URL(candidate.url);
+            url.searchParams.set("wsTicket", Redacted.value(ticket.value));
+            appendClientConnectionParams(url, candidate.clientMetadata, "direct");
+            const prepared = yield* Effect.gen(function* () {
+              const session = yield* Effect.acquireRelease(
+                Effect.tryPromise({
+                  try: (signal) =>
+                    webTransportConnector.value
+                      .connect({ url: url.toString(), signal })
+                      .then((session) => {
+                        if (signal.aborted) {
+                          closeReliableSession(session);
+                          throw new RpcWebTransportError("aborted", "RPC connection cancelled");
+                        }
+                        return session;
+                      }),
+                  catch: (cause) =>
+                    new RpcWebTransportError("network", "RPC transport connection failed", {
+                      cause,
+                    }),
+                }).pipe(Effect.interruptible),
+                (session) => Effect.sync(() => closeReliableSession(session)),
+              );
+              return yield* prepareRpcWebTransportClient(session, {
+                environmentId: connection.environmentId,
+                orchestrationProtocolVersion: candidate.orchestrationProtocolVersion,
+                onFrame: () => {
+                  inboundFrames += 1;
+                },
+              });
+            }).pipe(
+              Effect.provideService(Scope.Scope, candidateScope),
+              Effect.timeoutOrElse({
+                duration: RPC_WEBTRANSPORT_LIMITS.candidateTimeoutMs,
+                orElse: () =>
+                  Effect.fail(
+                    new RpcWebTransportError("network", "RPC transport establishment timed out"),
+                  ),
+              }),
+              Effect.onInterrupt(() => Scope.close(candidateScope, Exit.void)),
+              Effect.result,
+            );
+            if (Result.isFailure(prepared)) {
+              yield* Scope.close(candidateScope, Exit.void);
+              yield* cooldown.failed(attempt);
+              return undefined;
+            }
+            yield* cooldown.succeeded(attempt);
+            selectedAttempt = attempt;
+            transport = "webtransport";
+            disposeSelectedTransport = Effect.sync(() => {
+              ownerDisposing = true;
+            }).pipe(Effect.andThen(Scope.close(candidateScope, Exit.void)));
+            const protocol = yield* makeRpcWebTransportClientProtocol(prepared.success, {
+              onPingTimeout: Ref.set(pingTimedOut, true),
+            }).pipe(
+              Effect.provideService(Scope.Scope, candidateScope),
+              Effect.provideService(RpcClient.ConnectionHooks, hooks),
+              Effect.mapError(
+                () =>
+                  new ConnectionTransientErrorClass({
+                    reason: "transport",
+                    detail: `${connection.label} disconnected.`,
+                  }),
+              ),
+            );
+            return Context.make(RpcClient.Protocol, protocol);
+          });
+    const protocolContext =
+      selected ??
+      (yield* Effect.gen(function* () {
+        const layerNativeSocket = webSocketLayer(
+          connection,
+          usesBearerUpgradeHeaders
+            ? () => {
+                socketOpened = true;
+              }
+            : undefined,
+          oldArm,
+        );
+        const layerSocket = Layer.effect(
+          Socket.Socket,
+          Effect.map(Socket.Socket, (socket) =>
+            Socket.make({
+              reader: Effect.map(socket.reader, (reader) => ({
+                ...reader,
+                pull: reader.pull.pipe(
+                  Effect.tap((chunks) =>
+                    Effect.sync(() => {
+                      inboundFrames += chunks.length;
+                    }),
+                  ),
+                ),
+              })),
+              writer: Effect.map(socket.writer, (writer) => ({
+                write: (chunk) => writeWhileLive(writer.write(chunk)),
+                writeAll: (chunks) => writeWhileLive(writer.writeAll(chunks)),
+              })),
+            }),
+          ),
+        ).pipe(Layer.provide(layerNativeSocket));
+        const layerProtocol = Layer.effect(
+          RpcClient.Protocol,
+          RpcClient.makeProtocolSocket({
+            pingTimeout: PING_TIMEOUT,
+            retryTransientErrors: false,
+            retryPolicy: Schedule.recurs(0),
+            onPingTimeout: Ref.set(pingTimedOut, true),
+          }),
+        ).pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              layerSocket,
+              RpcSerialization.layerJson,
+              Layer.succeed(RpcClient.ConnectionHooks, hooks),
+            ),
+          ),
+        );
+        return yield* Layer.build(layerProtocol).pipe(
+          Effect.withSpan("environment.websocket.connect"),
+        );
+      }));
+    yield* Effect.annotateCurrentSpan("connection.rpc.transport", transport);
     // Building the protocol only starts the socket; this span times the
     // handshake up to the first open, without making `connect` wait for it.
     yield* Deferred.await(connected).pipe(
@@ -309,21 +529,40 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       ),
       Effect.onExit((exit) => {
         if (Exit.isSuccess(exit)) {
-          return Effect.all([
-            Deferred.succeed(serverConfigExit, undefined),
-            Deferred.fail(configSubscriptionClosed, configSubscriptionEndedError),
-          ]).pipe(Effect.asVoid);
+          return recordTransportFailure.pipe(
+            Effect.andThen(
+              Effect.all([
+                Deferred.succeed(serverConfigExit, undefined),
+                Deferred.fail(configSubscriptionClosed, configSubscriptionEndedError),
+              ]),
+            ),
+            Effect.asVoid,
+          );
         }
         if (Cause.hasInterruptsOnly(exit.cause)) {
           return Effect.void;
         }
-        return Effect.all([
-          Deferred.failCause(serverConfigExit, exit.cause),
-          Deferred.failCause(configSubscriptionClosed, Cause.map(exit.cause, mapRpcError)),
-        ]).pipe(Effect.asVoid);
+        return recordTransportFailure.pipe(
+          Effect.andThen(
+            Effect.all([
+              Deferred.failCause(serverConfigExit, exit.cause),
+              Deferred.failCause(configSubscriptionClosed, Cause.map(exit.cause, mapRpcError)),
+            ]),
+          ),
+          Effect.asVoid,
+        );
       }),
     );
-    yield* serverConfigSource.pipe(Effect.forkScoped);
+    // LIFO scope release must retire writes before canceling the config
+    // stream or RPC client. Register both atomically so interruption during
+    // construction cannot leave an unopened socket waiting on an interrupt.
+    // Teardown remains synchronous: the native close runs before replacement.
+    yield* Effect.uninterruptible(
+      serverConfigSource.pipe(
+        Effect.forkScoped,
+        Effect.andThen(Effect.addFinalizer(() => stopTransportWrites)),
+      ),
+    );
     const initialConfig = Effect.raceFirst(
       Deferred.await(initialConfigDeferred),
       Deferred.await(serverConfigExit).pipe(
@@ -340,6 +579,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
           }),
       ),
       Effect.withSpan("environment.initialSync"),
+      Effect.catch(diagnoseError),
     );
     const serverConfigEvents = Stream.unwrap(
       Effect.gen(function* () {
@@ -405,14 +645,22 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
         ),
       );
     const probe = initialConfig.pipe(
-      Effect.flatMap(() =>
-        protocolClient[WS_METHODS.serverProbe]({}).pipe(Effect.mapError(mapRpcError)),
+      Effect.flatMap((config) =>
+        (config.environment.capabilities.connectionProbe === true
+          ? protocolClient[WS_METHODS.serverProbe]({})
+          : protocolClient[WS_METHODS.serverGetConfig]({}).pipe(withRpcWebTransportProbe)
+        ).pipe(Effect.mapError(mapRpcError)),
       ),
       Effect.asVoid,
       Effect.withSpan("clientRuntime.connection.rpcSession.probe"),
     );
 
+    // End transport ownership before RpcClient's subscription finalizers send cancellation.
+    if (disposeSelectedTransport !== undefined) {
+      yield* Effect.addFinalizer(() => disposeSelectedTransport!);
+    }
     return {
+      transport,
       client: protocolClient,
       initialConfig,
       subscribeServerConfig,
@@ -420,13 +668,14 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
         Effect.andThen(initialConfig),
         Effect.asVoid,
         Effect.raceFirst(Deferred.await(disconnected)),
+        Effect.catch(diagnoseError),
       ),
       probe,
       inboundFrames: Effect.sync(() => inboundFrames),
       closed: Effect.raceFirst(
         Deferred.await(disconnected),
         Deferred.await(configSubscriptionClosed),
-      ),
+      ).pipe(Effect.catch(diagnoseError)),
     } satisfies RpcSession;
   });
 

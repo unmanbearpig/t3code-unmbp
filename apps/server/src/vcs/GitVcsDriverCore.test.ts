@@ -2858,6 +2858,64 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
   });
 
   describe("refName operations", () => {
+    it.effect.each(["main", "origin/main"] as const)(
+      "keeps exact %s visible ahead of 100 newer substring matches",
+      (mainRef) =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          yield* initRepoWithCommit(cwd);
+          yield* git(cwd, ["branch", "-M", "develop"]);
+          yield* git(cwd, ["remote", "add", "origin", cwd]);
+          yield* git(cwd, [
+            "update-ref",
+            mainRef === "main" ? "refs/heads/main" : "refs/remotes/origin/main",
+            "HEAD",
+          ]);
+          yield* git(cwd, ["commit", "--allow-empty", "-m", "newer"], {
+            GIT_COMMITTER_DATE: "2030-01-01T00:00:00Z",
+          });
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          yield* driver.execute({
+            operation: "test.seedBranches",
+            cwd,
+            args: ["update-ref", "--stdin"],
+            stdin: Array.from(
+              { length: 100 },
+              (_, index) => `create refs/heads/maintenance-${index} HEAD\n`,
+            ).join(""),
+          });
+          const unfiltered = yield* driver.listRefs({ cwd, limit: 100 });
+          assert.isFalse(unfiltered.refs.some((ref) => ref.name === mainRef));
+          const first = yield* driver.listRefs({ cwd, query: "main", limit: 100 });
+          assert.equal(first.refs[0]?.name, mainRef);
+          assert.equal(first.totalCount, 101);
+          const second = yield* driver.listRefs({
+            cwd,
+            query: "main",
+            cursor: first.nextCursor ?? 0,
+            limit: 100,
+          });
+          assert.equal(second.refs.length, 1);
+          assert.equal(second.nextCursor, null);
+          assert.equal(new Set([...first.refs, ...second.refs].map((ref) => ref.name)).size, 101);
+        }),
+    );
+
+    it.effect("distinguishes a missing remote branch from a corrupt reference", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const input = { cwd, remoteName: "origin", refName: "main" };
+        assert.isFalse(yield* driver.remoteBranchExists(input));
+        yield* git(cwd, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        assert.isTrue(yield* driver.remoteBranchExists(input));
+        yield* writeTextFile(cwd, ".git/refs/remotes/origin/main", `${"1".repeat(40)}\n`);
+        const error = yield* driver.remoteBranchExists(input).pipe(Effect.flip);
+        assert.equal(error._tag, "GitCommandError");
+      }),
+    );
+
     it.effect("lists root and upstream metadata and optionally includes matching remote refs", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

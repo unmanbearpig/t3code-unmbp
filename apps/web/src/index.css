@@ -2545,3 +2545,19 @@ code {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
+
+/* This client preference also covers popups rendered outside the route tree. */
+html[data-animations="disabled"] *,
+html[data-animations="disabled"] *::before,
+html[data-animations="disabled"] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+  caret-animation: manual !important;
+}
+
+html[data-animations="disabled"]::view-transition-group(*),
+html[data-animations="disabled"]::view-transition-old(*),
+html[data-animations="disabled"]::view-transition-new(*) {
+  animation: none !important;
+}

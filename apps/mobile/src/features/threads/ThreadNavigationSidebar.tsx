@@ -6,6 +6,9 @@ import {
   useAppearancePreferences,
   useAndroidFloatingTabs,
 } from "../settings/appearance/AppearancePreferencesProvider";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { findNextActionableThread } from "@t3tools/client-runtime/state/thread-inbox";
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
@@ -15,7 +18,7 @@ import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { THREAD_SIDEBAR_ROW_LAYOUT } from "./threadListAnimations";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useAtomValue } from "@effect/atom-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { LayoutChangeEvent, TextInputInstance } from "react-native";
 import { Platform, StyleSheet, TextInput, View } from "react-native";
 import { GestureDetector, useNativeGesture } from "react-native-gesture-handler";
@@ -33,6 +36,8 @@ import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { useProjects, useNavigationThreadShells } from "../../state/entities";
+import { appAtomRegistry } from "../../state/atom-registry";
+import { environmentThreadShells } from "../../state/threads";
 import { useThreadSearch } from "../../state/queries";
 import { useThreadListV2ShelfPreferences } from "./use-thread-list-v2-shelf-preferences";
 import { useThreadListNow } from "./use-thread-list-now";
@@ -451,6 +456,54 @@ function ThreadNavigationSidebarPane(
     onOpenThreadPullRequests(thread, pr);
     openSwipeableRef.current?.close();
   };
+  const selectedThreadKeyRef = useRef(props.selectedThreadKey);
+  const listItemsRef = useRef(listItems);
+  useLayoutEffect(() => {
+    selectedThreadKeyRef.current = props.selectedThreadKey;
+    listItemsRef.current = listItems;
+    return () => {
+      selectedThreadKeyRef.current = null;
+    };
+  }, [listItems, props.selectedThreadKey]);
+  const onNewThreadInProject = props.onNewThreadInProject;
+  const handleSettleThread = useCallback(
+    async (thread: EnvironmentThreadShell) => {
+      const threadKey = scopedThreadKey(thread.environmentId, thread.id);
+      const shouldAdvance = selectedThreadKeyRef.current === threadKey;
+      const orderedThreadRefs = listItemsRef.current.flatMap((item) =>
+        item.type === "v2-thread"
+          ? [scopeThreadRef(item.item.thread.environmentId, item.item.thread.id)]
+          : [],
+      );
+      const settled = await settleThread(thread);
+      const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+      const readThread = (ref: typeof threadRef) =>
+        appAtomRegistry.get(environmentThreadShells.threadShellAtom(ref));
+      if (
+        settled &&
+        shouldAdvance &&
+        selectedThreadKeyRef.current === threadKey &&
+        isFiledAsSettled(readThread(threadRef))
+      ) {
+        const nextThread = findNextActionableThread({
+          threadRef,
+          orderedThreadRefs,
+          readThread,
+          now: new Date().toISOString(),
+        });
+        if (nextThread !== null) {
+          handleSelectThread(nextThread);
+        } else {
+          const project = projectByKey.get(
+            scopedProjectKey(thread.environmentId, thread.projectId),
+          );
+          if (project) onNewThreadInProject(project);
+        }
+      }
+      return settled;
+    },
+    [handleSelectThread, projectByKey, onNewThreadInProject, settleThread],
+  );
   const handleScrollBeginDrag = () => {
     openSwipeableRef.current?.close();
   };
@@ -470,7 +523,7 @@ function ThreadNavigationSidebarPane(
     threadSearchMatchByKey,
     workingShelfEnabled,
   };
-  useThreadJumpShortcuts(listItems, handleSelectThread);
+  useThreadJumpShortcuts(listItems, handleSelectThread, props.selectedThreadKey);
   const sidebarItemsAreEqual = (previous: SidebarListItem, item: SidebarListItem): boolean => {
     if (isThreadListV2ListItem(previous) && isThreadListV2ListItem(item)) {
       return threadListV2ListItemsAreEqual(previous, item);
@@ -587,7 +640,7 @@ function ThreadNavigationSidebarPane(
             onRegenerateThreadTitle={regenerateThreadTitle}
             titleRegenerationSupported={titleRegenerationEnvironmentIds.has(thread.environmentId)}
             settlementSupported={settlementEnvironmentIds.has(thread.environmentId)}
-            onSettleThread={settleThread}
+            onSettleThread={handleSettleThread}
             snoozeSupported={snoozeEnvironmentIds.has(thread.environmentId)}
             snoozePresets={snoozePresetsByEnvironmentId.get(thread.environmentId)}
             pinningSupported={pinningEnvironmentIds.has(thread.environmentId)}

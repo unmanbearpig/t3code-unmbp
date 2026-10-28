@@ -1,3 +1,7 @@
+import { resolveRemoteWebSocketConnection } from "./remote.ts";
+import { resolveRemoteDpopWebSocketConnection } from "./remote.ts";
+import * as Redacted from "effect/Redacted";
+import { issuePrimaryRpcTicket } from "./remote.ts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -210,6 +214,13 @@ describe("remote environment authorization", () => {
       expect(url).toBe(
         "wss://remote.example.com/ws?wsTicket=ws-ticket&clientSurface=mobile&clientAppVersion=1.2.3&clientDeviceType=phone&clientOs=Android&clientOsMajorVersion=15&clientDeviceModel=Pixel+9&connectionMethod=relay",
       );
+      expect(url).not.toContain("bearer-token");
+      expect(fetch.calls).toHaveLength(1);
+      expectFetchCall(fetch.calls, 1, {
+        url: "https://remote.example.com/api/auth/websocket-ticket/rpc",
+        method: "POST",
+        headers: { authorization: "Bearer bearer-token" },
+      });
     }),
   );
 
@@ -344,6 +355,58 @@ describe("remote environment authorization", () => {
       expect(url.searchParams.get("clientDevice")).toBe(hashTelemetryId("device-1"));
       expect(url.toString()).not.toContain("user_connect");
       expect(url.toString()).not.toContain("device-1");
+    }),
+  );
+});
+
+describe("RPC ticket handoff", () => {
+  it.effect.each(["bearer", "dpop"] as const)(
+    "returns the issued %s ticket and expiry without recovering it from socket parameters",
+    (kind) =>
+      Effect.gen(function* () {
+        const fetch = recordedFetch(
+          Response.json({ ticket: "issued-ticket", expiresAt: "2099-01-01T00:00:00.000Z" }),
+        );
+        const endpoint = {
+          wsBaseUrl: "wss://remote.example.com/ws?wsTicket=old-ticket",
+          httpBaseUrl: "https://remote.example.com",
+        };
+        const authorized = yield* (
+          kind === "bearer"
+            ? resolveRemoteWebSocketConnection({ ...endpoint, bearerToken: "bearer" })
+            : resolveRemoteDpopWebSocketConnection({
+                ...endpoint,
+                accessToken: "access",
+                createProof: () => Effect.succeed("proof"),
+              })
+        ).pipe(provideRemoteHttp(fetch.fetchFn));
+        expect(Redacted.value(authorized.rpcTicket.value)).toBe("issued-ticket");
+        expect(authorized.rpcTicket.expiresAtEpochMs).toBe(Date.parse("2099-01-01T00:00:00.000Z"));
+        expect(JSON.stringify(authorized.rpcTicket)).not.toContain("issued-ticket");
+        expect(authorized.socketUrl).toBe(
+          `wss://remote.example.com/ws?wsTicket=issued-ticket${kind === "dpop" ? "&dpop=proof" : ""}`,
+        );
+        expectFetchCall(fetch.calls, 1, {
+          url: "https://remote.example.com/api/auth/websocket-ticket/rpc",
+          method: "POST",
+          headers:
+            kind === "bearer"
+              ? { authorization: "Bearer bearer" }
+              : { authorization: "DPoP access", dpop: "proof" },
+        });
+      }),
+  );
+  it.effect("uses the existing POST ticket endpoint with the primary cookie", () =>
+    Effect.gen(function* () {
+      const fetch = recordedFetch(
+        Response.json({ ticket: "cookie-ticket", expiresAt: "2099-01-01T00:00:00.000Z" }),
+      );
+      const ticket = yield* issuePrimaryRpcTicket({
+        httpBaseUrl: "https://remote.example.com",
+      }).pipe(provideRemoteHttp(fetch.fetchFn));
+      expect(Redacted.value(ticket.value)).toBe("cookie-ticket");
+      expect(fetch.calls[0]![1].credentials).toBe("include");
+      expect(fetch.calls[0]![1].headers).not.toHaveProperty("authorization");
     }),
   );
 });

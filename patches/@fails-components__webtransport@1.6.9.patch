@@ -1,0 +1,59 @@
+diff --git a/lib/stream.js b/lib/stream.js
+--- a/lib/stream.js
++++ b/lib/stream.js
+@@ -278,27 +278,29 @@
+    */
+   commitReadBuffer({ buffer, byob, drained, readBytes, fin }) {
+     if (!this.readableclosed) {
+-      if (byob && readBytes !== undefined) {
++      if (byob && readBytes > 0) {
+         byob.respond(readBytes)
+-      } else if (buffer) {
++      } else if (!byob && buffer && readBytes > 0) {
+         this.readableController.enqueue(buffer)
+       }
+     }
+     const retObj = {}
+-
+-    if (readBytes !== undefined && readBytes > 0 && !this.readableclosed) {
+-      log.trace('commitReadbuffer', readBytes)
+-      // console.log('stream read received', args.data, Date.now())
+-      if (this.pendingoperationRead && drained) {
+-        if (this.readableController.desiredSize != null && !this.finaldrain_) {
+-          if (this.readableController.desiredSize < 0) retObj.stopReading = true
+-        }
+-        // this.readableController.enqueue(data)
+-        const res = this.pendingresRead
+-        this.pendingoperationRead = null
+-        this.pendingresRead = null
+-        if (res) res()
+-      }
++    // A byte stream reaches its zero high-water mark after fulfilling a read.
++    if (readBytes > 0 && !this.readableclosed && !this.finaldrain_) {
++      const desiredSize = this.readableController.desiredSize
++      if (desiredSize !== null && desiredSize <= 0) {
++        retObj.stopReading = true
++        // The QUICHE binding does not consume the returned stopReading flag.
++        this.objint.stopReading()
++      }
++    }
++    // A paused native reader cannot drain another buffer to settle this pull.
++    // Release it now so the next public read can pull and resume native reads.
++    if (this.pendingoperationRead && (fin || retObj.stopReading || (readBytes > 0 && drained))) {
++      const res = this.pendingresRead
++      this.pendingoperationRead = null
++      this.pendingresRead = null
++      if (res) res()
+     }
+     if (fin) {
+       if (this.cancelres) {
+@@ -313,7 +315,9 @@
+         this.parentobj.removeReceiveStream(this)
+       }
+       if (!this.readableclosed) {
++        const byobRequest = this.readableController.byobRequest
+         this.readableController.close()
++        if (byobRequest) byobRequest.respond(0)
+         this.readableclosed = true
+       }
+     }

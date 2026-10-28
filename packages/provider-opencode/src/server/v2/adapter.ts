@@ -209,7 +209,6 @@ interface ActiveTurn {
     reasoning: number;
   };
   steps: number;
-  lastStep: Tokens | undefined;
   before: string | null | undefined;
   compaction: { readonly nativeId: string; readonly startedAt: DateTime.Utc } | undefined;
   compactions: number;
@@ -550,6 +549,25 @@ const deliver = <E>(answer: Effect.Effect<void, E>) =>
   );
 
 type ModelRef = ReturnType<typeof Model.Ref.make>;
+
+export function openCode2ProviderTurnTokenUsage(
+  tokens: NonNullable<Tokens>,
+  maxTokens: number | null,
+  updatedAt: string,
+  previousCacheWriteAt?: string,
+) {
+  const lastCacheWriteAt = tokens.cache.write > 0 ? updatedAt : previousCacheWriteAt;
+  return {
+    usedTokens: tokens.input + tokens.cache.read + tokens.cache.write + tokens.output,
+    maxTokens,
+    inputTokens: tokens.input + tokens.cache.read + tokens.cache.write,
+    cachedInputTokens: tokens.cache.read,
+    outputTokens: tokens.output,
+    reasoningOutputTokens: tokens.reasoning,
+    ...(lastCacheWriteAt === undefined ? {} : { lastCacheWriteAt }),
+    updatedAt,
+  };
+}
 
 // msg_ IDs cannot cross sessions; include session identity because T3 IDs repeat across environments.
 // Pre-acknowledgement IDs also establish fork/rollback boundaries.
@@ -1111,7 +1129,6 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       nextOrdinal: providerTurn.ordinal * 100 + 1,
       usage: { input: 0, cached: 0, cacheWrite: 0, output: 0, reasoning: 0 },
       steps: 0,
-      lastStep: undefined,
       before: undefined,
       compaction: undefined,
       compactions: 0,
@@ -1572,24 +1589,16 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         terminal.status,
         terminal.status === "failed" ? terminal.failure : undefined,
       );
-      const window = windowOf(turn.input.runtimePolicy.cwd, turn.input.modelSelection.model);
-      const lastStep = turn.lastStep;
       yield* emitProviderTurn(state, turn, {
         ...turn.providerTurn,
         status: terminal.status,
         completedAt,
         turnTokenUsage: turnTokenUsage(turn, terminal.status),
-        ...(lastStep === undefined
+        ...(turn.providerTurn.tokenUsage === undefined
           ? {}
           : {
               tokenUsage: {
-                usedTokens:
-                  lastStep.input + lastStep.cache.read + lastStep.cache.write + lastStep.output,
-                maxTokens: window ?? null,
-                inputTokens: lastStep.input + lastStep.cache.read + lastStep.cache.write,
-                cachedInputTokens: lastStep.cache.read,
-                outputTokens: lastStep.output,
-                reasoningOutputTokens: lastStep.reasoning,
+                ...turn.providerTurn.tokenUsage,
                 updatedAt: DateTime.formatIso(completedAt),
               },
             }),
@@ -1646,8 +1655,9 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
             }
           : { ...base, status: terminal.status, failure: null },
       );
-      // Cold servers list models lazily; refresh unknown windows off-stream for the next turn.
-      if (window === undefined) {
+      // A spawned server lists its models lazily, so a window still unknown is
+      // read again for the next turn, off this stream so it never delays one.
+      if (windowOf(turn.input.runtimePolicy.cwd, turn.input.modelSelection.model) === undefined) {
         yield* Effect.forkIn(readModels(directoryOf(turn.input.runtimePolicy.cwd)), sessionScope);
       }
     });
@@ -2105,12 +2115,22 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           const tokens = event.data.tokens;
           if (tokens === undefined) return;
           turn.steps += 1;
-          turn.lastStep = tokens;
           turn.usage.input += tokens.input + tokens.cache.read + tokens.cache.write;
           turn.usage.cached += tokens.cache.read;
           turn.usage.cacheWrite += tokens.cache.write;
           turn.usage.output += tokens.output + tokens.reasoning;
           turn.usage.reasoning += tokens.reasoning;
+          const updatedAt = DateTime.formatIso(yield* DateTime.now);
+          turn.providerTurn = {
+            ...turn.providerTurn,
+            tokenUsage: openCode2ProviderTurnTokenUsage(
+              tokens,
+              windowOf(turn.input.runtimePolicy.cwd, turn.input.modelSelection.model) ?? null,
+              updatedAt,
+              turn.providerTurn.tokenUsage?.lastCacheWriteAt,
+            ),
+          };
+          yield* emitProviderTurn(state, turn, turn.providerTurn);
           return;
         }
         case "session.retry.scheduled":

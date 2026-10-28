@@ -3,6 +3,8 @@
 const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   // Cursor ships computed Webpack imports and platform helper packages.
   "@cursor/sdk",
+  // WebTransport and its native loader must resolve relative to their disk files.
+  "@fails-components/webtransport",
   // Playwright reads package.json and browsers.json beside its runtime modules.
   "playwright-core",
   "node-pty",
@@ -84,5 +86,18 @@ export function findInlinedExternalPackages(source: string): {
     regionCount,
     inlined: [...inlined].sort(),
     inlinedPackages: [...inlinedPackages].sort(),
+  };
+}
+
+/** Only the optional QUIC installer reads these, so other native installs keep their policy. */
+export function webTransportInstallEnvironment(
+  platform: "mac" | "linux" | "win",
+  arch: "arm64" | "x64" | "universal",
+): Record<string, string> {
+  return {
+    T3CODE_WEBTRANSPORT_PLATFORM:
+      platform === "mac" ? "darwin" : platform === "win" ? "win32" : "linux",
+    T3CODE_WEBTRANSPORT_ARCH: arch,
+    T3CODE_WEBTRANSPORT_LIBC: "glibc",
   };
 }

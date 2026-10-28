@@ -1,3 +1,5 @@
+import { RemoteEnvironmentAuthBlockedError } from "../rpc/http.ts";
+import { mapRemoteEnvironmentError } from "./errors.ts";
 import {
   RelayAuthInvalidError,
   RelayEnvironmentConnectNotAuthorizedError,
@@ -99,6 +101,19 @@ describe("mapRemoteDpopEnvironmentError", () => {
     expect(mapped).toMatchObject({
       _tag: "ConnectionTransientError",
       detail: `${error.message} ${NETWORK_BLOCKING_HINT}`,
+    });
+  });
+
+  it("keeps an authenticated HTTP request's permanent rejection blocked", () => {
+    const error = new RemoteEnvironmentAuthBlockedError({
+      reason: "permission",
+      message: "Access revoked",
+      cause: null,
+    });
+    expect(mapRemoteEnvironmentError(error)).toMatchObject({
+      _tag: "ConnectionBlockedError",
+      reason: "permission",
+      detail: "Access revoked",
     });
   });
 });

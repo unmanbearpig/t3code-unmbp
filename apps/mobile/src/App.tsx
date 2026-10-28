@@ -1,6 +1,8 @@
 import { installPermissionUpdateNotice } from "./features/connection/permissionUpdateNotice";
 import { installComposerAttachmentUploads } from "./state/composer-attachment-uploads";
 import { installThreadOutboxDelivery } from "./state/threadOutboxDelivery";
+import { recordStartupMilestone } from "./features/diagnostics/performance-telemetry";
+import { ReconnectGuessBanner } from "./features/diagnostics/ReconnectGuessBanner";
 import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
@@ -166,6 +168,7 @@ function handleNavigationStateChange(state: NavigationState | undefined): void {
 }
 
 function handleNavigationReady(): void {
+  recordStartupMilestone("startup.navigation-ready");
   handleNavigationStateChange(rootNavigationRef.getRootState());
   flushRootNavigationQueue();
 }
@@ -200,7 +203,10 @@ function SplashScreenCoordinator() {
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- hides the native splash screen once appearance preferences have loaded
   useEffect(() => {
-    if (isReady) void SplashScreen.hide();
+    if (isReady) {
+      SplashScreen.hide();
+      recordStartupMilestone("startup.splash-hide-requested");
+    }
   }, [isReady]);
 
   return null;
@@ -246,6 +252,7 @@ function AppContent() {
               </NativeLayoutMetricsProvider>
             </GlobalVoiceInputControl>
             <OverlayPortalHost />
+            <ReconnectGuessBanner />
           </SafeAreaProvider>
         </KeyboardProvider>
       </GestureHandlerRootView>

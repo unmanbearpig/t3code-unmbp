@@ -1,3 +1,4 @@
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import { ChatGptUsageButton } from "../settings/ChatGptUsageButton";
 import { usesChatGptSharing } from "@t3tools/shared/usageLimits";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
@@ -292,8 +293,7 @@ export function UsagePage() {
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window capture keydown listener for usage metric and period shortcuts
   useEffect(() => {
-    globalThis.window.addEventListener("keydown", onUsageKeyDown, true);
-    return () => globalThis.window.removeEventListener("keydown", onUsageKeyDown, true);
+    return addAppShortcutListener(globalThis.window, onUsageKeyDown, true);
   }, []);
 
   const refreshWindow = () => {

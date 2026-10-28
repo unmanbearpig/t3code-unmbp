@@ -20,6 +20,10 @@ const MAX_BUFFERED_RAW_MESSAGES = 32;
 const MAX_INCOMING_MESSAGE_BYTES = 128 * 1024 * 1024;
 const EXIT_STATUS_GRACE = "250 millis";
 
+// Output written just before exit still arrives; wait this long before failing
+// pending requests so replies racing the exit still resolve.
+const EXITED_OUTPUT_GRACE = "2 seconds";
+
 export interface CodexAppServerProtocolLogEvent {
   readonly direction: "incoming" | "outgoing";
   readonly stage: "raw" | "decoded" | "decode_failed";
@@ -40,6 +44,11 @@ export interface CodexAppServerIncomingRequest {
 export interface CodexAppServerPatchedProtocolOptions {
   readonly stdio: Stdio.Stdio;
   readonly terminationError?: Effect.Effect<CodexError.CodexAppServerError>;
+  /**
+   * Completes when the app-server process exits. Its stdout can stay open
+   * after that, while a command it started still holds the pipe.
+   */
+  readonly exited?: Effect.Effect<CodexError.CodexAppServerError>;
   readonly logIncoming?: boolean;
   readonly logOutgoing?: boolean;
   // Test override; production uses MAX_INCOMING_MESSAGE_BYTES.
@@ -467,6 +476,27 @@ export const makeCodexAppServerPatchedProtocol = Effect.fn("makeCodexAppServerPa
     );
 
     yield* Stream.fromQueue(outgoing).pipe(Stream.run(options.stdio.stdout()), Effect.forkScoped);
+
+    if (options.exited) {
+      yield* options.exited.pipe(
+        // Output written just before exit still arrives; the pipe normally
+        // closes with the process and terminates the transport first.
+        Effect.tap(() => Effect.sleep(EXITED_OUTPUT_GRACE)),
+        Effect.flatMap((error) => handleTermination(() => Effect.succeed(error))),
+        Effect.forkScoped,
+      );
+    }
+
+    // Deliberate closure fails pending requests without reporting a runtime failure.
+    yield* Effect.addFinalizer(() =>
+      Effect.gen(function* () {
+        const closed = new CodexError.CodexAppServerInputStreamEndedError({});
+        yield* Ref.update(terminationFailure, (current) =>
+          Option.isSome(current) ? current : Option.some(closed),
+        );
+        yield* failAllPending(closed);
+      }),
+    );
 
     const request = Effect.fn("CodexAppServerProtocol.request")(function* (
       method: string,

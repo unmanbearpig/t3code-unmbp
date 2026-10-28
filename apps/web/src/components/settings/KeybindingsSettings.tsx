@@ -1,5 +1,9 @@
 import { useEnvironmentScope } from "../../state/session";
 import { useEnvironmentsWithScope, readEnvironmentScope } from "../../state/session";
+import { LEADER_TIMEOUT_MS } from "@t3tools/shared/leaderKey";
+import { getLeaderTrigger } from "~/leaderState";
+import { useClientSettings, updateClientSettings } from "~/hooks/useSettings";
+import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import {
   ChevronDownIcon,
   CircleXIcon,
@@ -16,6 +20,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
+  useEffect,
   useReducer,
   useRef,
   useState,
@@ -28,7 +33,11 @@ import {
   type ServerRemoveKeybindingInput,
   type ServerUpsertKeybindingInput,
 } from "@t3tools/contracts";
-import { mergeWithDefaultKeybindings } from "@t3tools/shared/keybindings";
+import {
+  mergeWithDefaultKeybindings,
+  parseKeybindingShortcut,
+  parseAppKeybindingShortcut,
+} from "@t3tools/shared/keybindings";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -36,7 +45,7 @@ import {
 
 import { isElectron } from "../../env";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
-import { formatShortcutLabel } from "../../keybindings";
+import { formatShortcutLabel, matchesShortcut } from "../../keybindings";
 import { cn } from "../../lib/utils";
 import { serverEnvironment } from "../../state/server";
 import { useSettingsScope } from "./SettingsScopeContext";
@@ -716,8 +725,12 @@ function useKeybindingRowEditor({
   allRows: ReadonlyArray<KeybindingRow>;
   onSave: (input: ServerUpsertKeybindingInput) => void;
 }) {
+  const recordingLeader = useRef(0);
   const [draft, setDraft] = useReducer(keybindingRowDraftReducer, row, createKeybindingRowDraft);
   const { keyDraft, whenDraft, isRecording, isWhenDraftValid } = draft;
+  useEffect(() => {
+    if (!isRecording) recordingLeader.current = 0;
+  }, [isRecording]);
   const whenDraftExpression = whenAstToExpression(whenDraft);
   const isDirty = keyDraft !== row.key || whenDraftExpression !== row.when;
   const conflictLabels = keybindingConflictLabels(allRows, {
@@ -739,14 +752,26 @@ function useKeybindingRowEditor({
     if (event.key === "Tab" && !isRecording) return;
     event.preventDefault();
     if (event.key === "Escape") {
+      recordingLeader.current = 0;
       setDraft({ keyDraft: row.key, isRecording: false });
+      return;
+    }
+    const trigger = getLeaderTrigger();
+    if (trigger && matchesShortcut(event.nativeEvent, trigger)) {
+      recordingLeader.current = Date.now() + LEADER_TIMEOUT_MS;
+      setDraft({ keyDraft: "leader+", isRecording: true });
       return;
     }
     const next = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
       layoutCharacter: true,
+      leaderKey: recordingLeader.current > Date.now(),
     });
     if (!next) return;
-    setDraft({ keyDraft: next, isRecording: false });
+    setDraft({
+      keyDraft: `${recordingLeader.current > Date.now() ? "leader+" : ""}${next}`,
+      isRecording: false,
+    });
+    recordingLeader.current = 0;
   };
 
   return {
@@ -799,7 +824,7 @@ function KeybindingKeyControl({
       {isDirty ? (
         <Button
           size="sm"
-          disabled={isSaving || keyDraft.trim().length === 0 || !isWhenDraftValid}
+          disabled={isSaving || parseAppKeybindingShortcut(keyDraft) === null || !isWhenDraftValid}
           onClick={save}
         >
           {isSaving ? "Saving" : "Save"}
@@ -1021,6 +1046,7 @@ function useNewKeybindingDraft({
   allRows: ReadonlyArray<KeybindingRow>;
   onSave: (input: ServerUpsertKeybindingInput) => void;
 }) {
+  const recordingLeader = useRef(0);
   const [commandDraft, setCommandDraft] = useState<KeybindingCommand | "">("");
   const [draft, setDraft] = useReducer(keybindingRowDraftReducer, {
     keyDraft: "",
@@ -1029,6 +1055,9 @@ function useNewKeybindingDraft({
     isWhenDraftValid: true,
   });
   const { keyDraft, whenDraft, isRecording, isWhenDraftValid } = draft;
+  useEffect(() => {
+    if (!isRecording) recordingLeader.current = 0;
+  }, [isRecording]);
   const whenDraftExpression = whenAstToExpression(whenDraft);
   const conflictLabels = keybindingConflictLabels(allRows, {
     rowId: "new",
@@ -1036,7 +1065,8 @@ function useNewKeybindingDraft({
     when: whenDraftExpression,
   });
   const commandLabelText = commandDraft ? commandLabel(commandDraft) : "new keybinding";
-  const canSave = Boolean(commandDraft) && keyDraft.trim().length > 0 && isWhenDraftValid;
+  const canSave =
+    Boolean(commandDraft) && parseAppKeybindingShortcut(keyDraft) !== null && isWhenDraftValid;
 
   const save = () => {
     if (!commandDraft) return;
@@ -1051,14 +1081,26 @@ function useNewKeybindingDraft({
     if (event.key === "Tab" && !isRecording) return;
     event.preventDefault();
     if (event.key === "Escape") {
+      recordingLeader.current = 0;
       setDraft({ keyDraft: "", isRecording: false });
+      return;
+    }
+    const trigger = getLeaderTrigger();
+    if (trigger && matchesShortcut(event.nativeEvent, trigger)) {
+      recordingLeader.current = Date.now() + LEADER_TIMEOUT_MS;
+      setDraft({ keyDraft: "leader+", isRecording: true });
       return;
     }
     const next = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
       layoutCharacter: true,
+      leaderKey: recordingLeader.current > Date.now(),
     });
     if (!next) return;
-    setDraft({ keyDraft: next, isRecording: false });
+    setDraft({
+      keyDraft: `${recordingLeader.current > Date.now() ? "leader+" : ""}${next}`,
+      isRecording: false,
+    });
+    recordingLeader.current = 0;
   };
 
   return {
@@ -1278,12 +1320,80 @@ function keybindingAnchorIds(rows: ReturnType<typeof buildKeybindingRows>) {
 
 // Cache rows in a separate hook so the compiler does not rebuild them per search keystroke.
 function useKeybindingCatalog() {
-  const serverKeybindings = useSettingsScope().environment?.serverConfig?.keybindings;
-  const merged = mergeWithDefaultKeybindings(serverKeybindings ?? []);
+  const config = useSettingsScope().environment?.serverConfig;
+  const merged = mergeWithDefaultKeybindings(config?.keybindings ?? [], {
+    leaderBindingsSupported: config?.environment.capabilities.leaderKeybindings === true,
+  });
   return {
     commandOptions: buildKeybindingCommandOptions(merged),
     allRows: buildKeybindingRows(merged),
   };
+}
+
+function LeaderShortcutSettings() {
+  const settings = useClientSettings();
+  const updateSettings = updateClientSettings;
+  const [recording, setRecording] = useState(false);
+  const shortcut = settings.leaderShortcut;
+  return (
+    <SettingsSection title="Leader key">
+      <SettingsRow
+        {...searchableSetting("leader-trigger")}
+        description="Press and release this shortcut, then a leader binding. Applies throughout the app on this device. Escape cancels; unused keys continue typing normally."
+        control={
+          <div className="flex items-center gap-2">
+            <Input
+              data-keybinding-capture=""
+              aria-label="Leader trigger"
+              value={recording ? "" : shortcut ? formatShortcutLabel(shortcut) : "Disabled"}
+              placeholder="Press shortcut"
+              size="sm"
+              className="w-40"
+              readOnly
+              onFocus={() => setRecording(true)}
+              onBlur={() => setRecording(false)}
+              onKeyDown={(event) => {
+                if (event.key === "Tab") return;
+                event.preventDefault();
+                if (event.key === "Escape") {
+                  setRecording(false);
+                  return;
+                }
+                const value = keybindingFromKeyboardEvent(event.nativeEvent, navigator.platform, {
+                  layoutCharacter: true,
+                });
+                const next = value ? parseKeybindingShortcut(value) : null;
+                if (!next || !(next.ctrlKey || next.metaKey || next.altKey || next.modKey)) return;
+                void updateSettings({ leaderShortcut: next });
+                setRecording(false);
+                event.currentTarget.blur();
+              }}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                updateSettings({
+                  leaderShortcut: shortcut ? null : DEFAULT_CLIENT_SETTINGS.leaderShortcut,
+                })
+              }
+            >
+              {shortcut ? "Disable" : "Enable"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                updateSettings({ leaderShortcut: DEFAULT_CLIENT_SETTINGS.leaderShortcut })
+              }
+            >
+              Reset
+            </Button>
+          </div>
+        }
+      />
+    </SettingsSection>
+  );
 }
 
 export function KeybindingsSettingsPanel() {
@@ -1442,6 +1552,7 @@ export function KeybindingsSettingsPanel() {
 
   return (
     <SettingsPageContainer>
+      <LeaderShortcutSettings />
       <SettingsSection
         {...searchableSetting("keybindings")}
         headerAction={!isElectron ? <BrowserKeybindingNotice /> : null}

@@ -103,6 +103,10 @@ import {
 } from "~/composer-undo-grouping";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
+import { createComposerEmacsHandler, isComposerEmacsDocumentEmpty } from "~/composer-emacs";
+import { isCtrlNewlineShortcut } from "~/lib/textboxNewline";
+import { composerEmacsAction } from "~/lib/composerEmacsShortcuts";
+import { useClientSettings } from "~/hooks/useSettings";
 import { cn, isMacPlatform } from "~/lib/utils";
 import { basenameOfPath } from "~/pierre-icons";
 import { WorkspaceEntryTooltip } from "./chat/WorkspaceEntryIcon";
@@ -963,6 +967,12 @@ function ComposerPromptEditorTiptapInner(
       : clampCollapsedComposerCursor(text, position);
   const expandEditorCursor = (text: string, position: number) =>
     literalText ? position : expandCollapsedComposerCursor(text, position);
+  const emacsEditingEnabled = useClientSettings((settings) => settings.composerEmacsEditingEnabled);
+  const emacsEditingEnabledRef = useRef(emacsEditingEnabled);
+  useLayoutEffect(() => {
+    emacsEditingEnabledRef.current = emacsEditingEnabled;
+  }, [emacsEditingEnabled]);
+  const [handleEmacsKeyDown] = useState(createComposerEmacsHandler);
 
   const latestValueRef = useRef(value);
   // The editor config is built once, so its handlers reach the current callbacks through here.
@@ -1072,13 +1082,15 @@ function ComposerPromptEditorTiptapInner(
     );
   };
 
-  const editorAttributes = {
+  const editorAttributes = (state: EditorState) => ({
     class: cn(
       "composer-tiptap -m-1 block max-h-52 min-h-[calc(2lh+--spacing(2))] overflow-y-auto p-1 whitespace-pre-wrap wrap-break-word bg-transparent leading-relaxed text-foreground focus:outline-none",
       className,
     ),
     "data-testid": "composer-editor",
     "data-composer-rich-text": richText ? "true" : "false",
+    "data-composer-emacs": emacsEditingEnabled ? "true" : "false",
+    "data-composer-empty": String(isComposerEmacsDocumentEmpty(state.doc)),
     role: "textbox",
     "aria-multiline": "true",
     ...(ariaLabel ? { "aria-label": ariaLabel } : {}),
@@ -1096,7 +1108,7 @@ function ComposerPromptEditorTiptapInner(
         }
       : {}),
     "aria-placeholder": placeholder,
-  };
+  });
 
   const editor = useEditor(
     {
@@ -1109,6 +1121,20 @@ function ComposerPromptEditorTiptapInner(
       editorProps: {
         attributes: editorAttributes,
         handleKeyDown: (view, event) => {
+          const ctrlNewline = isCtrlNewlineShortcut(event);
+          // Ctrl+J uses the same list, quote and fence handling as Shift+Enter.
+          if (emacsEditingEnabledRef.current && !ctrlNewline) {
+            const action = composerEmacsAction(event);
+            if (
+              (action === "previousLine" || action === "nextLine") &&
+              readCallbacks().onCommandKeyDown?.(event.key, event)
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              return true;
+            }
+            if (handleEmacsKeyDown(view, event)) return true;
+          }
           // In a right-to-left line the start is on the right.
           const backArrow = caretLineDirection(view.state) === "rtl" ? "ArrowRight" : "ArrowLeft";
           const boundary = event.metaKey
@@ -1234,7 +1260,7 @@ function ComposerPromptEditorTiptapInner(
             event.stopPropagation();
             return true;
           }
-          if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
+          if ((event.key === "Enter" || ctrlNewline) && event.target instanceof HTMLInputElement) {
             event.preventDefault();
             return true;
           }
@@ -1251,11 +1277,9 @@ function ComposerPromptEditorTiptapInner(
             );
           }
           if (
-            event.key === "Enter" &&
             richText &&
-            !event.metaKey &&
-            !event.ctrlKey &&
-            !event.isComposing
+            (ctrlNewline ||
+              (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.isComposing))
           ) {
             if (selectionInOneCodeBlock(view.state)) {
               event.preventDefault();
@@ -1275,7 +1299,7 @@ function ComposerPromptEditorTiptapInner(
             }
           }
           const handler = readCallbacks().onCommandKeyDown;
-          if (event.key === "Enter") {
+          if (event.key === "Enter" || ctrlNewline) {
             const instance = (view.dom as TiptapEditorHTMLElement).editor;
             const isTaskItem = richText && (instance?.isActive("taskItem") ?? false);
             const isListItem = richText && (instance?.isActive("listItem") ?? false);

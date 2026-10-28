@@ -122,6 +122,14 @@ export function createEnvironmentCatalogAtoms<R, E>(
 
   const sessionGenerationAtom = (environmentId: EnvironmentIdType) =>
     environmentSessionGenerationAtom(runtime, environmentId);
+  const connectedAtom = Atom.family((environmentId: EnvironmentIdType) =>
+    Atom.make((get) =>
+      Option.exists(
+        AsyncResult.value(get(stateAtom(environmentId))),
+        (state) => state.phase === "connected",
+      ),
+    ).pipe(Atom.withLabel(`environment-connected:${environmentId}`)),
+  );
 
   const register = createRuntimeCommand(runtime, {
     label: "environment-catalog:register",
@@ -201,6 +209,7 @@ export function createEnvironmentCatalogAtoms<R, E>(
     networkStatusValueAtom,
     stateAtom,
     sessionGenerationAtom,
+    connectedAtom,
     register,
     remove,
     removeRoute,

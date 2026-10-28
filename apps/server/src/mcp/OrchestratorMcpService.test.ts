@@ -1,3 +1,13 @@
+import { type ScheduledTaskUpsertInput } from "@t3tools/contracts";
+import { GitCommandError } from "@t3tools/contracts";
+import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
+import * as ServerConfig from "../config.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import { scheduledTaskDependenciesLayer } from "./McpToolAccess.testkit.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -48,8 +58,6 @@ import {
   OrchestratorThreadAboveModeLimitError,
 } from "../orchestration-v2/Orchestrator.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
-import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { buildUnavailableProviderSnapshot } from "../provider/unavailableProviderSnapshot.ts";
@@ -58,6 +66,7 @@ import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts
 import * as ServerSettings from "../serverSettings.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import { idleThreadProjection, liveThreadShell } from "./McpToolAccess.testkit.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
@@ -165,6 +174,7 @@ describe("OrchestratorMcpService", () => {
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
           list: () => Effect.succeed([]),
         }),
+        scheduledTaskDependenciesLayer,
         Layer.mock(ProjectService.ProjectService)({}),
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -266,6 +276,7 @@ describe("OrchestratorMcpService", () => {
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
           list: () => Effect.succeed([]),
         }),
+        scheduledTaskDependenciesLayer,
         Layer.mock(ProjectService.ProjectService)({}),
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -460,6 +471,7 @@ describe("OrchestratorMcpService", () => {
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
           list: () => Effect.succeed([]),
         }),
+        scheduledTaskDependenciesLayer,
         Layer.mock(ProjectService.ProjectService)({}),
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -649,6 +661,7 @@ describe("OrchestratorMcpService", () => {
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
           list: () => Effect.succeed([]),
         }),
+        scheduledTaskDependenciesLayer,
         Layer.mock(ProjectService.ProjectService)({}),
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -735,6 +748,7 @@ describe("OrchestratorMcpService", () => {
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
           list: () => Effect.succeed([]),
         }),
+        scheduledTaskDependenciesLayer,
         Layer.mock(ProjectService.ProjectService)({}),
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -822,6 +836,7 @@ describe("OrchestratorMcpService", () => {
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
           list: () => Effect.succeed([]),
         }),
+        scheduledTaskDependenciesLayer,
         Layer.mock(ProjectService.ProjectService)({}),
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -956,6 +971,7 @@ describe("OrchestratorMcpService", () => {
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
           list: () => Effect.succeed([]),
         }),
+        scheduledTaskDependenciesLayer,
         Layer.mock(ProjectService.ProjectService)({}),
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -1198,6 +1214,7 @@ describe("OrchestratorMcpService provider resolution", () => {
             antigravityInstanceId,
             disabledAntigravityInstanceId,
           ]),
+          scheduledTaskDependenciesLayer,
           Layer.mock(ProjectService.ProjectService)({}),
           Layer.mock(SecretRequests.SecretRequests)({}),
           Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -1490,6 +1507,7 @@ describe("OrchestratorMcpService provider resolution", () => {
           forkShadow,
         ]),
         adapterRegistryLayer([codexInstanceId]),
+        scheduledTaskDependenciesLayer,
         Layer.mock(ProjectService.ProjectService)({}),
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -1603,6 +1621,7 @@ describe("OrchestratorMcpService provider resolution", () => {
           }),
         ]),
         adapterRegistryLayer([codexInstanceId, altInstanceId]),
+        scheduledTaskDependenciesLayer,
         Layer.mock(ProjectService.ProjectService)({}),
         Layer.mock(SecretRequests.SecretRequests)({}),
         Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -1712,6 +1731,7 @@ describe("OrchestratorMcpService provider resolution", () => {
             }),
           ]),
           adapterRegistryLayer([codexInstanceId, altInstanceId]),
+          scheduledTaskDependenciesLayer,
           Layer.mock(ProjectService.ProjectService)({}),
           Layer.mock(SecretRequests.SecretRequests)({}),
           Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -2230,6 +2250,7 @@ describe("OrchestratorMcpService provider resolution", () => {
             Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
               list: () => Effect.succeed([]),
             }),
+            scheduledTaskDependenciesLayer,
             Layer.mock(ProjectService.ProjectService)({}),
             Layer.mock(SecretRequests.SecretRequests)({}),
             Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -2301,6 +2322,7 @@ describe("OrchestratorMcpService provider resolution", () => {
                   Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
                     list: () => Effect.succeed([]),
                   }),
+                  scheduledTaskDependenciesLayer,
                   Layer.mock(ProjectService.ProjectService)({}),
                   Layer.mock(SecretRequests.SecretRequests)({}),
                   Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -2390,6 +2412,7 @@ describe("OrchestratorMcpService provider resolution", () => {
                   Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
                     list: () => Effect.succeed([]),
                   }),
+                  scheduledTaskDependenciesLayer,
                   Layer.mock(ProjectService.ProjectService)({}),
                   Layer.mock(SecretRequests.SecretRequests)({}),
                   Layer.mock(RemoteDelegation.RemoteDelegation)({}),
@@ -2410,6 +2433,113 @@ describe("OrchestratorMcpService provider resolution", () => {
         assert.equal(yield* Ref.get(upserted), 1);
         assert.equal(updated.scheduledTaskId, bound.id);
         assert.equal(updated.webhookUrl, undefined);
+      }),
+    );
+
+    // Saves echo the task back; the project folder is a Git repository or not.
+    const workspaceService = (repo: boolean, tasks: ReadonlyArray<ScheduledTask>) =>
+      OrchestratorMcpService.layer.pipe(
+        Layer.provide(
+          Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+            checkWorktreeBase: () =>
+              repo
+                ? Effect.void
+                : Effect.fail(
+                    new ThreadLaunchService.ThreadLaunchNotRepositoryError({
+                      projectId,
+                      projectTitle: "No project",
+                      workspaceRoot: "/scratch",
+                    }),
+                  ),
+          }),
+        ),
+        Layer.provide(
+          Layer.mock(GitVcsDriver.GitVcsDriver)({
+            execute: () =>
+              Effect.succeed({
+                exitCode: ChildProcessSpawner.ExitCode(0),
+                stdout: ".git",
+                stderr: "",
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              }),
+            listLocalBranchNames: () => Effect.succeed(["main"]),
+          }),
+        ),
+        Layer.provide(
+          Layer.mergeAll(
+            NodeServices.layer,
+            Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+            ServerSettings.layerTest(),
+            Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+            Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+              list: () => Effect.succeed([]),
+            }),
+            Layer.mock(ProjectService.ProjectService)({
+              getById: (id) =>
+                Effect.succeedSome({ id, defaultModelSelection: task({}).modelSelection } as never),
+            }),
+            Layer.mock(SecretRequests.SecretRequests)({}),
+            Layer.mock(ScheduledTaskService.ScheduledTaskService)({
+              list: () => Effect.succeed({ tasks }),
+              upsert: (input) =>
+                Effect.succeed({ task: task({ workspaceStrategy: input.workspaceStrategy }) }),
+            }),
+          ),
+        ),
+      );
+
+    it.effect.each([
+      {
+        name: "a worktree in a Git repository",
+        repo: true,
+        workspace: "worktree",
+        want: "worktree",
+      },
+      { name: "root when asked for", repo: true, workspace: "root", want: "root" },
+      {
+        name: "a worktree in a plain folder is refused",
+        repo: false,
+        workspace: "worktree",
+        want: "invalid_request",
+      },
+    ] as const)("an unbound task over MCP: $name", (testCase) =>
+      Effect.gen(function* () {
+        const outcome = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
+          Effect.flatMap((mcp) =>
+            mcp.scheduleTask(supervisedClient, {
+              projectId,
+              prompt: "Check the inbox.",
+              schedule: { type: "interval", everyMs: 3_600_000 },
+              workspace: testCase.workspace,
+            }),
+          ),
+          Effect.map((summary) => summary.workspace),
+          Effect.catch((error) => Effect.succeed(error.code)),
+          Effect.provide(workspaceService(testCase.repo, [])),
+        );
+        assert.equal(outcome, testCase.want);
+      }),
+    );
+
+    it.effect("an update keeps the workspace unless the binding or the workspace changes", () =>
+      Effect.gen(function* () {
+        // An unbound task that chose root in a Git repository.
+        const existing = task({ workspaceStrategy: { type: "root" } });
+        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
+          Effect.provide(workspaceService(true, [existing])),
+        );
+        const repeated = yield* mcp.updateScheduledTask(supervisedClient, {
+          scheduledTaskId: existing.id,
+          prompt: "Check the inbox again.",
+          bindToCurrentThread: false,
+        });
+        assert.equal(repeated.workspace, "root");
+        const switched = yield* mcp.updateScheduledTask(supervisedClient, {
+          scheduledTaskId: existing.id,
+          workspace: "worktree",
+        });
+        assert.equal(switched.workspace, "worktree");
       }),
     );
   });
@@ -2949,5 +3079,441 @@ describe("OrchestratorMcpService thread stop", () => {
         }).pipe(Effect.provide(layerTest));
       }),
     ),
+  );
+});
+
+describe("OrchestratorMcpService scheduled tasks that launch a fresh worktree per run", () => {
+  const projectId = ProjectId.make("project:mcp-schedule-base");
+  const scheduledTaskId = ScheduledTaskId.make("scheduled-task:mcp-schedule-base");
+  const layerRealGit = GitVcsDriver.layer.pipe(
+    Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-schedule-config-" })),
+    Layer.provide(VcsProcess.layer),
+    Layer.provide(NodeServices.layer),
+  );
+  // An MCP client outside any T3 thread, so schedules default to unbound.
+  const clientScope: McpInvocationScope = {
+    environmentId: EnvironmentId.make("environment:mcp-schedule-base"),
+    requestNamespace: "client:mcp-schedule-base",
+    thread: undefined,
+    client: {
+      sessionId: "client:mcp-schedule-base",
+      label: "Test client",
+      access: "full-access",
+    },
+    capabilities: new Set(["orchestration"]),
+    issuedAt: 1,
+  };
+
+  const git = (cwd: string, args: ReadonlyArray<string>) =>
+    Effect.gen(function* () {
+      const driver = yield* GitVcsDriver.GitVcsDriver;
+      yield* driver.execute({ operation: "test.git", cwd, args, timeoutMs: 10_000 });
+    }).pipe(Effect.provide(layerRealGit));
+
+  /** A repository at `cwd` on `branch` with one commit, independent of the host's git config. */
+  const initRepository = (cwd: string, branch: string) =>
+    Effect.gen(function* () {
+      yield* git(cwd, ["init", "--initial-branch", branch]);
+      yield* git(cwd, ["config", "user.name", "Test"]);
+      yield* git(cwd, ["config", "user.email", "test@test.com"]);
+      yield* git(cwd, ["config", "commit.gpgsign", "false"]);
+      yield* git(cwd, ["commit", "--allow-empty", "-m", "initial"]);
+    });
+
+  /** A clone of an origin whose default branch is `defaultBranch`, beside `otherBranches`. */
+  const cloneOf = (defaultBranch: string, otherBranches: ReadonlyArray<string> = []) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-mcp-schedule-" });
+      const seed = path.join(root, "seed");
+      yield* fileSystem.makeDirectory(seed);
+      yield* initRepository(seed, defaultBranch);
+      for (const branch of otherBranches) yield* git(seed, ["branch", branch]);
+      yield* git(root, ["clone", "--bare", "seed", "origin.git"]);
+      yield* git(root, ["clone", "origin.git", "project"]);
+      return path.join(root, "project");
+    });
+
+  /** A repository with no remote on `branch`, or detached with no branch at all. */
+  const localRepository = (checkout: string | "detached") =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-mcp-schedule-" });
+      yield* initRepository(cwd, checkout === "detached" ? "trunk" : checkout);
+      if (checkout === "detached") {
+        yield* git(cwd, ["checkout", "--detach"]);
+        yield* git(cwd, ["branch", "-D", "trunk"]);
+      }
+      return cwd;
+    });
+
+  /** The service over a real git driver (or `layerGit`), recording every scheduled task upsert. */
+  const withService = <A, E>(
+    workspaceRoot: string,
+    body: (
+      service: OrchestratorMcpService.OrchestratorMcpService["Service"],
+      upserts: Ref.Ref<ReadonlyArray<ScheduledTaskUpsertInput>>,
+    ) => Effect.Effect<A, E>,
+    layerGit: typeof layerRealGit = layerRealGit,
+  ) =>
+    Effect.gen(function* () {
+      const upserts = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+      const taskFromUpsert = (input: ScheduledTaskUpsertInput) =>
+        ({
+          id: input.id ?? scheduledTaskId,
+          title: input.title,
+          prompt: input.prompt,
+          enabled: input.enabled,
+          projectId: input.projectId,
+          threadId: input.threadId,
+          schedule: input.schedule,
+          workspaceStrategy: input.workspaceStrategy,
+          modelSelection: input.modelSelection,
+          runtimeMode: input.runtimeMode,
+          interactionMode: input.interactionMode,
+          createdBy: "agent",
+          creationSource: "mcp",
+          nextRunAt: null,
+          lastRunStatus: "never",
+        }) as unknown as ScheduledTask;
+      const layerDependencies = Layer.mergeAll(
+        Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+          list: () => Effect.succeed([]),
+        }),
+        Layer.mock(ProjectService.ProjectService)({
+          getById: (id) =>
+            Effect.succeed(
+              id === projectId
+                ? Option.some({
+                    id,
+                    workspaceRoot,
+                    defaultModelSelection: {
+                      instanceId: ProviderInstanceId.make("codex"),
+                      model: "gpt-5.6-terra",
+                    },
+                  } as never)
+                : Option.none(),
+            ),
+        }),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+          checkWorktreeBase: () => Effect.void,
+        }),
+        ServerSettings.layerTest(),
+        layerGit,
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({
+          list: () =>
+            Ref.get(upserts).pipe(Effect.map((all) => ({ tasks: all.map(taskFromUpsert) }))),
+          upsert: (input) =>
+            Ref.update(upserts, (all) => [...all, input]).pipe(
+              Effect.as({ task: taskFromUpsert(input) } as never),
+            ),
+        }),
+      );
+      return yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* body(service, upserts);
+      }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(layerDependencies))));
+    });
+
+  const scheduleUnbound = (service: OrchestratorMcpService.OrchestratorMcpService["Service"]) =>
+    service.scheduleTask(clientScope, {
+      projectId,
+      prompt: "Report repository status.",
+      schedule: { type: "interval", everyMs: 3_600_000 },
+    });
+
+  const lastWorkspaceStrategy = (upserts: Ref.Ref<ReadonlyArray<ScheduledTaskUpsertInput>>) =>
+    Ref.get(upserts).pipe(Effect.map((all) => all.at(-1)?.workspaceStrategy));
+
+  const expectBase = (
+    workspaceRoot: string,
+    baseRef: string,
+    layerGit: typeof layerRealGit = layerRealGit,
+  ) =>
+    withService(
+      workspaceRoot,
+      (service, upserts) =>
+        Effect.gen(function* () {
+          yield* scheduleUnbound(service);
+          assert.deepStrictEqual(yield* lastWorkspaceStrategy(upserts), {
+            type: "worktree",
+            baseRef,
+            startFromOrigin: true,
+          });
+        }),
+      layerGit,
+    );
+
+  it.effect("keeps main when it exists, even if origin's default is another branch", () =>
+    Effect.gen(function* () {
+      yield* expectBase(yield* cloneOf("develop", ["main"]), "main");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("keeps main when only a local main branch exists", () =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* localRepository("trunk");
+      yield* git(workspaceRoot, ["branch", "main"]);
+      yield* expectBase(workspaceRoot, "main");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("without main, branches from origin's default over the checked-out branch", () =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* cloneOf("master");
+      // Origin's default wins over whatever the project happens to have checked out.
+      yield* git(workspaceRoot, ["checkout", "-b", "feature"]);
+      yield* withService(workspaceRoot, (service, upserts) =>
+        Effect.gen(function* () {
+          yield* scheduleUnbound(service);
+          assert.deepStrictEqual(yield* lastWorkspaceStrategy(upserts), {
+            type: "worktree",
+            baseRef: "master",
+            startFromOrigin: true,
+          });
+
+          // Repeating the unbound setting preserves the saved base.
+          yield* service.updateScheduledTask(clientScope, {
+            scheduledTaskId,
+            bindToCurrentThread: false,
+          });
+          const all = yield* Ref.get(upserts);
+          assert.equal(all.length, 2);
+          assert.deepStrictEqual(all[1]?.workspaceStrategy, {
+            type: "worktree",
+            baseRef: "master",
+            startFromOrigin: true,
+          });
+        }),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("without main or an origin default, branches from the checked-out branch", () =>
+    Effect.gen(function* () {
+      yield* expectBase(yield* localRepository("trunk"), "trunk");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("keeps main when the checkout is detached and nothing else names a base", () =>
+    Effect.gen(function* () {
+      yield* expectBase(yield* localRepository("detached"), "main");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("keeps main for a project that is not a git repository", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-mcp-schedule-",
+      });
+      yield* expectBase(workspaceRoot, "main");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("keeps main for a project that is not a git repository on a German host", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-mcp-schedule-",
+      });
+      const localeKeys = ["LANG", "LC_ALL", "LANGUAGE"] as const;
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const saved = localeKeys.map((key) => [key, process.env[key]] as const);
+          process.env.LANG = "de_DE.UTF-8";
+          process.env.LC_ALL = "de_DE.UTF-8";
+          process.env.LANGUAGE = "de";
+          return saved;
+        }),
+        (saved) =>
+          Effect.sync(() => {
+            for (const [key, value] of saved) {
+              if (value === undefined) Reflect.deleteProperty(process.env, key);
+              else process.env[key] = value;
+            }
+          }),
+      );
+      // Not every git build ships translations, so stand in for a German one:
+      // its diagnostics are German unless the call itself forces the C locale.
+      const layerGermanGit = Layer.effect(
+        GitVcsDriver.GitVcsDriver,
+        Effect.gen(function* () {
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          return GitVcsDriver.GitVcsDriver.of({
+            ...driver,
+            execute: (input) =>
+              driver.execute(input).pipe(
+                Effect.map((result) =>
+                  (input.env?.LC_ALL ?? process.env.LC_ALL) === "C"
+                    ? result
+                    : {
+                        ...result,
+                        stderr: result.stderr.replace(
+                          "not a git repository",
+                          "kein Git-Repository",
+                        ),
+                      },
+                ),
+              ),
+          });
+        }),
+      ).pipe(Layer.provide(layerRealGit));
+      yield* expectBase(workspaceRoot, "main", layerGermanGit);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("fails retryably without saving a base when the git status cannot be read", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceRoot = yield* localRepository("trunk");
+      // The driver refuses to read status while the index lock exists (raw git status would not).
+      yield* fileSystem.writeFileString(path.join(workspaceRoot, ".git", "index.lock"), "");
+      yield* withService(workspaceRoot, (service, upserts) =>
+        Effect.gen(function* () {
+          const error = yield* scheduleUnbound(service).pipe(Effect.flip);
+          assert.equal(error.code, "orchestration_error");
+          assert.match(error.message, /try again/);
+          assert.equal((yield* Ref.get(upserts)).length, 0);
+        }),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("skips an origin default that no longer exists for the checked-out branch", () =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* cloneOf("master");
+      yield* git(workspaceRoot, ["checkout", "-b", "feature"]);
+      // origin/HEAD still names a branch deleted since the clone.
+      yield* git(workspaceRoot, [
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/gone",
+      ]);
+      yield* expectBase(workspaceRoot, "feature");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("refuses to save a guessed branch when origin/main points to a missing object", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceRoot = yield* localRepository("feature");
+      const refs = path.join(workspaceRoot, ".git", "refs", "remotes", "origin");
+      yield* fileSystem.makeDirectory(refs, { recursive: true });
+      yield* fileSystem.writeFileString(path.join(refs, "main"), `${"1".repeat(40)}\n`);
+      yield* withService(workspaceRoot, (service, upserts) =>
+        Effect.gen(function* () {
+          const error = yield* scheduleUnbound(service).pipe(Effect.flip);
+          assert.equal(error.code, "orchestration_error");
+          assert.include(error.message, "try again");
+          assert.deepEqual(yield* Ref.get(upserts), []);
+        }),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect.each([
+    { prompt: "Updated prompt", workspace: "worktree" },
+    { enabled: false, workspace: "worktree" },
+    { bindToCurrentThread: false, workspace: "worktree" },
+    { bindToCurrentThread: false },
+  ] as const)(
+    "preserves every workspace option when repeating the current workspace or binding: %j",
+    (update) =>
+      Effect.gen(function* () {
+        const workspaceRoot = yield* localRepository("master");
+        yield* withService(workspaceRoot, (service, upserts) =>
+          Effect.gen(function* () {
+            yield* scheduleUnbound(service);
+            const strategy = {
+              type: "worktree",
+              baseRef: "release",
+              branch: "nightly",
+              startFromOrigin: false,
+            } as const;
+            yield* Ref.update(upserts, (all) =>
+              all.map((input) => ({ ...input, workspaceStrategy: strategy })),
+            );
+            yield* service.updateScheduledTask(clientScope, { scheduledTaskId, ...update });
+            assert.deepStrictEqual(yield* lastWorkspaceStrategy(upserts), strategy);
+          }),
+        );
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect.each([
+    {
+      from: { type: "root" },
+      to: "worktree",
+      expected: { type: "worktree", baseRef: "master", startFromOrigin: true },
+    },
+    {
+      from: { type: "worktree", baseRef: "release", startFromOrigin: false },
+      to: "root",
+      expected: { type: "root" },
+    },
+    {
+      from: { type: "existing_worktree", worktreePath: "/repo/checkout" },
+      to: "worktree",
+      expected: { type: "worktree", baseRef: "master", startFromOrigin: true },
+    },
+  ] as const)("initializes workspace options when switching workspace types: %j", (change) =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* localRepository("master");
+      yield* withService(workspaceRoot, (service, upserts) =>
+        Effect.gen(function* () {
+          yield* scheduleUnbound(service);
+          yield* Ref.update(upserts, (all) =>
+            all.map((input) => ({ ...input, workspaceStrategy: change.from })),
+          );
+          yield* service.updateScheduledTask(clientScope, {
+            scheduledTaskId,
+            workspace: change.to,
+          });
+          assert.deepStrictEqual(yield* lastWorkspaceStrategy(upserts), change.expected);
+        }),
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("fails retryably without saving a base when the branches cannot be listed", () =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* localRepository("trunk");
+      const layerGitFailingBranchList = Layer.effect(
+        GitVcsDriver.GitVcsDriver,
+        Effect.gen(function* () {
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          return GitVcsDriver.GitVcsDriver.of({
+            ...driver,
+            listLocalBranchNames: (cwd) =>
+              Effect.fail(
+                new GitCommandError({
+                  operation: "test.listLocalBranchNames",
+                  command: "git",
+                  cwd,
+                  detail: "fatal: unable to read refs",
+                }),
+              ),
+          });
+        }),
+      ).pipe(Layer.provide(layerRealGit));
+      yield* withService(
+        workspaceRoot,
+        (service, upserts) =>
+          Effect.gen(function* () {
+            const error = yield* scheduleUnbound(service).pipe(Effect.flip);
+            assert.equal(error.code, "orchestration_error");
+            assert.match(error.message, /try again/);
+            assert.equal((yield* Ref.get(upserts)).length, 0);
+          }),
+        layerGitFailingBranchList,
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

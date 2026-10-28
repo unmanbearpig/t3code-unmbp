@@ -1,3 +1,6 @@
+import { useCallback } from "react";
+import * as Runtime from "../../lib/runtime";
+import * as MobileConnectionLog from "../diagnostics/connection-log";
 import * as Dialog from "../../components/ui/Dialog";
 import { useRememberThreadProject } from "./useRememberThreadProject";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
@@ -10,6 +13,7 @@ import {
   StackActions,
   useNavigation,
   useRoute,
+  useFocusEffect,
   type StaticScreenProps,
 } from "@react-navigation/native";
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
@@ -275,6 +279,29 @@ function LiveThreadRouteController(props: ThreadRouteScreenProps) {
       ) : null}
       {content}
     </>
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      let log: MobileConnectionLog.MobileConnectionLog["Service"] | null = null;
+      void Runtime.runtime
+        .runPromise(MobileConnectionLog.MobileConnectionLog)
+        .then((service) => {
+          if (!active) return;
+          log = service;
+          service.visible(
+            environmentId !== null && threadIdRaw !== null
+              ? { environmentId, threadId: threadIdRaw }
+              : null,
+          );
+        })
+        .catch(() => undefined);
+      return () => {
+        active = false;
+        log?.visible(null);
+      };
+    }, [environmentId, threadIdRaw]),
   );
 
   if (environmentId === null || threadIdRaw === null) {
@@ -941,6 +968,7 @@ function ThreadRouteContent(
           detailError: Option.getOrNull(selectedThreadDetailState.error),
           detailDeleted: selectedThreadDetailState.status === "deleted",
           connectionState: routeConnectionState,
+          connectionError: routeConnectionError,
         });
   const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
   const renderThreadRouteBody = () => (

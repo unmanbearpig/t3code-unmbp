@@ -37,6 +37,7 @@ import {
   memo,
   use,
   useContext,
+  useEffect,
   useLayoutEffect,
   useEffect,
   useEffectEvent,
@@ -86,7 +87,6 @@ import { useThreadFindNavigation } from "./useThreadFindNavigation";
 import { TooltipScrollDismissArea } from "../ui/tooltip";
 import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
-import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { type HandoffTimelineRun } from "./V2LifecycleRow";
@@ -191,10 +191,6 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END = {
   },
 } as const satisfies MaintainScrollAtEndOptions;
 const EMPTY_RUN_IDS: ReadonlySet<RunId> = new Set();
-const TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH = {
-  ...TIMELINE_MAINTAIN_SCROLL_AT_END,
-  animated: true,
-} as const satisfies MaintainScrollAtEndOptions;
 
 const CITED_HISTORY_LOADING: CitedHistory = { _tag: "loading" };
 
@@ -416,7 +412,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
     listState.rememberedPosition?.atEnd === false || findOpen ? null : listIdentityKey,
   );
   const restoringThreadPosition = positionedThreadKey !== listIdentityKey;
-  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(listIdentityKey);
   const [playingAudioRows, setPlayingAudioRows] = useState<ReadonlyMap<HTMLAudioElement, string>>(
     () => new Map(),
@@ -459,6 +454,33 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const normalizedFindQuery = findQuery.trim();
   const findActive = findExpanded;
 
+  useEffect(() => {
+    return () => {
+      if (disclosureSettleFrameRef.current !== null) {
+        cancelAnimationFrame(disclosureSettleFrameRef.current);
+      }
+      if (disclosureSettleSecondFrameRef.current !== null) {
+        cancelAnimationFrame(disclosureSettleSecondFrameRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (settlingListIdentity === null) return;
+    let second: number | null = null;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => {
+        setSettlingListIdentity((current) => (current === settlingListIdentity ? null : current));
+      });
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      if (second !== null) cancelAnimationFrame(second);
+    };
+  }, [settlingListIdentity]);
+
+  // A toggle made at the end keeps the end in view while rows re-measure.
+  // Anywhere else, the toggled row holds its place.
   const disclosurePinsEndRef = useRef(false);
   const pinDisclosureToEnd = () => {
     if (!disclosurePinsEndRef.current) return;
@@ -1323,9 +1345,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 fullscreenAppRowId !== null ||
                 disclosureToggleSettling
                   ? false
-                  : isWorking && !prefersReducedMotion && settlingListIdentity === null
-                    ? TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH
-                    : TIMELINE_MAINTAIN_SCROLL_AT_END
+                  : TIMELINE_MAINTAIN_SCROLL_AT_END
               }
               maintainVisibleContentPosition={
                 findActive ||
@@ -1355,7 +1375,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 navigateTimeline();
                 void listRef.current?.scrollToIndex({
                   index: item.rowIndex,
-                  animated: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+                  animated: false,
                   viewOffset: 24,
                 });
               }}

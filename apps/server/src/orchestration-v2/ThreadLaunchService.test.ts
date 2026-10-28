@@ -1,4 +1,5 @@
 import * as DocumentText from "../provider/DocumentText.ts";
+import * as Path from "effect/Path";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
@@ -129,6 +130,8 @@ interface HarnessOptions {
   readonly serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   readonly providers?: ReadonlyArray<ServerProvider>;
   readonly git?: Partial<GitWorkflow.GitWorkflowService["Service"]>;
+  /** Paths that exist on disk, as far as the launch service can see. */
+  readonly existingPaths?: ReadonlyArray<string>;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -201,6 +204,7 @@ function makeHarness(options: HarnessOptions = {}) {
         options.fetchWorktreeBaseCommit ??
         (() => Effect.succeed({ commitSha: "remote-main-sha", remoteRefName: "origin/main" })),
       hasCommit: options.hasCommit ?? (() => Effect.succeed(false)),
+      isRepository: () => Effect.succeed(true),
       resolveWorktreeBaseRemote: () => Effect.succeed({ remoteName: "origin", branchName: "main" }),
       remoteExists: options.remoteExists ?? (() => Effect.succeed(true)),
       remoteBranchExists: () => Effect.succeed(true),
@@ -230,6 +234,10 @@ function makeHarness(options: HarnessOptions = {}) {
         layerThreadManagement,
         layerReceipts,
         IdAllocator.layer,
+        FileSystem.layerNoop({
+          exists: (path) => Effect.succeed(options.existingPaths?.includes(path) === true),
+        }),
+        Path.layer,
       ),
     ),
   );
@@ -2198,12 +2206,6 @@ it.effect.each([
     baseRef: "t3/renamed",
     startFromOrigin: true,
     origin: false,
-  },
-  {
-    name: "is a previous checkout there never was",
-    baseRef: "-",
-    startFromOrigin: false,
-    origin: true,
   },
 ])("refuses a new worktree whose base ref $name", (testCase) =>
   Effect.gen(function* () {

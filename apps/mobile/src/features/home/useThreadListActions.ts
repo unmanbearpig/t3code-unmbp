@@ -1,3 +1,4 @@
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type { ThreadMoveDestination } from "../threads/threadOrder";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import * as ThreadUndo from "@t3tools/client-runtime/state/thread-undo";

@@ -1,3 +1,6 @@
+import { ReconnectExperiment } from "../connection/reconnectExperiment.ts";
+import * as Diagnostics from "../connection/diagnostics.ts";
+import * as Performance from "../platform/performance.ts";
 import {
   isOrchestrationV2WorkActive,
   ORCHESTRATION_V2_WS_METHODS,
@@ -193,6 +196,23 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   resumeCache?: ThreadResumeCache,
 ) {
   const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+  const diagnostics = yield* Diagnostics.ConnectionDiagnostics;
+  const performance = yield* Performance.PerformanceTelemetry;
+  const experiment = yield* ReconnectExperiment;
+  let diagnosticMode: "replay" | "snapshot" = "replay";
+  let diagnosticCompletion: "marker" | "legacy" = "legacy";
+  let diagnosticSyncActive = false;
+  const observeSync = (milestone: "started" | "live" | "failed", error?: "stream" | "missing") => {
+    diagnostics?.record({
+      kind: "thread-sync",
+      environmentId: supervisor.target.environmentId,
+      threadId,
+      mode: diagnosticMode,
+      milestone,
+      completion: diagnosticCompletion,
+      ...(error === undefined ? {} : { error }),
+    });
+  };
   const cache = yield* Persistence.EnvironmentCacheStore;
   const snapshotLoader = yield* ThreadSnapshotLoader.ThreadSnapshotLoader;
   const historyController = yield* Effect.serviceOption(
@@ -606,6 +626,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     }
 
     if (item.kind === "snapshot") {
+      diagnosticMode = "snapshot";
       yield* SubscriptionRef.set(lastSequence, item.snapshotSequence);
       const hasProgressiveHistory =
         item.historyCursor !== undefined ||
@@ -652,7 +673,21 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         }
         yield* applyEventsLocked(events);
         yield* remember;
-      }),
+        if (
+          diagnostics !== null &&
+          diagnosticSyncActive &&
+          (yield* SubscriptionRef.get(state)).status === "live" &&
+          !(yield* Ref.get(awaitingCompletion))
+        ) {
+          diagnosticSyncActive = false;
+          observeSync("live");
+        }
+      }).pipe((effect) =>
+        Performance.measure(effect, performance, {
+          operation: "thread.apply-batch",
+          itemCount: items.length,
+        }),
+      ),
     );
   });
 
@@ -940,8 +975,21 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
           return yield* Effect.never;
         }
 
-        yield* Effect.ignore(session.initialConfig);
-        yield* Ref.set(awaitingCompletion, true);
+        const config = yield* session.initialConfig.pipe(Effect.option);
+        const supportsCompletionMarker =
+          Option.isSome(config) && config.value.threadResumeCompletionMarker === true;
+        if (experiment)
+          diagnostics?.record({
+            kind: "replay-capability",
+            environmentId,
+            legacyPacingSupported:
+              Option.isSome(config) && config.value.legacyCatchUpPacing === true,
+          });
+        diagnosticMode = Option.isSome(current.data) ? "replay" : "snapshot";
+        diagnosticCompletion = supportsCompletionMarker ? "marker" : "legacy";
+        diagnosticSyncActive = true;
+        observeSync("started");
+        yield* Ref.set(awaitingCompletion, supportsCompletionMarker);
         yield* markSynchronizing;
         yield* Ref.set(resumingLive, false);
 
@@ -992,6 +1040,9 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
               break;
             }
             case "missing": {
+              observeSync("failed", "missing");
+              // Definitive HTTP 404: clear any stale cache and do not open or
+              // retry a socket subscription for this attempt.
               yield* setDeleted();
               return yield* Effect.never;
             }
@@ -1005,10 +1056,21 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         const canResume = Option.isSome(current.data);
         const acceptBoundedSnapshot = yield* Ref.get(acceptsBoundedSocketSnapshots);
 
+        if (!supportsCompletionMarker && canResume) {
+          diagnosticSyncActive = false;
+          observeSync("live");
+        }
         return {
           threadId,
           ...(canResume ? { afterSequence: sequence } : {}),
-          requestCompletionMarker: true as const,
+          ...(supportsCompletionMarker
+            ? {
+                requestCompletionMarker: true as const,
+                ...(experiment?.arm(environmentId) === "old"
+                  ? { legacyCatchUpPacing: true as const }
+                  : {}),
+              }
+            : {}),
           ...(acceptBoundedSnapshot
             ? {
                 acceptBoundedSnapshot: true as const,
@@ -1021,8 +1083,14 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         };
       }),
       {
-        onDefect: () => setStreamError("Could not synchronize the thread."),
-        onExpectedFailure: (cause) => setStreamError(formatThreadError(cause)),
+        onDefect: () => {
+          if (diagnosticSyncActive) observeSync("failed", "stream");
+          return setStreamError("Could not synchronize the thread.");
+        },
+        onExpectedFailure: (cause) => {
+          if (diagnosticSyncActive) observeSync("failed", "stream");
+          return setStreamError(formatThreadError(cause));
+        },
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },

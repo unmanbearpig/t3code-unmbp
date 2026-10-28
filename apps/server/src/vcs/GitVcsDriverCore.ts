@@ -243,7 +243,14 @@ function filterBranchesForListQuery(
   }
 
   const normalizedQuery = query.toLowerCase();
-  return refs.filter((refName) => refName.name.toLowerCase().includes(normalizedQuery));
+  const matches = refs.filter((ref) => ref.name.toLowerCase().includes(normalizedQuery));
+  const exact = (ref: VcsRef) =>
+    ref.name.toLowerCase() === normalizedQuery ||
+    (ref.isRemote === true &&
+      ref.remoteName !== undefined &&
+      ref.name.toLowerCase() === `${ref.remoteName.toLowerCase()}/${normalizedQuery}`);
+  // Exact names must stay visible even when substring matches fill the first page.
+  return [...matches.filter(exact), ...matches.filter((ref) => !exact(ref))];
 }
 
 function paginateBranches(input: {
@@ -1643,7 +1650,21 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       {
         allowNonZeroExit: true,
       },
-    ).pipe(Effect.map((result) => result.exitCode === 0));
+    ).pipe(
+      Effect.flatMap((result) =>
+        result.exitCode === 0 || result.exitCode === 1
+          ? Effect.succeed(result.exitCode === 0)
+          : Effect.fail(
+              new GitCommandError({
+                operation: "GitVcsDriver.remoteBranchExists",
+                command: "git show-ref",
+                cwd: input.cwd,
+                detail: "Failed to read the remote branch reference.",
+                cause: result,
+              }),
+            ),
+      ),
+    );
 
   const remoteExists: GitVcsDriver.GitVcsDriver["Service"]["remoteExists"] = (input) =>
     executeGit(

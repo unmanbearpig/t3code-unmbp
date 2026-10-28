@@ -3,24 +3,54 @@ export interface UpdatesLogEntryLike {
   readonly message: string;
   readonly code: string;
   readonly level: string;
+  readonly stacktrace?: ReadonlyArray<string>;
 }
 
+/** One fatal error recorded by Expo's startup recovery. */
 export interface StartupCrashRecord {
   readonly timestamp: number;
+  /** The exception message, without platform-specific prefixes. */
   readonly description: string;
+  /** Component or native stack, one frame per entry. */
   readonly frames: ReadonlyArray<string>;
+  /** Full error detail for copying. */
   readonly detail: string;
 }
 
 const FATAL_PREFIX = "ErrorRecovery fatal exception: ";
 const DESCRIPTION_PREFIX = "Description: ";
 const UNHANDLED_PREFIX = "Unhandled JS Exception: ";
+const ANDROID_FATAL_MESSAGE = "UpdatesErrorRecovery: could not recover from error, crashing";
+const ANDROID_EXCEPTION_PREFIX = "ErrorRecovery: exception encountered: ";
 
+/**
+ * Keep only the fatal errors expo-updates' ErrorRecovery wrote while
+ * aborting the process. Everything else in that log (update checks, asset
+ * loads) is noise for a "why did the app crash" question.
+ */
 export function parseStartupCrashRecords(
   entries: ReadonlyArray<UpdatesLogEntryLike>,
 ): ReadonlyArray<StartupCrashRecord> {
   const records: StartupCrashRecord[] = [];
+  let androidException: UpdatesLogEntryLike | undefined;
   for (const entry of entries) {
+    if (entry.message.startsWith(ANDROID_EXCEPTION_PREFIX)) {
+      androidException = entry;
+      continue;
+    }
+    if (entry.message === ANDROID_FATAL_MESSAGE) {
+      const frames = entry.stacktrace ?? [];
+      const description =
+        androidException?.message.slice(ANDROID_EXCEPTION_PREFIX.length) ?? entry.message;
+      records.push({
+        timestamp: entry.timestamp,
+        description,
+        frames,
+        detail: [description, entry.message, ...frames].join("\n"),
+      });
+      androidException = undefined;
+      continue;
+    }
     if (entry.code !== "JSRuntimeError" || !entry.message.startsWith(FATAL_PREFIX)) continue;
     const body = entry.message.slice(FATAL_PREFIX.length);
     const lines = body.split("\n");

@@ -1,4 +1,5 @@
 import { pipe } from "effect/Function";
+import { registerLeaderShortcutHandler } from "~/appShortcutEvents";
 import { ChevronsLeftRightEllipsisIcon, PlusIcon, TerminalIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
@@ -287,6 +288,35 @@ export function AddEnvironmentDialog({
     setSavedBackendSshPort(resolved.port === null ? "" : String(resolved.port));
     await connectSavedBackendSshTarget(resolved);
   };
+
+  useEffect(
+    () =>
+      registerLeaderShortcutHandler((event) => {
+        if (
+          !sshHostSuggestionsOpen ||
+          !hasSshHostSuggestionContent ||
+          document.activeElement?.id !== "saved-backend-ssh-host"
+        )
+          return;
+        const command = resolveShortcutCommand(event, keybindings, {
+          context: { modelPickerOpen: false },
+        });
+        const index = threadJumpIndexFromCommand(command ?? "");
+        if (index === null) return;
+        event.preventDefault();
+        const target = filteredDiscoveredSshHosts[index];
+        if (!target) return;
+        setSshHostSuggestionsOpen(false);
+        void handleSelectSshHostSuggestion(target);
+      }, true),
+    [
+      sshHostSuggestionsOpen,
+      hasSshHostSuggestionContent,
+      keybindings,
+      filteredDiscoveredSshHosts,
+      handleSelectSshHostSuggestion,
+    ],
+  );
 
   const handleSavedBackendSshHostKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;

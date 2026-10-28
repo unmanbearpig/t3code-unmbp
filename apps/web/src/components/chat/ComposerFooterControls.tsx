@@ -1,3 +1,4 @@
+import { PromptCacheElapsed } from "./PromptCacheElapsed";
 import type {
   ModelSelection,
   ProviderInstanceId,
@@ -245,6 +246,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   compact: boolean;
   canOperateThread: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
+  lastPromptCacheWriteAt: number | null;
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -283,6 +285,9 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
 }) {
   return (
     <>
+      {props.lastPromptCacheWriteAt !== null ? (
+        <PromptCacheElapsed writtenAt={props.lastPromptCacheWriteAt} />
+      ) : null}
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}

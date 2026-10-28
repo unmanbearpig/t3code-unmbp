@@ -1,3 +1,4 @@
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
@@ -353,12 +354,14 @@ function SidebarControl() {
       toggleSidebar();
     };
 
-    window.addEventListener("keydown", onKeyDown, true);
+    // Capture before focused editors consume commands such as Mod+B for rich-text formatting.
+    const unsubscribeShortcuts = addAppShortcutListener(window, onKeyDown, true);
+    // A focused desktop browser page forwards the chord as a menu action.
     const unsubscribe = window.desktopBridge?.onMenuAction((action) => {
       if (action === "sidebar.toggle") toggleSidebar();
     });
     return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
+      unsubscribeShortcuts();
       unsubscribe?.();
     };
   }, [keybindings, toggleSidebar, usagePageOpen]);

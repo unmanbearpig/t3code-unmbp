@@ -1,5 +1,9 @@
 import { attachSidebarTree, SIDEBAR_TREE_PROPS } from "../lib/sidebarTree";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
+import { updateThreadShortcutTargets } from "~/threadShortcutTargets";
+import { addAppShortcutListener } from "~/appShortcutEvents";
+import { useExternalTerminal } from "../hooks/useExternalTerminal";
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { ThreadContextDragGhost } from "./chat/ThreadContextDragGhost";
 import {
@@ -639,7 +643,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     } else {
       const section = resolveSidebarThreadSection({
         snoozed: configLoaded && effectiveSnoozed(thread, { now: preciseNow }),
-        settled: configLoaded && thread.settledOverride === "settled",
+        settled: configLoaded && isFiledAsSettled(thread),
         pinned: thread.pinnedAt != null,
       });
       (section === "snoozed"
@@ -727,7 +731,7 @@ function isOptimisticDropReleased(input: {
   }
   const canonicalSection = effectiveSnoozed(thread, { now })
     ? "snoozed"
-    : thread.settledOverride === "settled"
+    : isFiledAsSettled(thread)
       ? "settled"
       : thread.pinnedAt != null
         ? "pinned"
@@ -966,6 +970,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const newThreadContext = useHandleNewThread();
   // Row callbacks capture only the handler; the rest of the context changes with the route.
   const { handleNewThread } = newThreadContext;
+  const { available: externalTerminalAvailable } = useExternalTerminal();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
@@ -1546,8 +1551,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const threadKey = scopedThreadKey(threadRef);
       if (settlingThreadKeysRef.current.has(threadKey)) return;
       settlingThreadKeysRef.current.add(threadKey);
-      const navigateAfterSettle = planForwardNavigation(threadKey, opts.coSettlingKeys);
-      const result = await settleThread(threadRef);
+      const result = await settleThread(threadRef, { excludedThreadKeys: opts.coSettlingKeys });
       settlingThreadKeysRef.current.delete(threadKey);
       if (result._tag === "Failure") {
         if (!isAtomCommandInterrupted(result)) {
@@ -1562,17 +1566,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         }
         return;
       }
-      if (
-        shouldNavigateAfterThreadPark({
-          threadKey,
-          currentThreadKey: readRouteThreadKey(router),
-          action: "settle",
-          now: new Date().toISOString(),
-          thread: readThreadShell(threadRef),
-        })
-      ) {
-        navigateAfterSettle?.();
-      }
     })();
   };
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's settle handler in the module-level settleAndAdvance registry
@@ -1581,7 +1574,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const coSettlingKeys = new Set(threadKeys);
     for (const threadKey of threadKeys) {
       const thread = threadByKeyRef.current.get(threadKey);
-      if (!thread || thread.settledOverride === "settled") continue;
+      if (!thread || isFiledAsSettled(thread)) continue;
       attemptSettle(scopeThreadRef(thread.environmentId, thread.id), { coSettlingKeys });
     }
   };
@@ -1974,7 +1967,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             activeKey: draggedThreadKey,
             activeSection: draggedFromSection,
             activePinned: source.pinnedAt != null,
-            activeSettled: source.settledOverride === "settled",
+            activeSettled: isFiledAsSettled(source),
             supportsSettlement: serverConfigs.has(source.environmentId),
             target,
             pinnedOrder: pinnedKeys,
@@ -2007,7 +2000,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       activeKey,
       activeSection,
       activePinned: activeThread.pinnedAt != null,
-      activeSettled: activeThread.settledOverride === "settled",
+      activeSettled: isFiledAsSettled(activeThread),
       supportsSettlement: serverConfigs.has(activeThread.environmentId),
       target,
       pinnedOrder: pinnedKeys,
@@ -2075,21 +2068,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       switch (plan.kind) {
         case "settle": {
           settlingThreadKeysRef.current.add(activeKey);
-          const navigateAfterSettle = planForwardNavigation(activeKey);
-          const settled = await run(settleThread(threadRef), "Failed to settle thread").finally(
-            () => settlingThreadKeysRef.current.delete(activeKey),
+          await run(settleThread(threadRef), "Failed to settle thread").finally(() =>
+            settlingThreadKeysRef.current.delete(activeKey),
           );
-          if (
-            settled &&
-            shouldNavigateAfterThreadPark({
-              threadKey: activeKey,
-              currentThreadKey: readRouteThreadKey(router),
-              action: "settle",
-              now: new Date().toISOString(),
-              thread: readThreadShell(threadRef),
-            })
-          )
-            navigateAfterSettle?.();
           return;
         }
         case "move-active":
@@ -2202,9 +2183,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const thread = threadByKeyRef.current.get(threadKey);
         return thread ? [thread] : [];
       });
-      const settlingThreads = selectedThreads.filter(
-        (thread) => thread.settledOverride !== "settled",
-      );
+      const settlingThreads = selectedThreads.filter((thread) => !isFiledAsSettled(thread));
       const canSnoozeSelection = selectedThreads.every(
         (thread) =>
           serverConfigs.has(thread.environmentId) &&
@@ -2299,7 +2278,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   const current = threadByKeyRef.current.get(
                     scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
                   );
-                  return current && current.settledOverride !== "settled" ? [current] : [];
+                  return current && !isFiledAsSettled(current) ? [current] : [];
                 })
               : selectedThreads;
       if (clicked.value === "settle" && actionTargets.length === 0) return;
@@ -2776,6 +2755,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to window keydown for thread navigation shortcuts using the current thread list
   useEffect(() => {
+    updateThreadShortcutTargets(
+      orderedThreadKeys.flatMap((key) => {
+        const thread = threadByKey.get(key);
+        return thread ? [scopeThreadRef(thread.environmentId, thread.id)] : [];
+      }),
+      routeThreadRef,
+    );
+  }, [orderedThreadKeys, threadByKey, routeThreadRef]);
+
+  useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || isCommandPaletteOpen() || isModelPickerOpen()) {
         return;
@@ -2814,8 +2803,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       if (jumpIndex === null) return;
       navigateToThreadKey(orderedThreadKeys[jumpIndex] ?? null);
     };
-    window.addEventListener("keydown", onWindowKeyDown);
-    return () => window.removeEventListener("keydown", onWindowKeyDown);
+    return addAppShortcutListener(window, onWindowKeyDown);
   }, [
     keybindings,
     navigateToThread,
@@ -2861,8 +2849,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
 
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
-    (projectGroups.length <= 1 ? shortcutLabelForCommand(keybindings, "chat.newLocal") : undefined);
-  const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
+    (projectGroups.length <= 1
+      ? shortcutLabelForCommand(keybindings, "chat.newLocal", {
+          context: { externalTerminalAvailable },
+        })
+      : undefined);
+  const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal", {
+    context: { externalTerminalAvailable },
+  });
   return (
     <>
       <ThreadContextDragGhost />

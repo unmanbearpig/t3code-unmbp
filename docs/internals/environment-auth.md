@@ -70,8 +70,9 @@ Issuer and resource URLs come from the request's Host and
 T3 Connect tunnel. A proxy that rewrites Host or drops the protocol header
 breaks sign-in.
 
-Bearer and DPoP clients obtain short-lived WebSocket tickets through authenticated
-HTTP so long-lived tokens stay out of socket URLs. A ticket names the route it
+Bearer clients with a platform-provided header constructor authenticate the WebSocket
+upgrade with an Authorization header. Other bearer and DPoP clients obtain short-lived
+WebSocket tickets through authenticated HTTP so long-lived tokens stay out of socket URLs. A ticket names the route it
 opens: the RPC socket, or the media routes (device hub, preview stream), which
 share one ticket across `<img>`, `EventSource` and several sockets. A DPoP
 client's RPC ticket is bound to its proof key and the upgrade carries a fresh

@@ -27,9 +27,13 @@ import {
   STAGE_INSTALL_ARGS,
 } from "./build-desktop-artifact.ts";
 import { assertLinuxArm64PageCompatibility } from "./lib/linux-arm64-sea.ts";
-import { selectCliRuntimeExternalDependencies } from "./lib/cli-external-packages.ts";
 import { signWithJsign } from "./lib/windows-jsign.ts";
 import { windowsSystemTar } from "./lib/windows-tar.ts";
+import {
+  selectCliRuntimeExternalDependencies,
+  webTransportInstallEnvironment,
+} from "./lib/cli-external-packages.ts";
+import { stageWebTransportPrebuilt } from "./lib/stage-webtransport.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
@@ -151,10 +155,13 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
     ...selectCliRuntimeExternalDependencies(serverDependencies),
     ...resolveFffNativeDependencies(input.platform, input.arch, fffNodeVersion),
   };
-  const patchedDependencies = createStagePatchedDependencies(
-    workspace.patchedDependencies ?? {},
-    dependencies,
+  const optionalDependencies = selectCliRuntimeExternalDependencies(
+    resolveCatalogDependencies(serverPackageJson.optionalDependencies, catalog, "apps/server"),
   );
+  const patchedDependencies = createStagePatchedDependencies(workspace.patchedDependencies ?? {}, {
+    ...dependencies,
+    ...optionalDependencies,
+  });
 
   yield* fs.writeFileString(
     path.join(input.stageDir, "package.json"),
@@ -164,6 +171,7 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
       private: true,
       packageManager: rootPackageJson.packageManager,
       dependencies,
+      optionalDependencies,
     })}\n`,
   );
   yield* fs.writeFileString(
@@ -187,6 +195,8 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
   yield* runCommand(
     ChildProcess.make(install.command, install.args, {
       cwd: input.stageDir,
+      extendEnv: true,
+      env: webTransportInstallEnvironment(input.platform, input.arch),
       shell: install.shell,
       stdout: "inherit",
       stderr: "inherit",
@@ -194,6 +204,16 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
     "vp install --prod (cli archive runtime externals)",
   );
 
+  yield* stageWebTransportPrebuilt({
+    nodeModulesDir: path.join(input.stageDir, "node_modules"),
+    platform: input.platform,
+    arch: input.arch,
+  });
+
+  // Keep the root dependency metadata so archive-to-npm conversion preserves optionality.
+  // pnpm's bookkeeping only matters during the staged install.
+  // Node resolves packages by directory. node-pty ships every platform's prebuilds
+  // in one package (58 MB); only the archive's own platform loads.
   const platformKey = cliArchivePlatformKey(input.platform, input.arch);
   const prebuildsDir = path.join(input.stageDir, "node_modules/node-pty/prebuilds");
   const foreignPrebuilds = (yield* fs
@@ -202,7 +222,6 @@ const stageRuntimeExternals = Effect.fn("stageRuntimeExternals")(function* (inpu
     (entry) => entry !== platformKey,
   );
   for (const entry of [
-    "package.json",
     "pnpm-workspace.yaml",
     "pnpm-lock.yaml",
     "patches",

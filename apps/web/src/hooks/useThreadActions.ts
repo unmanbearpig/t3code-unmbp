@@ -5,7 +5,12 @@ import {
   scopedThreadKey,
 } from "@t3tools/client-runtime/environment";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { canSnooze, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
+import {
+  canSnooze,
+  isFiledAsSettled,
+  threadWokeAt,
+} from "@t3tools/client-runtime/state/thread-settled";
+import { findNextActionableThread } from "@t3tools/client-runtime/state/thread-inbox";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import {
   AuthOrchestrationOperateScope,
@@ -47,6 +52,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { clearThreadPreviewState } from "../previewStateStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
+import { readThreadShortcutTargets } from "../threadShortcutTargets";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { useClientSettings } from "./useSettings";
@@ -703,7 +709,10 @@ export function useThreadActions() {
     return result;
   };
 
-  const settleThread = async (target: ScopedThreadRef) => {
+  const settleThread = async (
+    target: ScopedThreadRef,
+    opts: { excludedThreadKeys?: ReadonlySet<string> | undefined } = {},
+  ) => {
     if (!readEnvironmentServerConfigLoaded(target.environmentId)) {
       return AsyncResult.failure(
         Cause.fail(
@@ -715,6 +724,11 @@ export function useThreadActions() {
       );
     }
     const resolved = resolveThreadTarget(target);
+    const threadKey = scopedThreadKey(target);
+    const currentThreadRef = getCurrentRouteThreadRef();
+    const shouldAdvance =
+      currentThreadRef !== null && scopedThreadKey(currentThreadRef) === threadKey;
+    const orderedThreadRefs = readThreadShortcutTargets().targets;
     // oxlint-disable-next-line react/purity -- runs in an event handler (oxc#27309)
     const nowIso = new Date().toISOString();
     const wokeAt = resolved ? threadWokeAt(resolved.thread, { now: nowIso }) : null;
@@ -741,6 +755,45 @@ export function useThreadActions() {
       undo: () => runUndoPlan(target, undoPlan),
       failureTitle: "Failed to undo settle",
     });
+    const routeThreadRef = getCurrentRouteThreadRef();
+    if (
+      shouldAdvance &&
+      routeThreadRef !== null &&
+      scopedThreadKey(routeThreadRef) === threadKey &&
+      isFiledAsSettled(readThreadShell(target))
+    ) {
+      const nextThread = findNextActionableThread({
+        threadRef: target,
+        orderedThreadRefs,
+        readThread: readThreadShell,
+        excludedThreadKeys: opts.excludedThreadKeys,
+        now: nowIso,
+      });
+      const navigationResult = await settlePromise(async () => {
+        if (nextThread) {
+          await router.navigate({
+            to: "/$environmentId/$threadId",
+            params: buildThreadRouteParams(scopeThreadRef(nextThread.environmentId, nextThread.id)),
+          });
+        } else if (resolved) {
+          await handleNewThread(
+            scopeProjectRef(resolved.thread.environmentId, resolved.thread.projectId),
+          );
+        } else {
+          await router.navigate({ to: "/" });
+        }
+      });
+      if (navigationResult._tag === "Failure") {
+        const error = squashAtomCommandFailure(navigationResult);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Thread settled, but navigation failed",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      }
+    }
     return result;
   };
 

@@ -11,6 +11,10 @@
       "types": "./src/zip/zipDirectory.ts",
       "default": "./src/zip/zipDirectory.ts"
     },
+    "./prompt-cache": {
+      "types": "./src/promptCache.ts",
+      "default": "./src/promptCache.ts"
+    },
     "./workspace-basename-lookup": {
       "types": "./src/workspaceBasenameLookup.ts",
       "default": "./src/workspaceBasenameLookup.ts"
@@ -66,6 +70,10 @@
     "./link-request": {
       "types": "./src/linkRequest.ts",
       "default": "./src/linkRequest.ts"
+    },
+    "./scheduled-task-base-ref": {
+      "types": "./src/scheduledTaskBaseRef.ts",
+      "default": "./src/scheduledTaskBaseRef.ts"
     },
     "./scheduled-task-webhook": {
       "types": "./src/scheduledTaskWebhook.ts",

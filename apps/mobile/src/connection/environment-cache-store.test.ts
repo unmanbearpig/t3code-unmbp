@@ -1,3 +1,4 @@
+import { PerformanceTelemetry } from "@t3tools/client-runtime/platform";
 import {
   ORCHESTRATION_CACHE_SCHEMA_VERSION,
   ORCHESTRATION_THREAD_CACHE_SCHEMA_VERSION,
@@ -488,6 +489,36 @@ describe("mobile SQLite environment cache store", () => {
           snapshot,
         );
       }
+    }),
+  );
+
+  it.effect("reports cache work and payload sizes without retaining cached content", () =>
+    Effect.gen(function* () {
+      const memory = makeDatabase();
+      const measurements: PerformanceTelemetry.PerformanceMeasurement[] = [];
+      const store = yield* make().pipe(
+        Effect.provideService(MobileDatabase.MobileDatabase, memory.database),
+        Effect.provideService(PerformanceTelemetry.PerformanceTelemetry, {
+          record: (measurement) => measurements.push(measurement),
+        }),
+      );
+      yield* store.saveThread(ENVIRONMENT_ID, THREAD_SNAPSHOT);
+      expect(Option.isSome(yield* store.loadThread(ENVIRONMENT_ID, THREAD_ID))).toBe(true);
+      expect(
+        measurements.map((measurement) => [measurement.operation, measurement.outcome]),
+      ).toEqual([
+        ["cache.encode", "success"],
+        ["cache.write", "success"],
+        ["cache.read", "success"],
+        ["cache.decode", "success"],
+      ]);
+      const stored = memory.values.get(cacheId(ENVIRONMENT_ID, "thread", THREAD_ID))!;
+      expect(measurements[1]?.payloadChars).toBe(stored.length);
+      expect(measurements[2]?.payloadChars).toBe(stored.length);
+      expect(measurements[3]?.payloadChars).toBe(stored.length);
+      expect(JSON.stringify(measurements)).not.toContain(ENVIRONMENT_ID);
+      expect(JSON.stringify(measurements)).not.toContain(PROJECT_ID);
+      expect(JSON.stringify(measurements)).not.toContain(THREAD_ID);
     }),
   );
 

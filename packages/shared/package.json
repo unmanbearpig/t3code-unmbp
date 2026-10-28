@@ -7,6 +7,14 @@
       "types": "./src/changedFileKind.ts",
       "import": "./src/changedFileKind.ts"
     },
+    "./rpcWebTransport": {
+      "types": "./src/rpcWebTransport.ts",
+      "import": "./src/rpcWebTransport.ts"
+    },
+    "./githubMarkdownLinks": {
+      "types": "./src/githubMarkdownLinks.ts",
+      "import": "./src/githubMarkdownLinks.ts"
+    },
     "./authScopeOptions": {
       "types": "./src/authScopeOptions.ts",
       "import": "./src/authScopeOptions.ts"
@@ -230,6 +238,10 @@
     "./path": {
       "types": "./src/path.ts",
       "import": "./src/path.ts"
+    },
+    "./leaderKey": {
+      "types": "./src/leaderKey.ts",
+      "import": "./src/leaderKey.ts"
     },
     "./keybindings": {
       "types": "./src/keybindings.ts",
@@ -521,6 +533,7 @@
     "@noble/hashes": "catalog:",
     "@t3tools/contracts": "workspace:*",
     "effect": "catalog:",
+    "fflate": "0.8.3",
     "jose": "catalog:",
     "mdast-util-directive": "catalog:",
     "mdast-util-to-hast": "^13.2.1",

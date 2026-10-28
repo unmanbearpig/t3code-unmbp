@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
+import { RpcWebTransportAdvertisement } from "./rpcWebTransport.ts";
+
 import {
   EnvironmentId,
   ForwardCompatibleOptional,
@@ -70,6 +72,8 @@ export const ServerSelfUpdateCapability = Schema.Literals([
 export type ServerSelfUpdateCapability = typeof ServerSelfUpdateCapability.Type;
 
 export const ExecutionEnvironmentCapabilities = Schema.Struct({
+  /** Server persists leader rules, including user edits and removals. */
+  leaderKeybindings: Schema.optionalKey(Schema.Boolean),
   repositoryIdentity: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   connectionProbe: Schema.optionalKey(Schema.Boolean),
   attachmentUploads: Schema.optionalKey(Schema.Boolean),
@@ -160,6 +164,7 @@ export const ExecutionEnvironmentDescriptor = Schema.Struct({
   serverVersion: TrimmedNonEmptyString,
   orchestrationProtocolVersion: Schema.optionalKey(Schema.Int),
   capabilities: ExecutionEnvironmentCapabilities,
+  rpcWebTransport: Schema.optionalKey(RpcWebTransportAdvertisement),
 });
 export type ExecutionEnvironmentDescriptor = typeof ExecutionEnvironmentDescriptor.Type;
 

@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/animationPreference";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { type MessageId, type RunId } from "@t3tools/contracts";
 import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
@@ -336,7 +337,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
       if (!list) return;
       void Promise.resolve(
         list.scrollToEnd?.({
-          animated: animated && !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+          animated: animated && !prefersReducedMotion(),
         }),
       ).then(() =>
         settleListScroll(
@@ -429,7 +430,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
         void list
           .scrollToIndex({
             index: anchorIndex,
-            animated: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+            animated: false,
             viewPosition: 0,
             viewOffset: CHAT_LIST_ANCHOR_OFFSET,
           })

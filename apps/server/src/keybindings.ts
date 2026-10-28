@@ -2,7 +2,7 @@ import {
   KeybindingRule,
   KeybindingsConfig,
   KeybindingsConfigError,
-  KeybindingShortcut,
+  type AppKeybindingShortcut,
   KeybindingWhenNode,
   MAX_KEYBINDINGS_COUNT,
   ResolvedKeybindingRule,
@@ -41,6 +41,8 @@ import {
   compileResolvedKeybindingRule,
   compileResolvedKeybindingsConfig,
   parseKeybindingShortcut,
+  parseAppKeybindingShortcut,
+  keybindingShortcutInput,
 } from "@t3tools/shared/keybindings";
 
 export const ResolvedKeybindingFromConfig = KeybindingRule.pipe(
@@ -88,11 +90,31 @@ function isSameKeybindingRule(left: KeybindingRule, right: KeybindingRule): bool
   );
 }
 
-const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
+// Apply default updates once, only alongside an untouched earlier rule.
+// Replacements swap that rule in place when the new shortcut is free.
+// Recording ids preserves later user edits and removals.
+const DEFAULT_KEYBINDING_MIGRATIONS: ReadonlyArray<{
   readonly id: string;
   readonly alongside: KeybindingRule;
   readonly rule: KeybindingRule;
+  readonly replace?: boolean;
 }> = [
+  ...DEFAULT_KEYBINDINGS.filter((rule) => rule.key.startsWith("leader+")).flatMap((rule) => {
+    const alongside = DEFAULT_KEYBINDINGS.find(
+      (entry) => entry.command === rule.command && !entry.key.startsWith("leader+"),
+    );
+    return alongside ? [{ id: `leader:${rule.command}`, alongside, rule }] : [];
+  }),
+  {
+    id: "chat.newLocal:leader+c",
+    alongside: {
+      key: "mod+shift+n",
+      command: "chat.newLocal",
+      when: "!terminalFocus",
+    },
+    rule: { key: "leader+c", command: "chat.newLocal" },
+    replace: true,
+  },
   {
     id: "composer.sendBackground:mod+enter",
     alongside: {
@@ -108,19 +130,15 @@ const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
   },
 ];
 
-function keybindingShortcutContext(rule: KeybindingRule): string | null {
-  const parsed = parseKeybindingShortcut(rule.key);
-  if (!parsed) return null;
-  const encoded = encodeShortcut(parsed);
-  if (!encoded) return null;
-  return `${encoded}\u0000${rule.when ?? ""}`;
+function hasSameShortcut(left: KeybindingRule, right: KeybindingRule): boolean {
+  const leftShortcut = parseAppKeybindingShortcut(left.key);
+  const rightShortcut = parseAppKeybindingShortcut(right.key);
+  if (!leftShortcut || !rightShortcut) return false;
+  return keybindingShortcutInput(leftShortcut) === keybindingShortcutInput(rightShortcut);
 }
 
 function hasSameShortcutContext(left: KeybindingRule, right: KeybindingRule): boolean {
-  const leftContext = keybindingShortcutContext(left);
-  const rightContext = keybindingShortcutContext(right);
-  if (!leftContext || !rightContext) return false;
-  return leftContext === rightContext;
+  return hasSameShortcut(left, right) && (left.when ?? "") === (right.when ?? "");
 }
 
 function keybindingRuleFromInput(input: ServerRemoveKeybindingInput): KeybindingRule {
@@ -136,17 +154,15 @@ function replaceTargetFromUpsertInput(input: ServerUpsertKeybindingInput): Keybi
     : { key: input.replace.key, command: input.replace.command, when: input.replace.when };
 }
 
-function encodeShortcut(shortcut: KeybindingShortcut): string | null {
-  const modifiers: string[] = [];
-  if (shortcut.modKey) modifiers.push("mod");
-  if (shortcut.metaKey) modifiers.push("meta");
-  if (shortcut.ctrlKey) modifiers.push("ctrl");
-  if (shortcut.altKey) modifiers.push("alt");
-  if (shortcut.shiftKey) modifiers.push("shift");
-  if (!shortcut.key) return null;
-  if (shortcut.key !== "+" && shortcut.key.includes("+")) return null;
-  const key = shortcut.key === " " ? "space" : shortcut.key;
-  return [...modifiers, key].join("+");
+function keybindingRuleFromRemoveInput(input: ServerRemoveKeybindingInput): KeybindingRule {
+  return input.when === undefined
+    ? { key: input.key, command: input.command }
+    : { key: input.key, command: input.command, when: input.when };
+}
+
+function encodeShortcut(shortcut: AppKeybindingShortcut): string | null {
+  const key = keybindingShortcutInput(shortcut);
+  return parseAppKeybindingShortcut(key) ? key : null;
 }
 
 function encodeWhenAst(node: KeybindingWhenNode): string {
@@ -448,16 +464,16 @@ const make = Effect.gen(function* () {
   const syncDefaultKeybindingsOnStartup = upsertSemaphore.withPermits(1)(
     Effect.gen(function* () {
       const appliedMigrationIds = yield* readAppliedMigrationIds;
-      const pendingLateDefaults = LATE_DEFAULT_KEYBINDINGS.filter(
+      const pendingMigrations = DEFAULT_KEYBINDING_MIGRATIONS.filter(
         (late) => !appliedMigrationIds.has(late.id),
       );
       const configExists = yield* readConfigExists;
       if (!configExists) {
         yield* writeConfigAtomically(DEFAULT_KEYBINDINGS);
-        if (pendingLateDefaults.length > 0) {
+        if (pendingMigrations.length > 0) {
           yield* recordAppliedMigrations([
             ...appliedMigrationIds,
-            ...LATE_DEFAULT_KEYBINDINGS.map((late) => late.id),
+            ...DEFAULT_KEYBINDING_MIGRATIONS.map((late) => late.id),
           ]);
         }
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
@@ -476,7 +492,18 @@ const make = Effect.gen(function* () {
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }
-      const customConfig = runtimeConfig.keybindings;
+      let customConfig = runtimeConfig.keybindings;
+      for (const { alongside, rule, replace } of pendingMigrations) {
+        if (
+          replace &&
+          customConfig.some((entry) => isSameKeybindingRule(entry, alongside)) &&
+          !customConfig.some((entry) => hasSameShortcut(entry, rule))
+        ) {
+          customConfig = customConfig.map((entry) =>
+            isSameKeybindingRule(entry, alongside) ? rule : entry,
+          );
+        }
+      }
       const existingCommands = new Set(customConfig.map((entry) => entry.command));
       const missingDefaults: KeybindingRule[] = [];
       const shortcutConflictWarnings: Array<{
@@ -503,8 +530,11 @@ const make = Effect.gen(function* () {
         }
         missingDefaults.push(defaultRule);
       }
-      for (const { alongside, rule } of pendingLateDefaults) {
+      // The loop above backfills whole missing commands. Late defaults join
+      // an untouched earlier default, when their shortcut is still free.
+      for (const { alongside, rule, replace } of pendingMigrations) {
         if (
+          !replace &&
           customConfig.some((entry) => isSameKeybindingRule(entry, alongside)) &&
           !customConfig.some((entry) => hasSameShortcutContext(entry, rule))
         ) {
@@ -546,16 +576,17 @@ const make = Effect.gen(function* () {
           commands: skippedDefaults.map((rule) => rule.command),
         });
       }
-      if (defaultsToAppend.length > 0) {
+      if (defaultsToAppend.length > 0 || customConfig !== runtimeConfig.keybindings) {
         yield* writeConfigAtomically([...defaultsToAppend, ...customConfig]);
       }
-      const settledLateDefaults = pendingLateDefaults.filter(
+      // A late default skipped at max entries stays pending for a later start.
+      const settledMigrations = pendingMigrations.filter(
         (late) => !skippedDefaults.includes(late.rule),
       );
-      if (settledLateDefaults.length > 0) {
+      if (settledMigrations.length > 0) {
         yield* recordAppliedMigrations([
           ...appliedMigrationIds,
-          ...settledLateDefaults.map((late) => late.id),
+          ...settledMigrations.map((late) => late.id),
         ]);
       }
       yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);

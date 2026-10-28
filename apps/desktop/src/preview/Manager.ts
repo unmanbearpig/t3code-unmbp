@@ -1,3 +1,6 @@
+import { createPreviewLeaderKeyHandler } from "./PreviewLeaderKey.ts";
+import type { DesktopLeaderConfig } from "@t3tools/contracts";
+import { PREVIEW_LEADER_INPUT_CHANNEL } from "../ipc/channels.ts";
 import * as NodeZlib from "node:zlib";
 import {
   DesktopPreviewRecordingInputSchema,
@@ -553,6 +556,13 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   const displayMediaHandlerSessions = new WeakSet<Session>();
   let frameCaptureWindowOpen = true;
   let currentMainWindow: BrowserWindow | undefined;
+  let leaderConfig: DesktopLeaderConfig = { trigger: null, bindings: [] };
+  const leaderResets = new Set<() => void>();
+  const configureLeader = (config: DesktopLeaderConfig) =>
+    Effect.sync(() => {
+      for (const reset of leaderResets) reset();
+      leaderConfig = config;
+    });
   let mainWindowCleanupFiber: Fiber.Fiber<void, never> | undefined;
   const tabLifecycleLocks = new Map<
     string,
@@ -1436,7 +1446,25 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         syncMenuShortcuts(window.webContents, input);
       });
     };
+    const leader = createPreviewLeaderKeyHandler({
+      getConfig: () => leaderConfig,
+      isMac: hostPlatform === "darwin",
+      notify: (input) => {
+        if (currentMainWindow && !currentMainWindow.isDestroyed()) {
+          currentMainWindow.webContents.send(PREVIEW_LEADER_INPUT_CHANNEL, input);
+        }
+      },
+    });
+    leaderResets.add(leader.reset);
+    wc.on("blur", leader.reset);
     const beforeInput = (event: Electron.Event, input: Electron.Input): void => {
+      if (
+        (webContents.getFocusedWebContents() === wc || input.type === "keyUp") &&
+        leader.handle(input)
+      ) {
+        event.preventDefault();
+        return;
+      }
       syncMenuShortcuts(wc, input);
       const host = wc.hostWebContents;
       const forwarded =
@@ -1505,6 +1533,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         wc.off("audio-state-changed", audioStateChanged);
         wc.off("did-create-window", windowCreated);
         wc.off("before-input-event", beforeInput);
+        wc.off("blur", leader.reset);
+        leader.reset();
+        leaderResets.delete(leader.reset);
         wc.ipc.off(HUMAN_INPUT_CHANNEL, humanInput);
         wc.ipc.off(RECORDING_INPUT_CHANNEL, recordingInput);
         wc.ipc.off(MOUSE_NAVIGATE_CHANNEL, mouseNavigate);
@@ -3274,6 +3305,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   yield* Effect.addFinalizer(() => destroy().pipe(Effect.ignore));
 
   return {
+    configureLeader,
     cancelPickElement,
     captureScreenshot,
     closeTab,
@@ -3462,6 +3494,7 @@ export type PreviewManagerError = typeof PreviewManagerError.Type;
 export class PreviewManager extends Context.Service<
   PreviewManager,
   {
+    readonly configureLeader: (config: DesktopLeaderConfig) => Effect.Effect<void>;
     readonly setMainWindow: (window: BrowserWindow) => Effect.Effect<void, PreviewManagerError>;
     readonly setForwardedShortcuts: (
       shortcuts: ReadonlyArray<PreviewForwardedShortcut>,
@@ -3610,6 +3643,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
   );
 
   return PreviewManager.of({
+    configureLeader: operations.configureLeader,
     setMainWindow: operations.setMainWindow,
     setForwardedShortcuts: operations.setForwardedShortcuts,
     getBrowserSession: Effect.fn("PreviewManager.getBrowserSession")(

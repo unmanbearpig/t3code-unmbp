@@ -354,6 +354,54 @@ function assistantMessage(updatedAt = "2026-06-20T00:00:03.000Z") {
 }
 
 describe("buildThreadFeed", () => {
+  it.each([false, true])(
+    "keeps a late question reply visible when it starts a new turn (cache: %s)",
+    (cached) => {
+      const requestId = RuntimeRequestId.make("late-question");
+      const question: OrchestrationV2TurnItem = {
+        ...base("late-question", "2026-06-20T00:00:01.000Z", 0),
+        type: "user_input_request",
+        requestId,
+        questions: [],
+        questionAnswer: {
+          requestId,
+          answers: { reply: "The controls are invisible" },
+          attachmentsByQuestionId: {},
+        },
+      };
+      const final = assistantMessage();
+      const reply: OrchestrationV2TurnItem = {
+        ...userMessage(),
+        ...base("late-reply", "2026-06-20T00:00:04.000Z", 0),
+        runId: RunId.make("resumed-run"),
+        messageId: MessageId.make(`async-answer:${requestId}`),
+        text: "The controls are invisible",
+      };
+      const cache = cached ? createThreadFeedCache() : undefined;
+      const rows = [projected(question, 0), projected(final, 1)];
+      buildThreadFeed(rows, { cache });
+      const feed = buildThreadFeed([...rows, projected(reply, 2)], { cache });
+      const presented = deriveThreadFeedPresentation(
+        feed,
+        {
+          runId: reply.runId!,
+          status: "running",
+          startedAt: "2026-06-20T00:00:04.000Z",
+          completedAt: null,
+        },
+        new Set(),
+        new Set(),
+        "2026-06-20T00:00:04.000Z",
+        false,
+        cache,
+      );
+      expect(
+        presented.filter((entry) => entry.type === "message").map((entry) => entry.id),
+      ).toEqual([final.messageId, reply.messageId]);
+      expect(presented.at(-1)?.type).toBe("thinking");
+    },
+  );
+
   it("keeps async answers in question history instead of user bubbles", () => {
     const requestId = RuntimeRequestId.make("question");
     const question: OrchestrationV2TurnItem = {

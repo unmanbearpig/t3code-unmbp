@@ -18,6 +18,8 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { RpcClientError } from "effect/rpc";
 
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
+import * as Diagnostics from "../connection/diagnostics.ts";
+import * as Performance from "../platform/performance.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import type { RpcSession } from "../rpc/session.ts";
 
@@ -153,6 +155,24 @@ export const getInitialServerConfig = Effect.fn("EnvironmentRpc.getInitialServer
   },
 );
 
+/** Startup identity for shell reuse; older/unresponsive servers require a refresh. */
+export const getSessionServerStartedAt = Effect.fn("EnvironmentRpc.getSessionServerStartedAt")(
+  function* (session: RpcSession) {
+    const lifecycle = session.client[WS_METHODS.subscribeServerLifecycle];
+    if (lifecycle === undefined) return undefined;
+    return Option.getOrUndefined(
+      yield* lifecycle({}).pipe(
+        Stream.filter((event) => event.type === "ready"),
+        Stream.map((event) => event.payload.at),
+        Stream.runHead,
+        Effect.timeoutOption("3 seconds"),
+        Effect.map(Option.flatten),
+        Effect.orElseSucceed(() => Option.none<string>()),
+      ),
+    );
+  },
+);
+
 /** Installed by the shared command boundary. A missing boundary denies protected writes. */
 export class RpcPermissionGuard extends Context.Reference<{
   readonly authorize: (
@@ -197,6 +217,7 @@ export const requestGuarded = Effect.fn("EnvironmentRpc.request")(function* <
   const session = yield* currentSession();
   yield* authorizeRequest(tag, input);
   const observer = yield* EnvironmentRpcRequestObserver;
+  const performance = yield* Performance.PerformanceTelemetry;
   const method = session.client[tag] as (
     input: EnvironmentRpcInput<TTag>,
   ) => Effect.Effect<EnvironmentRpcSuccess<TTag>, EnvironmentRpcFailure<TTag>>;
@@ -205,7 +226,10 @@ export const requestGuarded = Effect.fn("EnvironmentRpc.request")(function* <
     environmentLabel: supervisor.target.label,
     method: tag,
   });
-  return yield* method(input).pipe(Effect.ensuring(completeObservation));
+  return yield* Performance.measure(method(input), performance, {
+    operation: "rpc.request",
+    rpcMethod: tag,
+  }).pipe(Effect.ensuring(completeObservation));
 });
 
 export function runStreamGuarded<TTag extends EnvironmentStreamCommandRpcTag>(
@@ -246,7 +270,8 @@ interface SubscriptionOptions<TTag extends EnvironmentSubscriptionRpcTag> {
   readonly resubscribe?: Stream.Stream<unknown, never, never>;
 }
 
-function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
+/** Maps each subscription separately, before switchMap can buffer its values. */
+export function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
   tag: TTag,
   makeInput: (session: RpcSession) => Effect.Effect<EnvironmentRpcInput<TTag>>,
   mapStream: (
@@ -263,6 +288,7 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
     Effect.gen(function* () {
       const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
       const observer = yield* EnvironmentRpcSubscriptionObserver;
+      const diagnostics = yield* Diagnostics.ConnectionDiagnostics;
       const sessionChanges = SubscriptionRef.changes(supervisor.session);
       const sessions =
         options?.resubscribe === undefined
@@ -273,7 +299,12 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                 Stream.mapEffect(() => SubscriptionRef.get(supervisor.session)),
               ),
             );
-      return sessions.pipe(
+      let cancelCurrent = Effect.void;
+      // Observe the request before switchMap interrupts the old pull, whose own
+      // interruption handlers may already spend time cancelling RPC streams.
+      const observedSessions =
+        diagnostics === null ? sessions : sessions.pipe(Stream.tap(() => cancelCurrent));
+      return observedSessions.pipe(
         Stream.switchMap(
           Option.match({
             onNone: () => Stream.empty,
@@ -375,7 +406,33 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                     }),
                   ),
                 );
-              return subscribeToSession();
+              const stream = subscribeToSession();
+              if (diagnostics === null) return stream;
+              let finish:
+                | Effect.Success<ReturnType<typeof Diagnostics.startCleanupObservation>>
+                | undefined;
+              const beginCancellation = Effect.gen(function* () {
+                if (finish !== undefined) return;
+                finish = yield* Diagnostics.startCleanupObservation(diagnostics, {
+                  environmentId: supervisor.target.environmentId,
+                  resource: "subscription",
+                  method:
+                    tag === ORCHESTRATION_V2_WS_METHODS.subscribeShell
+                      ? "shell"
+                      : tag === ORCHESTRATION_V2_WS_METHODS.subscribeThread
+                        ? "thread"
+                        : "other",
+                });
+              });
+              cancelCurrent = beginCancellation;
+              return stream.pipe(
+                Stream.onExit((exit) =>
+                  Effect.suspend(() => {
+                    if (cancelCurrent === beginCancellation) cancelCurrent = Effect.void;
+                    return finish?.(exit) ?? Effect.void;
+                  }),
+                ),
+              );
             },
           }),
         ),

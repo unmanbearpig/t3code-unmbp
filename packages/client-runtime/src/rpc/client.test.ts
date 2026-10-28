@@ -1,3 +1,7 @@
+import * as Performance from "../platform/performance.ts";
+import { request } from "./client.ts";
+import * as TestClock from "effect/testing/TestClock";
+import * as Diagnostics from "../connection/diagnostics.ts";
 import {
   EnvironmentId,
   type RelayClientInstallProgressEvent,
@@ -397,5 +401,108 @@ describe("environment RPC", () => {
         expect(expectedFailureCount).toBe(0);
         expect(observedDefects).toEqual([defect]);
       }),
+  );
+
+  it.effect("reports unary request latency without copying the response", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      const finish = yield* Deferred.make<{ status: "available"; version: string }>();
+      const measurements: Performance.PerformanceMeasurement[] = [];
+      const client = {
+        [WS_METHODS.cloudGetRelayClientStatus]: () =>
+          Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(finish))),
+      } as unknown as WsRpcProtocolClient;
+      const { activeSession, supervisor } = yield* makeHarness();
+      yield* SubscriptionRef.set(activeSession, Option.some(session(client)));
+      const fiber = yield* request(WS_METHODS.cloudGetRelayClientStatus, {}).pipe(
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.provideService(Performance.PerformanceTelemetry, {
+          record: (measurement) => measurements.push(measurement),
+        }),
+        Effect.forkChild,
+      );
+      yield* Deferred.await(started);
+      yield* TestClock.adjust("43 millis");
+      const response = { status: "available" as const, version: "private-response-sentinel" };
+      yield* Deferred.succeed(finish, response);
+      expect(yield* Fiber.join(fiber)).toEqual(response);
+      expect(measurements).toEqual([
+        {
+          operation: "rpc.request",
+          rpcMethod: WS_METHODS.cloudGetRelayClientStatus,
+          outcome: "success",
+          durationMs: 43,
+        },
+      ]);
+      expect(JSON.stringify(measurements)).not.toContain("private-response-sentinel");
+    }),
+  );
+
+  it.effect.each([0, 43])(
+    "observes %s ms of subscription cancellation before moving to the new session",
+    (duration) =>
+      Effect.gen(function* () {
+        const events: Diagnostics.ConnectionDiagnosticEvent[] = [];
+        const started = yield* Deferred.make<void>();
+        const releasing = yield* Deferred.make<void>();
+        const finishRelease = yield* Deferred.make<void>();
+        const replacement = yield* Deferred.make<void>();
+        const firstClient = {
+          [WS_METHODS.subscribeTerminalEvents]: () =>
+            Stream.fromEffect(Deferred.succeed(started, undefined)).pipe(
+              Stream.drain,
+              Stream.concat(Stream.never),
+              Stream.ensuring(
+                Deferred.succeed(releasing, undefined).pipe(
+                  Effect.andThen(Deferred.await(finishRelease)),
+                ),
+              ),
+            ),
+        } as unknown as WsRpcProtocolClient;
+        const secondClient = {
+          [WS_METHODS.subscribeTerminalEvents]: () =>
+            Stream.fromEffect(Deferred.succeed(replacement, undefined)).pipe(
+              Stream.drain,
+              Stream.concat(Stream.never),
+            ),
+        } as unknown as WsRpcProtocolClient;
+        const { activeSession, supervisor } = yield* makeHarness();
+        yield* SubscriptionRef.set(activeSession, Option.some(session(firstClient)));
+        const subscription = yield* subscribe(WS_METHODS.subscribeTerminalEvents, {}).pipe(
+          Stream.runDrain,
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+          Effect.provideService(Diagnostics.ConnectionDiagnostics, {
+            record: (event) => events.push(event),
+          }),
+          Effect.forkChild,
+        );
+        yield* Deferred.await(started);
+        yield* TestClock.adjust(1000);
+        const beforeRelease = [...events];
+        yield* SubscriptionRef.set(activeSession, Option.some(session(secondClient)));
+        yield* Deferred.await(releasing);
+        yield* TestClock.adjust(duration);
+        const replacementDuringRelease = yield* Deferred.isDone(replacement);
+        const duringRelease = [...events];
+        yield* Deferred.succeed(finishRelease, undefined);
+        yield* Deferred.await(replacement);
+        expect(beforeRelease).toEqual([]);
+        expect(replacementDuringRelease).toBe(false);
+        expect(duringRelease).toMatchObject([
+          {
+            kind: "cleanup",
+            resource: "subscription",
+            method: "other",
+            milestone: "started",
+            durationMs: null,
+          },
+        ]);
+        expect(events.at(-1)).toMatchObject({
+          milestone: "finished",
+          durationMs: duration,
+          outcome: "interrupted",
+        });
+        yield* Fiber.interrupt(subscription);
+      }).pipe(Effect.provide(TestClock.layer())),
   );
 });

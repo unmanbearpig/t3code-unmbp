@@ -6,7 +6,7 @@ import { videoMimeType } from "@t3tools/shared/video";
 import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { Paths } from "expo-file-system";
-import { Image, Pressable, ScrollView, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, View } from "react-native";
 
 import { AppText as Text } from "./ui/AppText";
 import { MaterializedPreviewKey, materializedPreviewAtom } from "../lib/composerImagePreview";
@@ -77,6 +77,11 @@ export function ComposerAttachmentThumbnail(props: ComposerAttachmentThumbnailPr
             props.environmentId &&
             retryComposerAttachmentUpload(props.environmentId, props.attachment.id)
           }
+          onLongPress={() => {
+            if (upload.status === "failed") {
+              Alert.alert("Upload failed", upload.reason);
+            }
+          }}
           className="absolute bottom-0.5 left-0.5 flex-row items-center gap-0.5 rounded-full bg-black/70 px-1 py-0.5"
         >
           <SymbolView

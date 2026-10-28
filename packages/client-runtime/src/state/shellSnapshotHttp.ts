@@ -94,37 +94,40 @@ export class ShellSnapshotLoader extends Context.Service<
   }
 >()("@t3tools/client-runtime/state/shellSnapshotHttp/ShellSnapshotLoader") {}
 
+/** @public */
+export const make = Effect.gen(function* () {
+  const httpClient = yield* HttpClient.HttpClient;
+  // Resolve the DPoP signer optionally: it is only needed for relay/DPoP
+  // connections, so the loader must not hard-require it.
+  const signer = yield* Effect.serviceOption(ManagedRelay.ManagedRelayDpopSigner);
+  const remoteAuthorization = yield* Effect.serviceOption(
+    RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
+  );
+  return ShellSnapshotLoader.of({
+    load: Effect.fn("ShellSnapshotLoader.load")(function (prepared, options) {
+      return fetchEnvironmentShellSnapshot({
+        prepared,
+        signer,
+        remoteAuthorization,
+        ...(options?.omitIdleSubagents === true ? { omitIdleSubagents: true } : {}),
+        ...(options?.omitOlderSettled === true ? { omitOlderSettled: true } : {}),
+      }).pipe(
+        Effect.map(Option.some<DeferredShellSnapshot>),
+        Effect.provideService(HttpClient.HttpClient, httpClient),
+        Effect.catchCause((cause) =>
+          Effect.logWarning(
+            "Could not load the environment shell snapshot over HTTP; using the socket snapshot instead.",
+          ).pipe(
+            Effect.annotateLogs({ cause: Cause.pretty(cause) }),
+            Effect.as(Option.none<DeferredShellSnapshot>()),
+          ),
+        ),
+      );
+    }),
+  });
+});
+
 export const layer: Layer.Layer<ShellSnapshotLoader, never, HttpClient.HttpClient> = Layer.effect(
   ShellSnapshotLoader,
-  Effect.gen(function* () {
-    const httpClient = yield* HttpClient.HttpClient;
-    // Resolve the DPoP signer optionally: it is only needed for relay/DPoP
-    // connections, so the loader must not hard-require it.
-    const signer = yield* Effect.serviceOption(ManagedRelay.ManagedRelayDpopSigner);
-    const remoteAuthorization = yield* Effect.serviceOption(
-      RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
-    );
-    return ShellSnapshotLoader.of({
-      load: Effect.fn("ShellSnapshotLoader.load")(function (prepared, options) {
-        return fetchEnvironmentShellSnapshot({
-          prepared,
-          signer,
-          remoteAuthorization,
-          ...(options?.omitIdleSubagents === true ? { omitIdleSubagents: true } : {}),
-          ...(options?.omitOlderSettled === true ? { omitOlderSettled: true } : {}),
-        }).pipe(
-          Effect.map(Option.some<DeferredShellSnapshot>),
-          Effect.provideService(HttpClient.HttpClient, httpClient),
-          Effect.catchCause((cause) =>
-            Effect.logWarning(
-              "Could not load the environment shell snapshot over HTTP; using the socket snapshot instead.",
-            ).pipe(
-              Effect.annotateLogs({ cause: Cause.pretty(cause) }),
-              Effect.as(Option.none<DeferredShellSnapshot>()),
-            ),
-          ),
-        );
-      }),
-    });
-  }),
+  make,
 );

@@ -49,11 +49,11 @@ export interface ProjectThreadAwarenessV2Input {
     | "modelSelection"
     | "pendingBackgroundTasks"
     | "pendingRuntimeRequest"
-    | "settledOverride"
+    | "settleWhenIdleAt"
     | "status"
     | "title"
     | "updatedAt"
-  >;
+  > & { readonly settledOverride?: OrchestrationV2ThreadShell["settledOverride"] };
 }
 
 export function projectThreadAwarenessV2(
@@ -120,8 +120,10 @@ function resolveThreadAwarenessPhaseV2(
     case "waiting":
       return "running";
     case "completed":
-      return backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])
-        ? "running"
+      // Work that will wake the agent keeps the run going; a dev server does not.
+      if (backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])) return "running";
+      return thread.settleWhenIdleAt != null || thread.settledOverride === "settled"
+        ? null
         : "completed";
     case "failed":
       return "failed";

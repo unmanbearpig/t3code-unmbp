@@ -1,5 +1,8 @@
+import { composerCommandKeyHandler } from "./composerCommandKey";
+import { resolveShortcutCommand } from "../../keybindings";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
+import { registerLeaderShortcutHandler } from "~/appShortcutEvents";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import {
   resolveCompatibleRuntimeMode,
@@ -276,7 +279,6 @@ import {
   usePreparingComposerImages,
 } from "./preparingComposerImages";
 import { ComposerControlsBar } from "./ComposerControlsBar";
-import { composerCommandKeyHandler } from "./composerCommandKey";
 
 function consumePasteAsTextShortcut(deadline: { current: number }): boolean {
   const armed = Date.now() <= deadline.current;
@@ -426,6 +428,7 @@ export interface ChatComposerProps {
   activeProjectId: ProjectId | null;
 
   activeContextWindow: ContextWindowSnapshot | null;
+  lastPromptCacheWriteAt: number | null;
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
@@ -550,6 +553,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     reportedModelSelection,
     activeProjectId,
     activeContextWindow,
+    lastPromptCacheWriteAt,
     compactThreadUnavailable,
     compactDisabled,
     compactDisabledReason,
@@ -2175,44 +2179,60 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   };
   const expandMobileComposerStable = useStableCallback(expandMobileComposer);
 
-  const onComposerCommandKey = (key: string, event: KeyboardEvent, isTaskItem?: boolean) =>
-    composerCommandKeyHandler({
-      keybindings,
-      sendShortcut: settings.sendShortcut,
-      routeKind,
-      phase,
-      isCompacting,
-      followUpBehavior,
-      isSoftwareKeyboardOpen,
-      planModeUiEnabled,
-      isLiteralPendingAnswer,
-      pendingUserInputs,
-      promptHistoryMessages,
-      promptHistoryPositionRef,
-      composerDraftTarget,
-      promptRef,
-      composerImagesRef,
-      composerFilesRef,
-      composerTerminalContextsRef,
-      composerPreviewAnnotations,
-      composerReviewComments,
-      composerEditorRef,
-      composerMenuOpenRef,
-      composerMenuItemsRef,
-      activeComposerMenuItemRef,
-      setComposerDraftPrompt,
-      setComposerCursor,
-      setComposerTrigger,
-      setComposerHighlightedItemId,
-      dismissComposerTrigger,
-      toggleInteractionMode,
-      nudgeComposerMenuHighlight,
-      onSelectComposerItem,
-      resolveActiveComposerTrigger,
-      readComposerSnapshot,
-      applyPromptReplacement,
-      submitComposer,
-    })(key, event, isTaskItem);
+  const onComposerCommandKey = composerCommandKeyHandler({
+    composerEmacsEditingEnabled: settings.composerEmacsEditingEnabled,
+    keybindings,
+    sendShortcut: settings.sendShortcut,
+    routeKind,
+    phase,
+    isCompacting,
+    followUpBehavior,
+    isSoftwareKeyboardOpen,
+    planModeUiEnabled,
+    isLiteralPendingAnswer,
+    pendingUserInputs,
+    promptHistoryMessages,
+    promptHistoryPositionRef,
+    composerDraftTarget,
+    promptRef,
+    composerImagesRef,
+    composerFilesRef,
+    composerTerminalContextsRef,
+    composerPreviewAnnotations,
+    composerReviewComments,
+    composerEditorRef,
+    composerMenuOpenRef,
+    composerMenuItemsRef,
+    activeComposerMenuItemRef,
+    setComposerDraftPrompt,
+    setComposerCursor,
+    setComposerTrigger,
+    setComposerHighlightedItemId,
+    dismissComposerTrigger,
+    toggleInteractionMode,
+    nudgeComposerMenuHighlight,
+    onSelectComposerItem,
+    resolveActiveComposerTrigger,
+    readComposerSnapshot,
+    applyPromptReplacement,
+    submitComposer,
+  });
+
+  useEffect(() =>
+    registerLeaderShortcutHandler((event) => {
+      const target = event.target ?? document.activeElement;
+      if (!(target instanceof Node) || !composerFormRef.current?.contains(target)) return;
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          composerFocus: true,
+          draftThreadRoute: routeKind === "draft",
+          turnRunning: phase === "running",
+        },
+      });
+      if (!command?.startsWith("composer.send")) return;
+      if (onComposerCommandKey(event.key, event)) event.preventDefault();
+    }, true),
+  );
 
   const {
     stashQueue,
@@ -3452,6 +3472,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
+                    lastPromptCacheWriteAt={lastPromptCacheWriteAt}
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}

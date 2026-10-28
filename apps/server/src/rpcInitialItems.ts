@@ -1,8 +1,17 @@
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
-export function rpcInitialItems<A>(items: ReadonlyArray<A>): Stream.Stream<A> {
-  let pending: ReadonlyArray<A> | undefined = items;
+/** A request-owned prefix; legacy pacing keeps completion behind the data acknowledgement. */
+export function rpcInitialItems<A, B = never>(
+  items: ReadonlyArray<A>,
+  completion?: B,
+  legacyPacing = false,
+): Stream.Stream<A | B> {
+  if (legacyPacing && completion !== undefined) {
+    return Stream.concat(rpcInitialItems(items), Stream.make(completion));
+  }
+  let pending: ReadonlyArray<A | B> | undefined =
+    completion === undefined ? items : [...items, completion];
   return Stream.unwrap(
     Effect.sync(() => {
       const initial = pending;

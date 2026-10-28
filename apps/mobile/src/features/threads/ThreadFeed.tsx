@@ -2099,7 +2099,7 @@ function UserMessageMarkdownContent(props: UserMessageContentProps) {
 
 function ThreadFeedPlaceholder(props: {
   readonly bottomInset: number;
-  readonly detail: string;
+  readonly detail?: string;
   readonly horizontalPadding: number;
   readonly title: string;
   readonly topInset: number;
@@ -2118,9 +2118,11 @@ function ThreadFeedPlaceholder(props: {
     >
       <View className="max-w-[320px] items-center gap-2">
         <Text className="text-center font-t3-bold text-lg text-foreground">{props.title}</Text>
-        <Text className="text-center text-sm leading-normal text-foreground-secondary">
-          {props.detail}
-        </Text>
+        {props.detail ? (
+          <Text className="text-center text-sm leading-normal text-foreground-secondary">
+            {props.detail}
+          </Text>
+        ) : null}
       </View>
     </View>
   );

@@ -258,10 +258,15 @@ export function claudeProviderTurnTokenUsage(
   updatedAt: string,
   autoCompactWindow = "",
   requestedAt?: DateTime.Utc,
+  previousCacheWriteAt?: string,
 ) {
   const inputTokens = claudeMessageInputTokens(usage);
   const outputTokens = usage.output_tokens;
   const promptCacheTtlMs = claudePromptCacheTtlMs(usage.cache_creation);
+  const lastCacheWriteAt =
+    (usage.cache_creation_input_tokens ?? 0) > 0 || promptCacheTtlMs !== undefined
+      ? updatedAt
+      : previousCacheWriteAt;
   const maxTokens = claudeContextWindow(modelSelection);
   // The cache lifetime starts with the request, not when its response ends.
   const promptCacheExpiresAt =
@@ -276,6 +281,7 @@ export function claudeProviderTurnTokenUsage(
     outputTokens,
     reasoningOutputTokens: 0,
     ...(promptCacheTtlMs === undefined ? {} : { promptCacheTtlMs }),
+    ...(lastCacheWriteAt === undefined ? {} : { lastCacheWriteAt }),
     ...claudeAutoCompactThreshold(autoCompactWindow, maxTokens),
     ...(promptCacheExpiresAt === undefined ? {} : { promptCacheExpiresAt }),
     updatedAt,
@@ -3818,6 +3824,7 @@ function formatClaudeUsageLimitWait(waitMs: number): string {
 }
 
 interface ActiveClaudeTurnContext {
+  lastCacheWriteAt?: string | undefined;
   readonly queryPolicy: ClaudeRuntimeQueryPolicy;
   readonly input: ProviderAdapter.ProviderAdapterV2TurnInput;
   readonly nativeThreadId: string;
@@ -4857,7 +4864,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             DateTime.formatIso(now),
             adapterOptions.settings.autoCompactWindow,
             context.streamUsage?.requestedAt,
+            context.lastCacheWriteAt,
           );
+          context.lastCacheWriteAt = tokenUsage.lastCacheWriteAt;
           if (tokenUsage.inputTokens <= 0) return;
           yield* emitProviderEvent({
             type: "provider_turn.updated",

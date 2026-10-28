@@ -35,6 +35,34 @@ function event(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   };
 }
 
+it.each(["Linux x86_64", "Win32", "MacIntel"])(
+  "opens an external terminal with Ctrl+Shift+N only when a local workspace is available on %s",
+  (platform) => {
+    const chord = event({ key: "N", code: "KeyN", ctrlKey: true, shiftKey: true });
+    assert.equal(
+      resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform,
+        context: { externalTerminalAvailable: true },
+      }),
+      "terminal.openExternal",
+    );
+    assert.equal(
+      resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform,
+        context: { externalTerminalAvailable: false },
+      }),
+      null,
+    );
+    assert.equal(
+      resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform,
+        context: { externalTerminalAvailable: true, terminalFocus: true },
+      }),
+      null,
+    );
+  },
+);
+
 function modShortcut(
   key: string,
   overrides: Partial<Omit<KeybindingShortcut, "key">> = {},
@@ -143,7 +171,6 @@ const DEFAULT_BINDINGS = compile([
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
-  { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
   { shortcut: modShortcut("o"), command: "editor.openFavorite" },
   { shortcut: modShortcut("[", { shiftKey: true }), command: "thread.previous" },
   { shortcut: modShortcut("]", { shiftKey: true }), command: "thread.next" },
@@ -448,6 +475,39 @@ describe("chat/editor shortcuts", () => {
       }),
     );
   });
+
+  it.each(["Linux x86_64", "Win32", "MacIntel"])(
+    "starts a project thread with leader+c on %s",
+    (platform) => {
+      assert.strictEqual(
+        resolveShortcutCommand(event({ key: "c", leaderKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform,
+        }),
+        "chat.newLocal",
+      );
+      assert.strictEqual(
+        resolveShortcutCommand(event({ key: "c", leaderKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform,
+          context: { terminalFocus: true },
+        }),
+        "chat.newLocal",
+      );
+      assert.isNull(
+        resolveShortcutCommand(event({ key: "c" }), DEFAULT_RESOLVED_KEYBINDINGS, { platform }),
+      );
+      assert.isNull(
+        resolveShortcutCommand(
+          event({
+            key: "N",
+            shiftKey: true,
+            ...(platform === "MacIntel" ? { metaKey: true } : { ctrlKey: true }),
+          }),
+          DEFAULT_RESOLVED_KEYBINDINGS,
+          { platform },
+        ),
+      );
+    },
+  );
 });
 
 describe("cross-command precedence", () => {
@@ -891,6 +951,89 @@ describe("Usage shortcuts", () => {
       resolveShortcutCommand(shortcut, DEFAULT_RESOLVED_KEYBINDINGS, {
         platform: "Linux",
       }),
+    );
+  });
+});
+
+describe("leader modifier", () => {
+  it("keeps plain, Ctrl and leader strokes distinct", () => {
+    const bindings = compileResolvedKeybindingsConfig([
+      { key: "ctrl+n", command: "chat.new" },
+      { key: "leader+n", command: "thread.next" },
+      { key: "leader+shift+n", command: "thread.previous" },
+    ]);
+    assert.equal(
+      resolveShortcutCommand(event({ key: "n" }), bindings, { platform: "Linux" }),
+      null,
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "n", ctrlKey: true }), bindings, { platform: "Linux" }),
+      "chat.new",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "n", leaderKey: true }), bindings, { platform: "Linux" }),
+      "thread.next",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "N", leaderKey: true, shiftKey: true }), bindings, {
+        platform: "Linux",
+      }),
+      "thread.previous",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "n", leaderKey: true, ctrlKey: true }), bindings, {
+        platform: "Linux",
+      }),
+      null,
+    );
+  });
+
+  it("uses contextual number selection and preserves physical jump hints", () => {
+    assert.equal(
+      resolveShortcutCommand(event({ key: "1", leaderKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { isWeb: true, isDesktop: false },
+      }),
+      "thread.jump.1",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "1", leaderKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { modelPickerOpen: true },
+      }),
+      "modelPicker.jump.1",
+    );
+    assert.isTrue(
+      shouldShowThreadJumpHintsForModifiers(
+        event({ ctrlKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Linux", context: { isDesktop: true } },
+      ),
+    );
+    assert.isTrue(
+      shouldShowThreadJumpHintsForModifiers(
+        event({ leaderKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Linux" },
+      ),
+    );
+  });
+
+  it("uses Dvorak logical punctuation for leader successors", () => {
+    const bindings = compileResolvedKeybindingsConfig([
+      { key: "leader+.", command: "thread.next" },
+    ]);
+    assert.equal(
+      resolveShortcutCommand(event({ key: ".", code: "KeyE", leaderKey: true }), bindings, {
+        platform: "Linux",
+      }),
+      "thread.next",
+    );
+    assert.equal(
+      resolveShortcutCommand(event({ key: "v", code: "Period", leaderKey: true }), bindings, {
+        platform: "Linux",
+      }),
+      null,
     );
   });
 });

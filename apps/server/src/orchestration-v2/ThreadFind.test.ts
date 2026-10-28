@@ -30,6 +30,7 @@ import {
   THREAD_HISTORY_PAGE_POLICY,
 } from "./threadHistoryPaging.ts";
 import { projectTurnItemForWire } from "./WireProjection.ts";
+import { findProjectedThreadItems } from "./ThreadFind.ts";
 
 const layerTest = Layer.mergeAll(EventStore.layer, ProjectionStore.layer, ProjectStore.layer).pipe(
   Layer.provideMerge(SqlitePersistence.layerMemory),
@@ -472,6 +473,46 @@ describe("V2 thread find", () => {
       const updated = run(threadId, runId, 1, "rolled_back");
       yield* commit([{ ...updated, type: "run.updated" }]);
       assert.equal((yield* projection.searchThread({ threadId, query: "needle" })).totalMatches, 0);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("searches a late question reply that starts a new turn", () =>
+    Effect.gen(function* () {
+      const projection = yield* setup;
+      const resumedRunId = RunId.make("resumed-run");
+      yield* commit([run(threadId, resumedRunId, 2, "completed")]);
+      const question: OrchestrationV2TurnItem = {
+        ...item("question", 1, ""),
+        type: "user_input_request",
+        requestId: RuntimeRequestId.make("late-question"),
+        questions: [],
+        questionAnswer: {
+          requestId: "late-question",
+          answers: { reply: "needle" },
+          attachmentsByQuestionId: {},
+        },
+      };
+      const reply = {
+        ...item("async-answer:late-question", 0, "needle", "user_message"),
+        runId: resumedRunId,
+      };
+      const items = [question, reply];
+      yield* putItems(items);
+      const memory = findProjectedThreadItems(
+        items.map((item, position) => ({
+          item,
+          position,
+          visibility: "local",
+          sourceThreadId: threadId,
+          sourceItemId: item.id,
+        })),
+        { threadId, query: "needle" },
+        0,
+      );
+      const stored = yield* projection.searchThread({ threadId, query: "needle" });
+      assert.equal(memory.totalMatches, 1);
+      assert.equal(stored.totalMatches, 1);
+      assert.equal(stored.match?.entryId, "async-answer:late-question");
     }).pipe(Effect.provide(layerTest)),
   );
 

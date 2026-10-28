@@ -51,6 +51,12 @@
         "scripts/probe-claude-fork-local-rollback-replay.ts",
         "scripts/update-test-shard-weights.ts",
         "scripts/verify-background-live.ts",
+        "bench/network/run.ts",
+        "bench/network/reconnectRun.ts",
+        "bench/network/reconnectServer.ts",
+        "bench/network/reconnectWorker.ts",
+        "bench/network/server.ts",
+        "bench/network/operationsServer.ts",
         "src/provider/testFixtures/*.mjs",
         // graphqlgen reads its config.
         "graphql.config.ts",
@@ -61,7 +67,13 @@
       // The Vite+ web build prerequisite.
       // Native and disk-loaded provider packages stay external to the bundle; the
       // CLI archive and desktop sidecar stage them from this manifest.
-      "ignoreDependencies": ["@effect/platform-node-shared", "@t3tools/web", "@napi-rs/keyring"],
+      "ignoreDependencies": [
+        "@effect/platform-node-shared",
+        "@t3tools/web",
+        "@napi-rs/keyring",
+        // WebTransport loads its native HTTP/3 transport by package name.
+        "@fails-components/webtransport-transport-http3-quiche",
+      ],
     },
     "apps/desktop": {
       // Electron loads these bundles by filename rather than importing them.

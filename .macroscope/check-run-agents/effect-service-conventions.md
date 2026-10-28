@@ -33,7 +33,7 @@ Review changed TypeScript for the conventions below. They apply when a pull requ
 
 ## Placement
 
-- Flag new or broadened feature logic in a transport handler: a WebSocket RPC handler in `apps/server/src/ws.ts`, an HTTP route handler, or an MCP tool handler. A handler decodes input, calls one service method, and maps the service's errors to the transport's error. Filesystem, Git, process, or persistence work, folder naming, multi-step command dispatch, retries, or rollback inside a handler belongs in a service method; ask for it to move to the domain's existing service, or a new one when none owns the domain. Existing inline handlers are legacy; flag only changed lines.
+- Flag new or broadened feature logic in a transport handler: an authenticated RPC handler in `apps/server/src/AuthenticatedRpcSession.ts`, an HTTP route handler, or an MCP tool handler. A handler decodes input, calls one service method, and maps the service's errors to the transport's error. Filesystem, Git, process, or persistence work, folder naming, multi-step command dispatch, retries, or rollback inside a handler belongs in a service method; ask for it to move to the domain's existing service, or a new one when none owns the domain. Existing inline handlers are legacy; flag only changed lines.
 - Flag a new exported free function that does a server capability's effectful work (filesystem, Git, processes, persisted state) and is called from a handler, when it should be a service method. Plain functions for pure work (formatting, naming, parsing) are fine.
 
 ## Service definition

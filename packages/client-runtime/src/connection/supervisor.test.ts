@@ -1,3 +1,7 @@
+import * as Clock from "effect/Clock";
+import * as Queue from "effect/Queue";
+import * as Diagnostics from "./diagnostics.ts";
+import { ReconnectExperiment } from "./reconnectExperiment.ts";
 import { AuthStandardClientScopes, EnvironmentId, type ServerConfig } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
@@ -149,6 +153,7 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
   readonly checkRoute?: (route: ConnectionRoute) => Effect.Effect<ConnectionDriver.RouteCheck>;
   readonly checkHost?: (prepared: PreparedConnection) => Effect.Effect<ConnectionDriver.RouteCheck>;
   readonly inboundFrames?: Effect.Effect<number>;
+  readonly release?: (attempt: number) => Effect.Effect<void>;
 }) {
   const networkStatus = yield* SubscriptionRef.make<NetworkStatus>(
     options?.networkStatus ?? "online",
@@ -206,7 +211,10 @@ const makeHarness = Effect.fn("TestConnectionHarness.make")(function* (options?:
         inboundFrames: options?.inboundFrames ?? Effect.succeed(0),
         closed: Deferred.await(closed),
       } satisfies RpcSession.RpcSession),
-      () => Ref.update(releaseCount, (count) => count + 1),
+      () =>
+        Ref.update(releaseCount, (count) => count + 1).pipe(
+          Effect.andThen(options?.release?.(attempt) ?? Effect.void),
+        ),
     );
 
     yield* reportProgress({ stage: "synchronizing", prepared });
@@ -617,8 +625,47 @@ describe("EnvironmentSupervisor", () => {
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
+  it.effect.each([180_000, -1])(
+    "restarts a suspended attempt after wall time changes to %s without advancing monotonic time",
+    (wallTime) =>
+      Effect.gen(function* () {
+        let now = 0;
+        const clock = yield* Clock.Clock;
+        const preparing = yield* Deferred.make<void>();
+        const canceled = yield* Deferred.make<void>();
+        const harness = yield* makeHarness({
+          prepare: (attempt) =>
+            attempt === 1
+              ? Deferred.succeed(preparing, undefined).pipe(
+                  Effect.andThen(Effect.never),
+                  Effect.ensuring(Deferred.succeed(canceled, undefined)),
+                )
+              : Effect.succeed(PREPARED_CONNECTION),
+        });
+        const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+          initiallyDesired: true,
+        }).pipe(
+          Effect.provide(harness.dependencies),
+          Effect.provideService(Clock.Clock, {
+            ...clock,
+            currentTimeMillisUnsafe: () => now,
+            currentTimeMillis: Effect.sync(() => now),
+          }),
+        );
+        yield* Deferred.await(preparing);
+        now = wallTime;
+        yield* harness.wake("application-active-long");
+        yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+        expect(yield* Deferred.isDone(canceled)).toBe(true);
+        expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+        expect(yield* Ref.get(harness.sessionCount)).toBe(1);
+        expect(yield* Clock.monotonicTimeNanos).toBe(0n);
+      }).pipe(Effect.provide(TestClock.layer())),
+  );
+
   it.effect("probes the active session without reconnecting on application activation", () =>
     Effect.gen(function* () {
+      const observations = yield* Queue.unbounded<Diagnostics.ConnectionDiagnosticEvent>();
       const probeCount = yield* Ref.make(0);
       const probeCalled = yield* Deferred.make<void>();
       const harness = yield* makeHarness({
@@ -629,17 +676,77 @@ describe("EnvironmentSupervisor", () => {
       });
       const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
         initiallyDesired: true,
-      }).pipe(Effect.provide(harness.dependencies));
+      }).pipe(
+        Effect.provide(harness.dependencies),
+        Effect.provideService(Diagnostics.ConnectionDiagnostics, {
+          record: (event) => {
+            Queue.offerUnsafe(observations, event);
+          },
+        }),
+      );
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
       yield* harness.wake("application-active");
       yield* Deferred.await(probeCalled);
+      const answered = yield* Queue.take(observations).pipe(
+        Effect.repeat({ until: (event) => event.kind === "probe" && event.result === "answered" }),
+      );
+      expect(answered).toMatchObject({
+        kind: "probe",
+        result: "answered",
+        environmentId: TARGET.environmentId,
+      });
 
       expect(yield* Ref.get(probeCount)).toBe(1);
       expect(yield* Ref.get(harness.sessionCount)).toBe(1);
       expect(yield* Ref.get(harness.releaseCount)).toBe(0);
       expect((yield* SubscriptionRef.get(supervisor.state)).phase).toBe("connected");
     }),
+  );
+
+  it.effect("times old session release before starting the replacement attempt", () =>
+    Effect.gen(function* () {
+      const releasing = yield* Deferred.make<void>();
+      const finishRelease = yield* Deferred.make<void>();
+      const observations: Diagnostics.ConnectionDiagnosticEvent[] = [];
+      const harness = yield* makeHarness({
+        probe: () => Effect.never,
+        release: (attempt) =>
+          attempt === 1
+            ? Deferred.succeed(releasing, undefined).pipe(
+                Effect.andThen(Deferred.await(finishRelease)),
+              )
+            : Effect.void,
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(
+        Effect.provide(harness.dependencies),
+        Effect.provideService(Diagnostics.ConnectionDiagnostics, {
+          record: (event) => observations.push(event),
+        }),
+      );
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.wake("application-active-long");
+      yield* TestClock.adjust("3 seconds");
+      yield* Deferred.await(releasing);
+      const duringRelease = [...observations];
+      const attemptsDuringRelease = yield* Ref.get(harness.prepareCount);
+      yield* TestClock.adjust(29);
+      yield* Deferred.succeed(finishRelease, undefined);
+      yield* awaitState(
+        supervisor.state,
+        (state) => state.phase === "connected" && state.generation === 2,
+      );
+      expect(attemptsDuringRelease).toBe(1);
+      expect(duringRelease.filter((event) => event.kind === "cleanup")).toMatchObject([
+        { resource: "session", milestone: "started", durationMs: null },
+      ]);
+      expect(observations.filter((event) => event.kind === "cleanup")).toMatchObject([
+        { resource: "session", milestone: "started", durationMs: null },
+        { resource: "session", milestone: "finished", durationMs: 29, outcome: "completed" },
+      ]);
+    }).pipe(Effect.provide(TestClock.layer())),
   );
 
   it.effect("keeps a live mobile session after a long background resume", () =>
@@ -1715,3 +1822,25 @@ describe("EnvironmentSupervisor routes", () => {
     }),
   );
 });
+
+it.effect("old arm restarts even a fresh attempt on long-resume activation", () =>
+  Effect.gen(function* () {
+    const preparing = yield* Deferred.make<void>();
+    const harness = yield* makeHarness({
+      prepare: (attempt) =>
+        attempt === 1
+          ? Deferred.succeed(preparing, undefined).pipe(Effect.andThen(Effect.never))
+          : Effect.succeed(PREPARED_CONNECTION),
+    });
+    const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+      initiallyDesired: true,
+    }).pipe(
+      Effect.provide(harness.dependencies),
+      Effect.provideService(ReconnectExperiment, { begin: () => undefined, arm: () => "old" }),
+    );
+    yield* Deferred.await(preparing);
+    yield* harness.wake("application-active-long");
+    yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+    expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+  }).pipe(Effect.provide(TestClock.layer())),
+);

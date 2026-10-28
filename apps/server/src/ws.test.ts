@@ -1,3 +1,5 @@
+import { RpcClientId } from "@t3tools/contracts";
+import { withLateEditorConfig, layerAuthenticatedHandlers } from "./AuthenticatedRpcSession.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -119,12 +121,10 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ProjectEnrichment from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import {
-  layerWsRpc,
   subscribeOrchestrationV2Shell,
   subscribeOrchestrationV2Thread,
   WS_RPC_SERVER_OPTIONS,
-  withLateEditorConfig,
-} from "./ws.ts";
+} from "./AuthenticatedRpcSession.ts";
 
 const snapshotConfig = (fields: Partial<ServerConfig>) =>
   ({ availableEditors: [], settings: {}, ...fields }) as unknown as ServerConfig;
@@ -637,7 +637,7 @@ it.effect(
         },
       ).pipe(
         Effect.provide(
-          layerWsRpc(
+          layerAuthenticatedHandlers(
             {
               sessionId: AuthSessionId.make("config-test"),
               subject: "config-test",
@@ -645,6 +645,8 @@ it.effect(
               scopes: [],
             },
             {},
+            {},
+            RpcClientId.make(0),
             yield* ServerBrowser.ServerBrowser,
           ).pipe(Layer.provide(configRpcServices)),
         ),
@@ -803,7 +805,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
       },
     ).pipe(
       Effect.provide(
-        layerWsRpc(
+        layerAuthenticatedHandlers(
           {
             sessionId: AuthSessionId.make("config-test"),
             subject: "config-test",
@@ -811,6 +813,8 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
             scopes: [],
           },
           {},
+          {},
+          RpcClientId.make(0),
           yield* ServerBrowser.ServerBrowser,
         ).pipe(Layer.provide(configRpcServices)),
       ),

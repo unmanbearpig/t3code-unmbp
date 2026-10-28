@@ -1,3 +1,8 @@
+import { MonitorIcon } from "lucide-react";
+import { addAppShortcutListener, registerLeaderShortcutHandler } from "~/appShortcutEvents";
+
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
+
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -115,6 +120,7 @@ import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { useStartTriage } from "../hooks/useStartTriage";
 import { pickTriageEnvironment } from "../lib/triageTarget";
+import { useExternalTerminal } from "../hooks/useExternalTerminal";
 import { useNewProject } from "../hooks/useNewProject";
 import {
   useEnvironmentProviders,
@@ -166,6 +172,7 @@ import {
   buildLinkedThreadActionItems,
   buildCommandPaletteRows,
   enumerateCommandPaletteItems,
+  findBrowseCompletionItem,
   findHighlightedCommandPaletteItem,
   type CommandPaletteActionItem,
   type CommandPaletteOpenIntent,
@@ -622,6 +629,7 @@ function OpenCommandPaletteDialog(props: {
   const currentProjectEnvironmentId =
     activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null;
   const currentProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
+  const externalTerminal = useExternalTerminal();
   const scratchTargetEnvironmentId = scratchEnvironmentId(currentProjectEnvironmentId);
   const supportsTriage = (environmentId: EnvironmentId | null) =>
     environments.find((environment) => environment.environmentId === environmentId)?.serverConfig
@@ -1465,6 +1473,18 @@ function OpenCommandPaletteDialog(props: {
 
   actionItems.push(themeEditorItem);
 
+  if (externalTerminal.available) {
+    actionItems.push({
+      kind: "action",
+      value: "action:open-external-terminal",
+      searchTerms: ["terminal", "foot", "kitty", "alacritty", "shell", "window"],
+      title: "Open external terminal",
+      icon: <MonitorIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "terminal.openExternal",
+      run: externalTerminal.open,
+    });
+  }
+
   if (environments.some((environment) => environment.serverConfig !== null)) {
     actionItems.push({
       kind: "action",
@@ -1700,7 +1720,7 @@ function OpenCommandPaletteDialog(props: {
         existing.id,
         clientSettings.sidebarThreadSortOrder,
       );
-      if (latestThread && latestThread.settledOverride !== "settled") {
+      if (latestThread && !isFiledAsSettled(latestThread)) {
         await navigate({
           to: "/$environmentId/$threadId",
           params: buildThreadRouteParams(
@@ -2380,6 +2400,23 @@ function OpenCommandPaletteDialog(props: {
     }
 
     if (event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
+    if (
+      isBrowsing &&
+      event.key === "Tab" &&
+      !isBrowsePending &&
+      !event.nativeEvent.isComposing &&
+      event.keyCode !== 229
+    ) {
+      const completionItem = findBrowseCompletionItem(displayedGroups, highlightedItemValue);
+      if (completionItem) {
+        (event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.();
+        event.preventDefault();
+        event.stopPropagation();
+        executeItem(completionItem);
+      }
+      return;
+    }
+    // Base UI only keeps a hidden highlight on the first row when it auto-highlights.
     const firstItemValue = autoHighlightsFirstRow ? resultRows.itemValues[0] : undefined;
     if (
       event.key === "ArrowDown" &&
@@ -2437,6 +2474,27 @@ function OpenCommandPaletteDialog(props: {
       );
     });
   }
+
+  useEffect(() =>
+    registerLeaderShortcutHandler((event) => {
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: { modelPickerOpen: false },
+      });
+      if (command === "thread.copyReference") {
+        event.preventDefault();
+        if (activeThreadReferenceCopyTarget === null) return;
+        setOpen(false);
+        void copyActiveThreadReference();
+        return;
+      }
+      if (threadJumpIndexFromCommand(command ?? "") === null) return;
+      event.preventDefault();
+      const matchingItem = displayedGroups
+        .flatMap((group) => group.items)
+        .find((item) => item.shortcutCommand === command);
+      if (matchingItem) executeItem(matchingItem);
+    }, true),
+  );
 
   const handleOpenProjectFromFileManager = async () => {
     if (!canOpenProjectFromFileManager || isPickingProjectFolder) {

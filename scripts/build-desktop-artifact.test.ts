@@ -41,6 +41,7 @@ import {
   resolveMacPasskeySigningConfiguration,
   resolveMergedStageDependencies,
   resolveBuildOptions,
+  resolveGitHubPublishConfig,
   stageWslRuntimeArchive,
   ancestorNodeModulesPaths,
   copyDirectoryPreservingSymlinks,
@@ -531,8 +532,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(release.publish, [
         {
           provider: "github",
-          owner: "pingdotgg",
-          repo: "t3code",
+          owner: "unmanbearpig",
+          repo: "t3code-unmbp",
           releaseType: "release",
         },
       ]);
@@ -1689,6 +1690,49 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.equal(resolved.signed, false);
       assert.equal(resolved.verbose, false);
       assert.equal(resolved.mockUpdates, false);
+    }),
+  );
+
+  it.effect("pins desktop update feeds to the fork despite upstream build configuration", () =>
+    Effect.gen(function* () {
+      const defaultConfig = yield* resolveGitHubPublishConfig("latest");
+      const latestConfig = yield* resolveGitHubPublishConfig("latest").pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                T3CODE_DESKTOP_UPDATE_REPOSITORY: "pingdotgg/t3code",
+              },
+            }),
+          ),
+        ),
+      );
+      const nightlyConfig = yield* resolveGitHubPublishConfig("nightly").pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromEnv({
+              env: {
+                GITHUB_REPOSITORY: "pingdotgg/t3code",
+              },
+            }),
+          ),
+        ),
+      );
+
+      assert.deepStrictEqual(latestConfig, {
+        provider: "github",
+        owner: "unmanbearpig",
+        repo: "t3code-unmbp",
+        releaseType: "release",
+      });
+      assert.deepStrictEqual(defaultConfig, latestConfig);
+      assert.deepStrictEqual(nightlyConfig, {
+        provider: "github",
+        owner: "unmanbearpig",
+        repo: "t3code-unmbp",
+        releaseType: "prerelease",
+        channel: "nightly",
+      });
     }),
   );
 });

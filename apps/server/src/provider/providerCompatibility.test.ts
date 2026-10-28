@@ -208,6 +208,43 @@ describe("provider compatibility", () => {
     ])
       assert.throws(() => decode(invalid));
   });
+
+  it("leaves Codex source builds unclassified without relaxing checks for released versions", () => {
+    for (const version of ["0.0.0", "v0.0.0"]) {
+      const advisory = resolveProviderCompatibility([policy], driver, version);
+      assert.strictEqual(advisory?.status, "unknown");
+      assert.isNull(advisory?.message);
+    }
+    for (const [version, expected] of [
+      ["0.9.0", "broken"],
+      ["1.0.0", "unsupported"],
+      ["2.0.0", "supported"],
+      ["2.1.0", "supported"],
+    ] as const) {
+      assert.strictEqual(resolveProviderCompatibility([policy], driver, version)?.status, expected);
+    }
+    assert.strictEqual(
+      resolveProviderCompatibility(
+        [{ ...policy, driver: "claudeAgent" }],
+        ProviderDriverKind.make("claudeAgent"),
+        "0.0.0",
+      )?.status,
+      "broken",
+    );
+  });
+
+  it("preserves source-build health and authentication failures when applying remote policies", () => {
+    const snapshot = applyProviderCompatibility(
+      { ...provider, version: "0.0.0" },
+      [policy],
+      [policy],
+    );
+    assert.strictEqual(snapshot.compatibilityAdvisory?.status, "unknown");
+    assert.isNull(snapshot.compatibilityAdvisory?.message);
+    assert.strictEqual(snapshot.status, "error");
+    assert.strictEqual(snapshot.message, "Authentication failed");
+    assert.strictEqual(snapshot.auth.status, "unauthenticated");
+  });
 });
 
 it.effect("a remote policy refresh preserves a newer health result on the registry stream", () =>

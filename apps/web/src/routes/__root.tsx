@@ -1,3 +1,5 @@
+import { AppGlobalShortcuts } from "../components/AppGlobalShortcuts";
+import { LeaderKeyCoordinator } from "../components/LeaderKeyCoordinator";
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
@@ -58,6 +60,8 @@ import { primaryServerConfigAtom, primaryServerWelcomeAtom } from "../state/serv
 import { readProject } from "../state/entities";
 
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
+import { installDesktopPasteAsText } from "../lib/desktopPasteAsText";
+import { installTextareaNewlineShortcut } from "../lib/textboxNewline";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
 
 export const Route = createRootRoute({
@@ -141,6 +145,8 @@ function RootRouteView() {
 }
 
 function RootRouteBranch() {
+  useEffect(() => installDesktopPasteAsText(window.desktopBridge, window), []);
+  useEffect(() => installTextareaNewlineShortcut(window), []);
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();
   const primaryEnvironmentAuthenticated = authGateState.status === "authenticated";
@@ -171,6 +177,8 @@ function RootRouteBranch() {
         <GuestShareDialogHost />
         <CommandPalette>
           <AppSidebarLayout>
+            <LeaderKeyCoordinator />
+            <AppGlobalShortcuts />
             <Outlet />
           </AppSidebarLayout>
         </CommandPalette>
@@ -185,6 +193,8 @@ function RootRouteBranch() {
   const appShell = (
     <CommandPalette>
       <AppSidebarLayout>
+        <LeaderKeyCoordinator />
+        <AppGlobalShortcuts />
         <Outlet />
       </AppSidebarLayout>
     </CommandPalette>

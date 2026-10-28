@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
   canOperate: true,
+  platformOS: "ios",
   documentUri: "file:///documents",
   createAssetUrl: vi.fn(),
   createUploadUrl: Symbol("create-upload-url"),
@@ -13,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   runAtomCommand: vi.fn(),
   readAtom: vi.fn(),
   upload: vi.fn(),
+  modernUpload: vi.fn(),
+  createLegacyUploadTask: vi.fn(),
+  cancelUpload: vi.fn(),
   writeFile: vi.fn(),
   deleteFile: vi.fn(),
   readBase64: vi.fn(),
@@ -57,6 +61,19 @@ vi.mock("./uuid", () => ({
   randomHex: () => "0000",
 }));
 
+vi.mock("react-native", () => ({
+  Platform: {
+    get OS() {
+      return mocks.platformOS;
+    },
+  },
+}));
+
+vi.mock("expo-file-system/legacy", () => ({
+  createUploadTask: mocks.createLegacyUploadTask,
+  FileSystemUploadType: { BINARY_CONTENT: 0 },
+}));
+
 vi.mock("expo-file-system", () => ({
   File: class {
     readonly uri: string;
@@ -77,6 +94,7 @@ vi.mock("expo-file-system", () => ({
     }
 
     upload(url: string, options: unknown) {
+      mocks.modernUpload(this.uri, url, options);
       return mocks.upload(this.uri, url, options);
     }
   },
@@ -148,6 +166,7 @@ function removeCallsFor(attachmentId: string): number {
 describe("prepareTurnAttachments", () => {
   beforeEach(() => {
     mocks.canOperate = true;
+    mocks.platformOS = "ios";
     mocks.documentUri = "file:///documents";
     mocks.createAssetUrl.mockReset();
     mocks.createAssetUrl.mockImplementation((target: unknown) => target);
@@ -156,6 +175,16 @@ describe("prepareTurnAttachments", () => {
     mocks.runAtomCommand.mockReset();
     mocks.readAtom.mockReset();
     mocks.upload.mockReset();
+    mocks.modernUpload.mockReset();
+    mocks.createLegacyUploadTask.mockReset();
+    mocks.cancelUpload.mockReset();
+    mocks.cancelUpload.mockResolvedValue(undefined);
+    mocks.createLegacyUploadTask.mockImplementation(
+      (url: string, uri: string, options: unknown) => ({
+        uploadAsync: () => mocks.upload(uri, url, options),
+        cancelAsync: mocks.cancelUpload,
+      }),
+    );
     mocks.writeFile.mockReset();
     mocks.deleteFile.mockReset();
     mocks.readBase64.mockReset();
@@ -187,6 +216,93 @@ describe("prepareTurnAttachments", () => {
     ).rejects.toThrow("cannot upload attachments");
     expect(mocks.runAtomCommand).not.toHaveBeenCalled();
     expect(mocks.upload).not.toHaveBeenCalled();
+  });
+
+  it.each([image, fileBackedImage, file])(
+    "uploads $name on Android when the new native file uploader is unavailable",
+    async (attachment) => {
+      mocks.platformOS = "android";
+      mocks.modernUpload.mockImplementation(() => {
+        throw new Error("FileSystemUploadTask is unavailable");
+      });
+      const prepared = await prepareTurnAttachments({
+        environmentId,
+        attachments: [attachment],
+        supportsImageUploads: true,
+      });
+
+      expect(prepared.status).toBe("ready");
+      if (prepared.status !== "ready") return;
+      expect(prepared.attachments[0]).toMatchObject({ id: MINTED_ID, name: attachment.name });
+      expect(prepared.pendingAttachmentIds).toEqual([MINTED_ID]);
+      expect(mocks.modernUpload).not.toHaveBeenCalled();
+      expect(mocks.createLegacyUploadTask).toHaveBeenCalledExactlyOnceWith(
+        "https://environment.example/api/attachments/upload/signed",
+        "fileUri" in attachment ? attachment.fileUri : "file:///cache/t3-upload-uuid",
+        {
+          httpMethod: "POST",
+          uploadType: 0,
+          headers: { "Content-Type": attachment.mimeType },
+        },
+        undefined,
+      );
+    },
+  );
+
+  it("reports native Android upload progress", async () => {
+    mocks.platformOS = "android";
+    mocks.createLegacyUploadTask.mockImplementation(
+      (
+        url: string,
+        uri: string,
+        options: unknown,
+        progress: (data: { totalBytesSent: number; totalBytesExpectedToSend: number }) => void,
+      ) => ({
+        uploadAsync: async () => {
+          progress({ totalBytesSent: 0, totalBytesExpectedToSend: 0 });
+          progress({ totalBytesSent: 3, totalBytesExpectedToSend: 6 });
+          return mocks.upload(uri, url, options);
+        },
+        cancelAsync: mocks.cancelUpload,
+      }),
+    );
+    const progress = vi.fn();
+    await prepareTurnAttachments({
+      environmentId,
+      attachments: [image],
+      supportsImageUploads: true,
+      onUploadProgress: progress,
+    });
+    expect(progress).toHaveBeenCalledExactlyOnceWith(image.id, 0.5);
+    expect(mocks.cancelUpload).not.toHaveBeenCalled();
+  });
+
+  it("cancels an Android upload and releases its pending reference", async () => {
+    mocks.platformOS = "android";
+    const started = Promise.withResolvers<void>();
+    const upload = Promise.withResolvers<null>();
+    const controller = new AbortController();
+    const persist = vi.fn();
+    mocks.upload.mockImplementation(() => {
+      started.resolve();
+      return upload.promise;
+    });
+    mocks.cancelUpload.mockImplementation(async () => upload.resolve(null));
+    const preparing = prepareTurnAttachments({
+      environmentId,
+      attachments: [image],
+      supportsImageUploads: true,
+      signal: controller.signal,
+      persistUploadedReferences: persist,
+    });
+    await started.promise;
+    controller.abort();
+
+    await expect(preparing).resolves.toEqual({ status: "abandoned" });
+    expect(mocks.cancelUpload).toHaveBeenCalledOnce();
+    expect(mocks.deleteFile).toHaveBeenCalledExactlyOnceWith("file:///cache/t3-upload-uuid");
+    expect(removeCallsFor(MINTED_ID)).toBe(1);
+    expect(persist).not.toHaveBeenCalled();
   });
 
   it("rechecks access after a signed URL is minted before sending any bytes", async () => {

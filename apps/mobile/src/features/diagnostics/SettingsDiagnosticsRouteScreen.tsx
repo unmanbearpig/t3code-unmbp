@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+import { ConnectionLogSection } from "./ConnectionLogSection";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import * as Application from "expo-application";
@@ -25,8 +27,16 @@ import {
   parseStartupCrashRecords,
   type StartupCrashRecord,
 } from "./crash-log-model";
+import {
+  clearDiagnosticLog,
+  formatDiagnosticLog,
+  readDiagnosticLog,
+  type DiagnosticLogEntry,
+} from "./diagnostic-log";
+import { performanceTelemetry, readPerformanceReport } from "./performance-telemetry";
+import { PerformanceLogSection } from "./PerformanceLogSection";
 
-// expo-updates retains only seven days of logs.
+// Request the full iOS window. Android's Expo log is limited to one day.
 const LOG_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 type CrashLogState =
@@ -68,17 +78,60 @@ function appIdentity() {
   };
 }
 
+function loadActivityLog(): { entries: ReadonlyArray<DiagnosticLogEntry>; unavailable: boolean } {
+  try {
+    return { entries: readDiagnosticLog(), unavailable: false };
+  } catch {
+    return { entries: [], unavailable: true };
+  }
+}
+
+/**
+ * Saved activity and errors in every build, supplemented by expo-updates'
+ * recovery log when available.
+ */
 export function SettingsDiagnosticsRouteScreen() {
   const insets = useSafeAreaInsets();
   const state = useCrashLogState();
   const [copied, setCopied] = useState(false);
+  const [activityLog, setActivityLog] = useState(loadActivityLog);
+  const [performanceReport, setPerformanceReport] = useState(readPerformanceReport);
+  const log = activityLog.entries;
 
   const records = state.status === "ready" ? state.records : [];
   const copyReport = async () => {
-    const ok = await tryCopyTextWithHaptic(formatStartupCrashReport(records, appIdentity()), {
-      target: "crash report",
-    });
+    let entries = log;
+    try {
+      entries = readDiagnosticLog();
+    } catch {
+      setActivityLog((current) => ({ ...current, unavailable: true }));
+    }
+    const app = appIdentity();
+    const report = [
+      state.status === "ready"
+        ? formatStartupCrashReport(records, app)
+        : `T3 Code ${app.version} (${app.build})\nUpdate crash log ${state.status === "loading" ? "loading" : "unavailable"}.`,
+      `Platform: ${Platform.OS}`,
+      "\nActivity log",
+      formatDiagnosticLog(entries),
+      "\nPerformance telemetry",
+      JSON.stringify(readPerformanceReport(), null, 2),
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const ok = await tryCopyTextWithHaptic(report, { target: "diagnostic report" });
     if (ok) setCopied(true);
+  };
+  const clearLog = () => {
+    try {
+      clearDiagnosticLog();
+      performanceTelemetry.clear();
+      setPerformanceReport(readPerformanceReport());
+      setActivityLog({ entries: [], unavailable: false });
+      setCopied(false);
+    } catch {
+      setActivityLog((current) => ({ ...current, unavailable: true }));
+    }
   };
 
   return (
@@ -92,6 +145,27 @@ export function SettingsDiagnosticsRouteScreen() {
       >
         {crashReportingAvailable ? <CrashReportsSetting /> : null}
 
+        <SettingsSection title="Activity log">
+          {activityLog.unavailable ? (
+            <Text className="p-4 text-sm text-foreground-muted">
+              Could not read the activity log.
+            </Text>
+          ) : log.length === 0 ? (
+            <Text className="p-4 text-sm text-foreground-muted">No activity recorded.</Text>
+          ) : (
+            <Text selectable className="p-4 font-mono text-xs leading-snug text-foreground-muted">
+              {formatDiagnosticLog(
+                log.slice(0, 30).map((entry) => ({
+                  ...entry,
+                  message:
+                    entry.message.length > 500 ? `${entry.message.slice(0, 500)}…` : entry.message,
+                })),
+              )}
+            </Text>
+          )}
+        </SettingsSection>
+        <ConnectionLogSection app={appIdentity()} />
+        <PerformanceLogSection summary={performanceReport.summary} />
         <SettingsSection title="Startup crashes">
           {state.status === "loading" ? (
             <View className="items-center gap-3 px-6 py-8">
@@ -99,17 +173,9 @@ export function SettingsDiagnosticsRouteScreen() {
               <Text className="text-center text-sm text-foreground-muted">Reading crash log…</Text>
             </View>
           ) : state.status === "unavailable" ? (
-            <EmptyState
-              icon="exclamationmark.triangle"
-              title="Crash log unavailable"
-              detail="Startup crash records are only kept in store and TestFlight builds."
-            />
+            <EmptyState icon="exclamationmark.triangle" title="Update crash log unavailable" />
           ) : records.length === 0 ? (
-            <EmptyState
-              icon="checkmark.circle"
-              title="No startup crashes"
-              detail="Nothing has taken the app down during launch in the last 7 days."
-            />
+            <EmptyState icon="checkmark.circle" title="No startup crashes" />
           ) : (
             records.map((record, index) => (
               <CrashRow key={record.timestamp} record={record} first={index === 0} />
@@ -121,16 +187,25 @@ export function SettingsDiagnosticsRouteScreen() {
           <SettingsSection title="Actions">
             <SettingsActionRow
               icon={copied ? "checkmark" : "doc.on.doc"}
-              label={copied ? "Copied" : "Copy crash report"}
-              disabled={state.status !== "ready"}
+              label={copied ? "Copied" : "Copy diagnostic report"}
               onPress={() => void copyReport()}
             />
+            <SettingsActionRow
+              icon="arrow.clockwise"
+              label="Refresh"
+              onPress={() => {
+                setCopied(false);
+                setActivityLog(loadActivityLog());
+                setPerformanceReport(readPerformanceReport());
+              }}
+            />
+            <SettingsActionRow
+              icon="trash"
+              label="Clear activity log"
+              tone="danger"
+              onPress={clearLog}
+            />
           </SettingsSection>
-          <Text className="px-2 text-sm leading-normal text-foreground-muted">
-            Paste the report into a GitHub issue. It contains the app version, the JavaScript error
-            message, and the component stack. Error messages can quote values from the app, so read
-            it over before sharing.
-          </Text>
         </View>
       </ScrollView>
     </SettingsScreen>
@@ -188,7 +263,6 @@ function CrashReportsSetting() {
 function EmptyState(props: {
   readonly icon: "exclamationmark.triangle" | "checkmark.circle";
   readonly title: string;
-  readonly detail: string;
 }) {
   return (
     <View className="items-center gap-2 px-6 py-8">
@@ -200,7 +274,6 @@ function EmptyState(props: {
         weight="regular"
       />
       <Text className="text-center text-base text-foreground">{props.title}</Text>
-      <Text className="text-center text-sm text-foreground-muted">{props.detail}</Text>
     </View>
   );
 }

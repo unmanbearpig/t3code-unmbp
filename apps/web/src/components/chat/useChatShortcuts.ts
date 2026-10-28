@@ -1,3 +1,4 @@
+import { addAppShortcutListener, isLeaderShortcutEvent } from "~/appShortcutEvents";
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { useEffect, useEffectEvent } from "react";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
@@ -63,6 +64,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     if (
       !shortcutContext.terminalFocus &&
       !shortcutContext.modelPickerOpen &&
+      !isLeaderShortcutEvent(event) &&
       shouldTypeToFocusComposer(event) &&
       input.composerRef.current?.insertTextAtEnd(event.key) === true
     ) {
@@ -102,10 +104,10 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
   useEffect(() => {
     const onKeyDownCapture = (event: KeyboardEvent) => handleShortcut(event);
     const onKeyDown = (event: KeyboardEvent) => dismissFind(event);
-    window.addEventListener("keydown", onKeyDownCapture, true);
+    const unsubscribe = addAppShortcutListener(window, onKeyDownCapture, true);
     window.addEventListener("keydown", onKeyDown);
     return () => {
-      window.removeEventListener("keydown", onKeyDownCapture, true);
+      unsubscribe();
       window.removeEventListener("keydown", onKeyDown);
     };
   }, []);

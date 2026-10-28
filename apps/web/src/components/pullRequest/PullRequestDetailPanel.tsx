@@ -1,6 +1,7 @@
 import { projectChangeRequestUrl } from "@t3tools/client-runtime/change-request-links";
 import { normalizeThreadPullRequestKey } from "@t3tools/client-runtime/thread-pull-requests";
 import { changeRequestReferenceAutolinker } from "@t3tools/client-runtime/pull-request-markdown";
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import { useAtomValue } from "@effect/atom-react";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
 import {
@@ -492,8 +493,7 @@ export function PullRequestDetailPanel({
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window keydown capture listener for the copy-number shortcut
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => copyFromShortcut(event);
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    return addAppShortcutListener(window, onKeyDown, true);
   }, []);
   const autoMergeKey = `${pullRequestKey}:${detail?.autoMergeMethod ?? ""}`;
   const [seenAutoMergeKey, setSeenAutoMergeKey] = useState<string | null>(null);

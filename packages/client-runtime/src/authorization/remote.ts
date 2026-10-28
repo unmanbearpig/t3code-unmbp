@@ -1,3 +1,7 @@
+import * as DateTime from "effect/DateTime";
+import * as Redacted from "effect/Redacted";
+import { FetchHttpClient } from "effect/http";
+import type { PreparedRpcTicket } from "../connection/model.ts";
 import {
   AuthAccessTokenType,
   type AuthClientPresentationMetadata,
@@ -272,8 +276,30 @@ function rpcSocketUrl(wsBaseUrl: string): URL {
   return url;
 }
 
-export const resolveRemoteWebSocketConnectionUrl = Effect.fn(
-  "clientRuntime.authorization.resolveRemoteWebSocketConnectionUrl",
+export const remoteWebSocketUrl = (
+  input: {
+    readonly wsBaseUrl: string;
+    readonly clientMetadata?: AuthClientPresentationMetadata;
+    readonly connectionMethod?: ClientConnectionMethod;
+  },
+  ticket?: string,
+  owner?: ClientOwnerParams,
+): string => {
+  const url = new URL(input.wsBaseUrl);
+  if (url.pathname === "" || url.pathname === "/") {
+    url.pathname = "/ws";
+  }
+  // A saved URL must not let a stale ticket override upgrade header auth.
+  url.searchParams.delete("wsTicket");
+  if (ticket !== undefined) {
+    url.searchParams.set("wsTicket", ticket);
+  }
+  appendClientConnectionParams(url, input.clientMetadata, input.connectionMethod, owner);
+  return url.toString();
+};
+
+export const resolveRemoteWebSocketConnection = Effect.fn(
+  "clientRuntime.authorization.resolveRemoteWebSocketConnection",
 )(function* (input: {
   readonly wsBaseUrl: string;
   readonly httpBaseUrl: string;
@@ -297,7 +323,7 @@ export const resolveRemoteWebSocketConnectionUrl = Effect.fn(
     input.connectionMethod,
     yield* readClientOwnerParams,
   );
-  return url.toString();
+  return { socketUrl: url.toString(), rpcTicket: prepareRpcTicket(issued) };
 });
 
 /**
@@ -305,8 +331,8 @@ export const resolveRemoteWebSocketConnectionUrl = Effect.fn(
  * proof too. A WebSocket cannot set headers, so it rides in the `dpop` query
  * parameter and names the socket URL as the HTTP request the server sees.
  */
-export const resolveRemoteDpopWebSocketConnectionUrl = Effect.fn(
-  "clientRuntime.authorization.resolveRemoteDpopWebSocketConnectionUrl",
+export const resolveRemoteDpopWebSocketConnection = Effect.fn(
+  "clientRuntime.authorization.resolveRemoteDpopWebSocketConnection",
 )(function* <E>(input: {
   readonly wsBaseUrl: string;
   readonly httpBaseUrl: string;
@@ -353,5 +379,35 @@ export const resolveRemoteDpopWebSocketConnectionUrl = Effect.fn(
     input.connectionMethod,
     yield* readClientOwnerParams,
   );
-  return url.toString();
+  return { socketUrl: url.toString(), rpcTicket: prepareRpcTicket(issued) };
 });
+
+const prepareRpcTicket = (issued: AuthWebSocketTicketResult): PreparedRpcTicket => ({
+  value: Redacted.make(issued.ticket),
+  expiresAtEpochMs: DateTime.toEpochMillis(issued.expiresAt),
+});
+
+/** Uses the primary browser's existing cookie and the ticket route's origin policy. */
+export const issuePrimaryRpcTicket = Effect.fn("clientRuntime.authorization.issuePrimaryRpcTicket")(
+  function* (input: { readonly httpBaseUrl: string }) {
+    const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth");
+    const issued = yield* executeEnvironmentHttpRequest(
+      environmentEndpointUrl(input.httpBaseUrl, "/api/auth/websocket-ticket"),
+      DEFAULT_REMOTE_REQUEST_TIMEOUT_MS,
+      client.webSocketTicket({ headers: {} }),
+    ).pipe(Effect.provideService(FetchHttpClient.RequestInit, { credentials: "include" }));
+    return prepareRpcTicket(issued);
+  },
+);
+
+// Browser/device streaming sockets keep their existing string-returning API.
+export const resolveRemoteWebSocketConnectionUrl = (
+  input: Parameters<typeof resolveRemoteWebSocketConnection>[0],
+) => resolveRemoteWebSocketConnection(input).pipe(Effect.map((connection) => connection.socketUrl));
+
+export const resolveRemoteDpopWebSocketConnectionUrl = <E>(
+  input: Parameters<typeof resolveRemoteDpopWebSocketConnection<E>>[0],
+) =>
+  resolveRemoteDpopWebSocketConnection(input).pipe(
+    Effect.map((connection) => connection.socketUrl),
+  );

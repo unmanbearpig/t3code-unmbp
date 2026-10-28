@@ -76,6 +76,21 @@ describe("desktop update UI helpers", () => {
       );
     },
   );
+
+  it.each([
+    "owner/repo/extra",
+    "owner#notes/repo",
+    "owner/repo#notes",
+    "owner?tab=notes/repo",
+    "owner/repo?tab=notes",
+  ])("falls back to the fork for an invalid configured repository: %s", (repository) => {
+    expect(getDesktopUpdateReleaseHistoryUrl(repository)).toBe(
+      "https://github.com/unmanbearpig/t3code-unmbp/releases",
+    );
+    expect(getDesktopUpdateReleaseUrl("1.2.3", repository)).toBe(
+      "https://github.com/unmanbearpig/t3code-unmbp/releases/tag/v1.2.3",
+    );
+  });
 });
 
 describe("canCheckForUpdate", () => {

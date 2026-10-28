@@ -370,3 +370,45 @@ describe("server model preferences", () => {
     expect(decodeServerSettingsPatch(input)).toEqual(input);
   });
 });
+
+describe("ClientSettings Emacs editing", () => {
+  it("keeps existing keyboard behavior until enabled and persists the preference", () => {
+    expect(decodeClientSettings({}).composerEmacsEditingEnabled).toBe(false);
+    const preference = { composerEmacsEditingEnabled: true };
+    expect(decodeClientSettingsPatch(preference)).toEqual(preference);
+    expect(encodeClientSettings(decodeClientSettings(preference))).toMatchObject(preference);
+    expect(() => decodeClientSettingsPatch({ composerEmacsEditingEnabled: "yes" })).toThrow();
+  });
+});
+
+describe("leader trigger preferences", () => {
+  it("preserves disable and modified triggers while rejecting bare keys", () => {
+    const trigger = {
+      key: ".",
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      modKey: false,
+    };
+    expect(decodeClientSettingsPatch({ leaderShortcut: trigger })).toEqual({
+      leaderShortcut: trigger,
+    });
+    expect(decodeClientSettingsPatch({ leaderShortcut: null })).toEqual({ leaderShortcut: null });
+    expect(() =>
+      decodeClientSettingsPatch({ leaderShortcut: { ...trigger, ctrlKey: false } }),
+    ).toThrow();
+    expect(decodeClientSettingsPatch({})).not.toHaveProperty("leaderShortcut");
+  });
+});
+
+describe("ClientSettings animations", () => {
+  it("disables motion in this fork by default and persists an explicit opt-in", () => {
+    expect(decodeClientSettings({}).disableAnimations).toBe(true);
+    expect(decodeClientSettings({ disableAnimations: false }).disableAnimations).toBe(false);
+    expect(decodeClientSettingsPatch({ disableAnimations: false })).toEqual({
+      disableAnimations: false,
+    });
+    expect(() => decodeClientSettingsPatch({ disableAnimations: "off" })).toThrow();
+  });
+});
