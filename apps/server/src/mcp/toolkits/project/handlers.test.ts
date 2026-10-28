@@ -424,11 +424,10 @@ it.effect("a launch into a new worktree creates nothing when its base ref has no
     );
     expect(launched).toHaveLength(0);
 
-    // A folder that is not a repository points the agent at the root instead.
     const plain = (yield* launchFrom("plain")).at(-1)?.result;
     expect(plain).toMatchObject({ code: "invalid_request" });
     expect((plain as { message: string }).message).toContain(
-      'No thread was created. Use workspaceStrategy {type:"root"} instead.',
+      "is not a Git repository, so it cannot get a worktree. No thread was created.",
     );
     expect(launched).toHaveLength(0);
 
