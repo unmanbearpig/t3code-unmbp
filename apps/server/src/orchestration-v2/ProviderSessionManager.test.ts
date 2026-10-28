@@ -4,13 +4,13 @@ import { assert, it } from "@effect/vitest";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import {
   EnvironmentId,
-  EventId,
   type ModelSelection,
   type OrchestrationV2AppThread,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ProviderCapabilities,
   type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
+  type Project,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -34,6 +34,7 @@ import { HttpServer } from "effect/http";
 
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
@@ -44,7 +45,6 @@ import * as EventSink from "./EventSink.ts";
 import * as EventStore from "./EventStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
-import * as ProjectStore from "./ProjectStore.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -54,11 +54,9 @@ import * as CommandOutputHub from "./CommandOutputHub.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 const layerTestDatabase = SqlitePersistence.layerMemory;
-const layerTestStores = Layer.mergeAll(
-  EventStore.layer,
-  ProjectionStore.layer,
-  ProjectStore.layer,
-).pipe(Layer.provide(layerTestDatabase));
+const layerTestStores = Layer.merge(EventStore.layer, ProjectionStore.layer).pipe(
+  Layer.provide(layerTestDatabase),
+);
 const layerTestEventSink = EventSink.layer.pipe(
   Layer.provide(Layer.mergeAll(layerTestStores, layerTestDatabase)),
 );
@@ -495,7 +493,7 @@ function layerTest(input: {
   readonly spawnBeforeOpen?: boolean;
   readonly scopeCloseReached?: Deferred.Deferred<void>;
   readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
-  readonly projectStoreLayer?: Layer.Layer<ProjectStore.ProjectStoreV2>;
+  readonly projectServiceLayer?: Layer.Layer<ProjectService.ProjectService>;
 }) {
   const layerConfiguredEventSink =
     input.flakyReleaseWrites !== undefined
@@ -572,7 +570,7 @@ function layerTest(input: {
           layerConfiguredMcpRegistry,
           layerTestStores,
           ...(input.serverSettingsLayer === undefined ? [] : [input.serverSettingsLayer]),
-          ...(input.projectStoreLayer === undefined ? [] : [input.projectStoreLayer]),
+          ...(input.projectServiceLayer === undefined ? [] : [input.projectServiceLayer]),
         ),
       ),
     ),
@@ -620,11 +618,12 @@ const layerPausingMcpRegistry = (pause: {
     }),
   ).pipe(Layer.provide(layerTestMcpRegistry));
 
-function makeAgentAccessProject(projectId: ProjectId): ProjectStore.ProjectRow {
+function makeBrowserAccessProject(projectId: ProjectId): Project {
   return {
-    projectId,
+    id: projectId,
     title: "Browser access project",
     workspaceRoot: process.cwd(),
+    repositoryIdentity: null,
     faviconPath: null,
     projectIcon: null,
     defaultModelSelection: null,
@@ -652,40 +651,24 @@ function runBrowserAccessScenario(input: {
     >([]);
     const projectId = ProjectId.make("project-provider-session-manager-browser-access");
     const threadId = ThreadId.make("thread-provider-session-manager-browser-access");
+    const layerProjectService = Layer.mock(ProjectService.ProjectService)({
+      getById: (requestedProjectId) =>
+        Effect.succeed(
+          input.projectExists === false
+            ? Option.none()
+            : Option.some(makeBrowserAccessProject(requestedProjectId)),
+        ),
+    });
+
     yield* Effect.gen(function* () {
       const eventSink = yield* EventSink.EventSinkV2;
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
-      const projects = yield* ProjectStore.ProjectStoreV2;
       const now = yield* DateTime.now;
       const providerSessionId = yield* idAllocator.allocate.providerSession({
         providerInstanceId: modelSelection.instanceId,
         threadId,
       });
-      if (input.projectExists !== false) {
-        const createdAt = DateTime.formatIso(now);
-        yield* projects.apply({
-          sequence: 0,
-          eventId: EventId.make(`seed:${projectId}`),
-          aggregateKind: "project",
-          aggregateId: projectId,
-          occurredAt: createdAt,
-          commandId: null,
-          causationEventId: null,
-          correlationId: null,
-          metadata: {},
-          type: "project.created",
-          payload: {
-            projectId,
-            title: "Agent access project",
-            workspaceRoot: process.cwd(),
-            defaultModelSelection: null,
-            scripts: [],
-            createdAt,
-            updatedAt: createdAt,
-          },
-        });
-      }
       if (input.createThread !== false) {
         yield* eventSink.write({
           events: [
@@ -708,6 +691,7 @@ function runBrowserAccessScenario(input: {
           state,
           idleTimeoutMs: 1_000,
           mcpConfigs,
+          projectServiceLayer: layerProjectService,
           serverSettingsLayer: ServerSettings.layerTest({
             enableAgentBrowserAccess: input.enableAgentBrowserAccess,
             projectSettingsOverrides: {
@@ -1178,13 +1162,13 @@ it.effect(
       const projectId = ProjectId.make("project-provider-session-manager-shared-stopped-start");
       const holdProjectRead = yield* Ref.make(false);
       const projectReadHeld = yield* Deferred.make<void>();
-      const projectStoreLayer = Layer.mock(ProjectStore.ProjectStoreV2)({
-        get: (requestedProjectId) =>
+      const projectServiceLayer = Layer.mock(ProjectService.ProjectService)({
+        getById: (requestedProjectId) =>
           Ref.get(holdProjectRead).pipe(
             Effect.flatMap((hold) =>
               hold
                 ? Deferred.succeed(projectReadHeld, undefined).pipe(Effect.andThen(Effect.never))
-                : Effect.succeedSome(makeAgentAccessProject(requestedProjectId)),
+                : Effect.succeedSome(makeBrowserAccessProject(requestedProjectId)),
             ),
           ),
       });
@@ -1258,7 +1242,7 @@ it.effect(
           layerTest({
             state,
             idleTimeoutMs: 1000,
-            projectStoreLayer,
+            projectServiceLayer,
             serverSettingsLayer: ServerSettings.layerTest({
               projectSettingsOverrides: { [projectId]: { enableAgentBrowserAccess: true } },
             }),

@@ -138,7 +138,6 @@ const layerProviderSessionManagerProvided = ProviderSessionManager.layer.pipe(
       IdAllocator.layer,
       layerProviderEventIngestorProvided,
       ProjectionStore.layer,
-      ProjectStore.layer,
     ),
   ),
 );
@@ -381,6 +380,9 @@ export const layerProduction = Layer.mergeAll(
   EffectOutbox.layerPruneWorker.pipe(Layer.provide(EffectOutbox.layer)),
 ).pipe(
   Layer.provide(ResourceCleanupService.layer.pipe(Layer.provide(layerScheduledTaskProvided))),
+  // Outside ResourceCleanupService, which builds the memoized session manager first: it
+  // reads ProjectService optionally, and without it project overrides fail closed.
+  Layer.provide(layerProjectService),
   Layer.provide(Scheduler.layer),
   Layer.provideMerge(layerEventInfrastructure),
 );

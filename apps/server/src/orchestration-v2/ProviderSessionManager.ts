@@ -41,6 +41,7 @@ import {
   withMetrics,
 } from "../observability/Metrics.ts";
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
+import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
@@ -51,7 +52,6 @@ import * as ProviderEventIngestor from "./ProviderEventIngestor.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
-import * as ProjectStore from "./ProjectStore.ts";
 
 const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_IDLE_PIN_MS = 4 * 60 * 60 * 1000;
@@ -299,7 +299,6 @@ export const layerWithOptions = (
   | McpProviderSessions.McpProviderSessions
   | McpSessionRegistry.McpSessionRegistry
   | ProjectionStore.ProjectionStoreV2
-  | ProjectStore.ProjectStoreV2
   | ProviderEventIngestor.ProviderEventIngestorV2
   | ProviderAdapterRegistry.ProviderAdapterRegistryV2
 > =>
@@ -312,7 +311,7 @@ export const layerWithOptions = (
       const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
       /** Unreadable settings must preserve explicit browser-access opt-outs. */
       const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
-      const projects = yield* ProjectStore.ProjectStoreV2;
+      const projectService = yield* Effect.serviceOption(ProjectService.ProjectService);
       const eventSink = yield* EventSink.EventSinkV2;
       const commandOutput = yield* CommandOutputHub.CommandOutputHub;
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
@@ -333,7 +332,9 @@ export const layerWithOptions = (
               (entry) => entry.enableAgentDeviceAccess !== undefined,
             );
             if (browserOverridden || deviceOverridden) {
-              const project = yield* projects.get(thread.projectId);
+              const project = Option.isSome(projectService)
+                ? yield* projectService.value.getById(thread.projectId)
+                : Option.none();
               if (Option.isNone(project))
                 return {
                   browser: browserOverridden ? false : settings.enableAgentBrowserAccess,
