@@ -81,7 +81,8 @@ import {
   type HomeProjectSortOrder,
 } from "./homeThreadList";
 import { createSwipeRowActivation } from "./swipe-row-activation";
-import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "./thread-swipe-actions";
+import { SwipeableScrollGateProvider } from "./thread-swipe-actions";
+import { useSwipeableScrollGate } from "./use-swipeable-scroll-gate";
 import { useFabScroll } from "./FabScrollContext";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
 import { ThreadListFilters } from "./ThreadListFilters";
