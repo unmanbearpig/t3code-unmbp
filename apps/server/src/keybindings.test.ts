@@ -294,7 +294,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       Effect.gen(function* () {
         const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
         const keybindings = yield* Keybindings.Keybindings;
-        const saved = Keybindings.DEFAULT_KEYBINDINGS.filter(
+        const saved = SharedKeybindings.DEFAULT_KEYBINDINGS.filter(
           (rule) => rule.command !== "terminal.openExternal",
         ).map((rule) =>
           rule.command === "chat.newLocal"

@@ -2,7 +2,6 @@ import { MOBILE_PALETTE_THEMES } from "./mobileTheme";
 import { describe, expect, it } from "vite-plus/test";
 import {
   BUILT_IN_THEME_IDS,
-  BUILT_IN_THEMES,
   T3_CHAT_THEME,
   T3_CODE_LIGHT_THEME_COLORS,
   T3_CODE_DARK_THEME_COLORS,

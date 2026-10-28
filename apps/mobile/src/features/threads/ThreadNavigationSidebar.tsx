@@ -18,7 +18,7 @@ import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { THREAD_SIDEBAR_ROW_LAYOUT } from "./threadListAnimations";
 import type { MenuAction } from "@react-native-menu/menu";
 import { useAtomValue } from "@effect/atom-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { LayoutChangeEvent, TextInputInstance } from "react-native";
 import { Platform, StyleSheet, TextInput, View } from "react-native";
 import { GestureDetector, useNativeGesture } from "react-native-gesture-handler";
@@ -458,6 +458,7 @@ function ThreadNavigationSidebarPane(
   };
   const selectedThreadKeyRef = useRef(props.selectedThreadKey);
   const listItemsRef = useRef(listItems);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps asynchronous navigation completion handlers on the mounted sidebar selection
   useLayoutEffect(() => {
     selectedThreadKeyRef.current = props.selectedThreadKey;
     listItemsRef.current = listItems;

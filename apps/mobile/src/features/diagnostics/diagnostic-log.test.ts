@@ -11,6 +11,7 @@ let uninstall: (() => void) | undefined;
 beforeEach(async () => {
   vi.resetModules();
   vi.useFakeTimers();
+  vi.setSystemTime(0);
   sqlite = new NodeSqlite.DatabaseSync(":memory:");
   mocks.openDatabaseSync.mockReset().mockImplementation(() => ({
     execSync: (sql: string) => sqlite.exec(sql),
@@ -47,7 +48,7 @@ describe("persistent mobile diagnostics", () => {
     vi.resetModules();
     const restarted = await import("./diagnostic-log");
     expect(restarted.readDiagnosticLog()).toEqual([
-      { timestamp: Date.now() - 1_000, level: "info", message: "App started" },
+      { timestamp: 0, level: "info", message: "App started" },
     ]);
   });
 

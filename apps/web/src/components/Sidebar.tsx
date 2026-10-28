@@ -1916,7 +1916,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tells the list motion controller to animate or not after each layout-affecting commit
   useLayoutEffect(() => {
     listMotionRef.current?.update(listMotionPass.animate);
-  }, [listMotionPass]);
+  }, [listMotionPass, listMotionRef]);
   const handleThreadDragOver = (event: DragOverEvent) => {
     const target = event.over
       ? resolveSidebarDropTarget(sidebarListItems, String(event.active.id), String(event.over.id))
@@ -2764,6 +2764,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     );
   }, [orderedThreadKeys, threadByKey, routeThreadRef]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the sidebar window keyboard listener until unmount
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || isCommandPaletteOpen() || isModelPickerOpen()) {

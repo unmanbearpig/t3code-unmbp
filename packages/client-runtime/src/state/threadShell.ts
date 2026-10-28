@@ -424,7 +424,12 @@ export function createEnvironmentThreadShellAtoms(input: {
           pending.push(childKey);
           if (subagentRequest(thread) !== null) {
             next.push(
-              scopedThread(environmentId, thread, get(pendingSubagentRequestsAtom(environmentId)), get(input.connectedAtom(environmentId))),
+              scopedThread(
+                environmentId,
+                thread,
+                get(pendingSubagentRequestsAtom(environmentId)),
+                get(input.connectedAtom(environmentId)),
+              ),
             );
           }
         }

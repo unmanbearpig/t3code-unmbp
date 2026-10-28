@@ -448,7 +448,7 @@ describe("environment RPC", () => {
         const finishRelease = yield* Deferred.make<void>();
         const replacement = yield* Deferred.make<void>();
         const firstClient = {
-          [WS_METHODS.subscribeTerminalEvents]: () =>
+          [WS_METHODS.subscribeTerminalMetadata]: () =>
             Stream.fromEffect(Deferred.succeed(started, undefined)).pipe(
               Stream.drain,
               Stream.concat(Stream.never),
@@ -460,7 +460,7 @@ describe("environment RPC", () => {
             ),
         } as unknown as WsRpcProtocolClient;
         const secondClient = {
-          [WS_METHODS.subscribeTerminalEvents]: () =>
+          [WS_METHODS.subscribeTerminalMetadata]: () =>
             Stream.fromEffect(Deferred.succeed(replacement, undefined)).pipe(
               Stream.drain,
               Stream.concat(Stream.never),
@@ -468,7 +468,7 @@ describe("environment RPC", () => {
         } as unknown as WsRpcProtocolClient;
         const { activeSession, supervisor } = yield* makeHarness();
         yield* SubscriptionRef.set(activeSession, Option.some(session(firstClient)));
-        const subscription = yield* subscribe(WS_METHODS.subscribeTerminalEvents, {}).pipe(
+        const subscription = yield* subscribe(WS_METHODS.subscribeTerminalMetadata, {}).pipe(
           Stream.runDrain,
           Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
           Effect.provideService(Diagnostics.ConnectionDiagnostics, {

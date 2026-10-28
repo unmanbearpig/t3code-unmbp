@@ -27,7 +27,7 @@ const make = Effect.gen(function* () {
   const analytics = yield* AnalyticsService.AnalyticsService;
   // This service is acquired once by the application, shared by WSS and QUIC.
   let nextOwner = 1;
-  const run: RpcSessionLifetime["Service"]["run"] = (session, origin, props, use) =>
+  const run: RpcSessionLifetime["Service"]["run"] = (session, _origin, props, use) =>
     Effect.scoped(
       Effect.gen(function* () {
         const owner = RpcClientId.make(nextOwner++);
@@ -36,7 +36,6 @@ const make = Effect.gen(function* () {
             .removeRpcClient(session.sessionId, owner)
             .pipe(Effect.ensuring(sessions.markDisconnected(session.sessionId))),
         );
-        yield* sessions.recordClientConnection(session.sessionId, origin);
         yield* analytics.record("client.connected", props);
         // Subscribe/revalidate before the transport starts. A revoke between ticket
         // admission and acceptance must also close the newly accepted session.

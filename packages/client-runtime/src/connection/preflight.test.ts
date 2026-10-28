@@ -142,7 +142,11 @@ const makeHarness = Effect.fn("TestRoutePreflight.makeHarness")(function* (optio
       put: unused,
       remove: unused,
     }),
-    TokenStore.layer({ get: unused, put: unused, remove: unused }),
+    Layer.succeed(TokenStore.RemoteDpopAccessTokenStore, {
+      get: unused,
+      put: unused,
+      remove: unused,
+    }),
     Layer.succeed(ManagedRelay.ManagedRelayDpopSigner, {
       thumbprint: unused(),
       createProof: unused,
@@ -154,6 +158,9 @@ const makeHarness = Effect.fn("TestRoutePreflight.makeHarness")(function* (optio
       createEnvironmentLinkChallenge: unused,
       linkEnvironment: unused,
       unlinkEnvironment: unused,
+      getT3ChatLink: unused,
+      createT3ChatLinkRequest: unused,
+      unlinkT3Chat: unused,
       getEnvironmentStatus: unused,
       connectEnvironment: unused,
       registerDevice: unused,

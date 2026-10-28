@@ -5,7 +5,7 @@ import { Alert, Platform, Pressable, View } from "react-native";
 import { AppText as Text } from "../../components/ui/AppText";
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import * as Runtime from "../../lib/runtime";
-import { SettingsActionRow } from "../settings/components/SettingsActionRow";
+import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import * as ConnectionLog from "./connection-log";
@@ -18,6 +18,7 @@ export function ConnectionLogSection(props: {
 }) {
   const [log, setLog] = useState<ConnectionLog.MobileConnectionLog["Service"] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads the connection log service for the external store subscription
   useEffect(() => {
     let active = true;
     void Runtime.runtime

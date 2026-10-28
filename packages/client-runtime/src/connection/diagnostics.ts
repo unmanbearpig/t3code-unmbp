@@ -5,22 +5,18 @@ import * as Exit from "effect/Exit";
 import * as Cause from "effect/Cause";
 import * as HttpClient from "effect/http/HttpClient";
 
-import type {
-  ConnectionAttemptError,
-  ConnectionAttemptStage,
-  ConnectionTargetKind,
-} from "./model.ts";
+import type { ConnectionAttemptError, ConnectionAttemptStage, ConnectionTarget } from "./model.ts";
 import type { ConnectionWakeup } from "./wakeups.ts";
 
 export interface DiagnosticRoute {
-  readonly targetKind: ConnectionTargetKind;
+  readonly targetKind: ConnectionTarget["_tag"];
   readonly scheme: "https" | "http" | "unknown";
   readonly hostType: "ts.net" | "tailnet-ip" | "lan" | "loopback" | "relay" | "public" | "unknown";
 }
 
 /** Deliberately excludes hostnames, IP addresses, credentials, and arbitrary error text. */
 export function diagnosticRoute(
-  targetKind: ConnectionTargetKind,
+  targetKind: ConnectionTarget["_tag"],
   address: string,
 ): DiagnosticRoute {
   try {

@@ -48,7 +48,13 @@ const policyLayer = BackgroundPolicy.layer.pipe(
 const testLayer = RpcSessionLifetime.layer.pipe(
   Layer.provideMerge(authLayer),
   Layer.provideMerge(policyLayer),
-  Layer.provide(AnalyticsService.AnalyticsService.layerTest),
+  Layer.provide(
+    Layer.succeed(AnalyticsService.AnalyticsService, {
+      record: () => Effect.void,
+      recordOwners: () => Effect.void,
+      flush: Effect.void,
+    }),
+  ),
   Layer.provide(NodeServices.layer),
 );
 const Group = RpcGroup.make(Rpc.make("listen", { success: Schema.String, stream: true }));

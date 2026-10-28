@@ -1,8 +1,3 @@
-import {
-  AuthStandardClientScopes,
-  EnvironmentId,
-  ORCHESTRATION_PROTOCOL_VERSION,
-} from "@t3tools/contracts";
 import { ORCHESTRATION_PROTOCOL_VERSION } from "@t3tools/contracts";
 import * as HttpClient from "effect/http/HttpClient";
 import { type ConnectionRoute } from "../connection/catalog.ts";
@@ -40,11 +35,6 @@ import * as RpcHttp from "../rpc/http.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as RemoteEnvironmentAuthorization from "./service.ts";
 import * as TokenStore from "./tokenStore.ts";
-import { BearerConnectionCredential, BearerConnectionProfile } from "../connection/catalog.ts";
-import * as ConnectionCredentialStore from "../connection/credentialStore.ts";
-import { BearerConnectionTarget } from "../connection/model.ts";
-import * as ConnectionProfileStore from "../connection/profileStore.ts";
-import * as ConnectionResolver from "../connection/resolver.ts";
 
 const ENVIRONMENT_ID = EnvironmentId.make("environment-1");
 const ENDPOINT = {

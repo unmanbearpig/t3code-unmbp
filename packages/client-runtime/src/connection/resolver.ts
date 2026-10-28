@@ -1,3 +1,4 @@
+import { AttemptReconnectArm } from "./reconnectExperiment.ts";
 import { RpcWebTransportConnector } from "../platform/rpcWebTransport.ts";
 import { eligibleRpcWebTransport } from "./rpcWebTransport.ts";
 import type {
@@ -311,7 +312,7 @@ export const make = Effect.gen(function* () {
     })();
     const { descriptor: authorizedDescriptor, ...prepared } = authorized;
     const descriptor =
-      authorizedDescriptor ??
+      ((yield* AttemptReconnectArm) === "old" ? undefined : authorizedDescriptor) ??
       (yield* ConnectionDescriptors.fetch(prepared.httpBaseUrl).pipe(
         Effect.mapError(mapRemoteEnvironmentError),
         Effect.provideService(HttpClient.HttpClient, httpClient),

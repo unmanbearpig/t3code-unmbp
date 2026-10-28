@@ -39,24 +39,22 @@ export function useThreadJumpShortcuts(
   currentThreadKey: string | null = null,
 ) {
   const jumpToThread = (command: HardwareKeyboardCommand) => {
-      const threads = items.flatMap((item) =>
-        item.type === "v2-thread" ? [item.item.thread] : [],
-      );
-      const currentIndex = threads.findIndex(
-        (thread) => scopedThreadKey(thread.environmentId, thread.id) === currentThreadKey,
-      );
-      const thread =
-        command === "thread.next" || command === "thread.previous"
-          ? (threads[
-              currentIndex < 0
-                ? command === "thread.next"
-                  ? 0
-                  : threads.length - 1
-                : currentIndex + (command === "thread.next" ? 1 : -1)
-            ] ?? null)
-          : threadJumpTarget(items, command);
-      if (thread !== null) onSelectThread(thread);
-      return true;
-    };
+    const threads = items.flatMap((item) => (item.type === "v2-thread" ? [item.item.thread] : []));
+    const currentIndex = threads.findIndex(
+      (thread) => scopedThreadKey(thread.environmentId, thread.id) === currentThreadKey,
+    );
+    const thread =
+      command === "thread.next" || command === "thread.previous"
+        ? (threads[
+            currentIndex < 0
+              ? command === "thread.next"
+                ? 0
+                : threads.length - 1
+              : currentIndex + (command === "thread.next" ? 1 : -1)
+          ] ?? null)
+        : threadJumpTarget(items, command);
+    if (thread !== null) onSelectThread(thread);
+    return true;
+  };
   useHardwareKeyboardCommand(THREAD_NAVIGATION_COMMANDS, jumpToThread);
 }

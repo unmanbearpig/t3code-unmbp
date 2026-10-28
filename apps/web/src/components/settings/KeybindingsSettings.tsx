@@ -20,7 +20,6 @@ import {
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
-  useEffect,
   useReducer,
   useRef,
   useState,
@@ -726,11 +725,16 @@ function useKeybindingRowEditor({
   onSave: (input: ServerUpsertKeybindingInput) => void;
 }) {
   const recordingLeader = useRef(0);
-  const [draft, setDraft] = useReducer(keybindingRowDraftReducer, row, createKeybindingRowDraft);
+  const [draft, dispatchDraft] = useReducer(
+    keybindingRowDraftReducer,
+    row,
+    createKeybindingRowDraft,
+  );
   const { keyDraft, whenDraft, isRecording, isWhenDraftValid } = draft;
-  useEffect(() => {
-    if (!isRecording) recordingLeader.current = 0;
-  }, [isRecording]);
+  const setDraft = (patch: Parameters<typeof dispatchDraft>[0]) => {
+    if (patch.isRecording === false) recordingLeader.current = 0;
+    dispatchDraft(patch);
+  };
   const whenDraftExpression = whenAstToExpression(whenDraft);
   const isDirty = keyDraft !== row.key || whenDraftExpression !== row.when;
   const conflictLabels = keybindingConflictLabels(allRows, {
@@ -1048,16 +1052,17 @@ function useNewKeybindingDraft({
 }) {
   const recordingLeader = useRef(0);
   const [commandDraft, setCommandDraft] = useState<KeybindingCommand | "">("");
-  const [draft, setDraft] = useReducer(keybindingRowDraftReducer, {
+  const [draft, dispatchDraft] = useReducer(keybindingRowDraftReducer, {
     keyDraft: "",
     whenDraft: undefined,
     isRecording: false,
     isWhenDraftValid: true,
   });
   const { keyDraft, whenDraft, isRecording, isWhenDraftValid } = draft;
-  useEffect(() => {
-    if (!isRecording) recordingLeader.current = 0;
-  }, [isRecording]);
+  const setDraft = (patch: Parameters<typeof dispatchDraft>[0]) => {
+    if (patch.isRecording === false) recordingLeader.current = 0;
+    dispatchDraft(patch);
+  };
   const whenDraftExpression = whenAstToExpression(whenDraft);
   const conflictLabels = keybindingConflictLabels(allRows, {
     rowId: "new",

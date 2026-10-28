@@ -1,5 +1,4 @@
 import { EXTERNAL_TERMINALS } from "@t3tools/contracts";
-import { SettingsGroup } from "./SettingsGroup";
 import { NotificationSettings } from "./NotificationSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { CheckIcon } from "lucide-react";

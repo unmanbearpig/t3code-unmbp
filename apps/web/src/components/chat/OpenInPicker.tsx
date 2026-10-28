@@ -1,4 +1,3 @@
-import { addAppShortcutListener } from "~/appShortcutEvents";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import {
   AuthOrchestrationOperateScope,

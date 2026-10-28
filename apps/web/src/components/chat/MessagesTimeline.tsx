@@ -39,7 +39,6 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
-  useEffect,
   useEffectEvent,
   useRef,
   useState,
@@ -454,6 +453,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const normalizedFindQuery = findQuery.trim();
   const findActive = findExpanded;
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cancels pending list animation frames when the timeline unmounts
   useEffect(() => {
     return () => {
       if (disclosureSettleFrameRef.current !== null) {
@@ -465,6 +465,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     };
   }, []);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tracks the browser frames that finish a list layout change
   useEffect(() => {
     if (settlingListIdentity === null) return;
     let second: number | null = null;

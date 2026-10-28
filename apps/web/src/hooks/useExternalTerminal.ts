@@ -1,6 +1,6 @@
 import type { DesktopTerminalTarget } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { externalTerminalCandidateUrls } from "../lib/externalTerminal";
 import { useProjects } from "../state/entities";
@@ -26,14 +26,13 @@ export function useExternalTerminal() {
   const httpBaseUrl = profile?._tag === "BearerConnectionProfile" ? profile.httpBaseUrl : null;
   const directEndpoints = presentation?.serverConfig?.directEndpoints;
   const hasPresentation = presentation !== null;
-  const candidateUrls = useMemo(
-    () => externalTerminalCandidateUrls({ target: connectionTarget, httpBaseUrl, directEndpoints }),
-    [connectionTarget, httpBaseUrl, directEndpoints],
-  );
-  const target = useMemo(
-    () => (environmentId !== null && hasPresentation ? { environmentId, candidateUrls } : null),
-    [environmentId, hasPresentation, candidateUrls],
-  );
+  const candidateUrls = externalTerminalCandidateUrls({
+    target: connectionTarget,
+    httpBaseUrl,
+    directEndpoints,
+  });
+  const target =
+    environmentId !== null && hasPresentation ? { environmentId, candidateUrls } : null;
   const terminal = useClientSettings((settings) => settings.externalTerminal);
   const probe = window.desktopBridge?.isLocalTerminalEnvironment;
   const launch = window.desktopBridge?.openInTerminal;
@@ -42,6 +41,7 @@ export function useExternalTerminal() {
     available: boolean;
   } | null>(null);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- probes the native desktop terminal and ignores responses after unmount
   useEffect(() => {
     if (target === null || probe === undefined || launch === undefined) return;
     let cancelled = false;
@@ -65,7 +65,7 @@ export function useExternalTerminal() {
     locality?.target === target &&
     locality?.available === true;
 
-  const open = useCallback(async () => {
+  const open = async () => {
     if (!available || target === null || cwd === null || launch === undefined) return;
     try {
       const result = await launch({ ...target, cwd, terminal });
@@ -80,7 +80,7 @@ export function useExternalTerminal() {
         }),
       );
     }
-  }, [available, target, cwd, terminal, launch]);
+  };
 
   return { available, open };
 }

@@ -9,6 +9,7 @@ const pending = () => true;
 
 export function useReconnectExperimentEnabled() {
   const [log, setLog] = useState<ConnectionLog.MobileConnectionLog["Service"] | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads the connection log service for the external store subscription
   useEffect(() => {
     let active = true;
     void Runtime.runtime

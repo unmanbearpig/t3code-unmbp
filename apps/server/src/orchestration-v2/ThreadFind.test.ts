@@ -30,7 +30,6 @@ import {
   THREAD_HISTORY_PAGE_POLICY,
 } from "./threadHistoryPaging.ts";
 import { projectTurnItemForWire } from "./WireProjection.ts";
-import { findProjectedThreadItems } from "./ThreadFind.ts";
 
 const layerTest = Layer.mergeAll(EventStore.layer, ProjectionStore.layer, ProjectStore.layer).pipe(
   Layer.provideMerge(SqlitePersistence.layerMemory),
@@ -498,19 +497,7 @@ describe("V2 thread find", () => {
       };
       const items = [question, reply];
       yield* putItems(items);
-      const memory = findProjectedThreadItems(
-        items.map((item, position) => ({
-          item,
-          position,
-          visibility: "local",
-          sourceThreadId: threadId,
-          sourceItemId: item.id,
-        })),
-        { threadId, query: "needle" },
-        0,
-      );
       const stored = yield* projection.searchThread({ threadId, query: "needle" });
-      assert.equal(memory.totalMatches, 1);
       assert.equal(stored.totalMatches, 1);
       assert.equal(stored.match?.entryId, "async-answer:late-question");
     }).pipe(Effect.provide(layerTest)),

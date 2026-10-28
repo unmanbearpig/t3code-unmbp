@@ -289,6 +289,7 @@ export function AddEnvironmentDialog({
     await connectSavedBackendSshTarget(resolved);
   };
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the SSH suggestion keyboard handler until unmount
   useEffect(
     () =>
       registerLeaderShortcutHandler((event) => {

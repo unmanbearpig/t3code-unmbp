@@ -678,11 +678,7 @@ export const layer = Layer.effect(
         ),
       );
 
-    // A launch is accepted before its workspace is prepared, so a run counts as
-    // succeeded first. The first time the launched run leaves preparation says
-    // how preparation ended; a later retry or provider failure is not about the
-    // workspace. A failure is recorded against this run only: last_run_at is
-    // the run's identity, so a later run's status is never overwritten.
+    // last_run_at identifies this preparation result, so a later run keeps its own status.
     const recordFailedPreparation = Effect.fn("ScheduledTaskService.recordFailedPreparation")(
       function* (input: {
         readonly id: ScheduledTaskId;

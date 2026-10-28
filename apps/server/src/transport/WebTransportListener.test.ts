@@ -433,7 +433,13 @@ it.live(
             Layer.provide(ServerSettings.layerTest()),
           ),
         ),
-        Layer.provide(AnalyticsService.AnalyticsService.layerTest),
+        Layer.provide(
+          Layer.succeed(AnalyticsService.AnalyticsService, {
+            record: () => Effect.void,
+            recordOwners: () => Effect.void,
+            flush: Effect.void,
+          }),
+        ),
       );
       const applicationSessionLayer = Layer.effect(
         AuthenticatedRpcSession.AuthenticatedRpcSession,

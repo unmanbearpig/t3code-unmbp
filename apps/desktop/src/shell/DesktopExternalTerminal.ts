@@ -30,7 +30,7 @@ export class DesktopExternalTerminal extends Context.Service<
 
 const normalizeAddress = (address: string) => address.replace(/^::ffff:/, "");
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const fileSystem = yield* FileSystem.FileSystem;

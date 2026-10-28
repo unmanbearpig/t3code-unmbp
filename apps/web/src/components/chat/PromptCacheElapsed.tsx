@@ -8,6 +8,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 export function PromptCacheElapsed({ writtenAt }: { writtenAt: number }) {
   const textRef = useRef<HTMLSpanElement>(null);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- updates the timer DOM node and owns its visibility listener and interval
   useLayoutEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
     const stop = () => {

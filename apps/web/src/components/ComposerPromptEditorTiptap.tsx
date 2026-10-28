@@ -969,6 +969,7 @@ function ComposerPromptEditorTiptapInner(
     literalText ? position : expandCollapsedComposerCursor(text, position);
   const emacsEditingEnabled = useClientSettings((settings) => settings.composerEmacsEditingEnabled);
   const emacsEditingEnabledRef = useRef(emacsEditingEnabled);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps the mounted ProseMirror keyboard handler on the current editing preference
   useLayoutEffect(() => {
     emacsEditingEnabledRef.current = emacsEditingEnabled;
   }, [emacsEditingEnabled]);

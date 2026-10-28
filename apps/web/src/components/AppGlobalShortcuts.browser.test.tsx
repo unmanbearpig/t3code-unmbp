@@ -37,7 +37,7 @@ vi.mock("../hooks/useHandleNewThread", () => ({
 vi.mock("../hooks/useSettings", () => ({
   useClientSettings: (select: (settings: typeof DEFAULT_CLIENT_SETTINGS) => unknown) =>
     select(DEFAULT_CLIENT_SETTINGS),
-  useLegacySidebarEnabled: () => false,
+  useBoringSidebarEnabled: () => false,
 }));
 vi.mock("../state/entities", () => ({
   useProjects: () => [
@@ -51,7 +51,9 @@ vi.mock("../state/presentation", () => ({
 vi.mock("../state/environments", () => ({ usePrimaryEnvironmentId: () => "local" }));
 vi.mock("../state/session", () => ({ useEnvironmentScope: () => false }));
 vi.mock("../hooks/useScratchProject", () => ({ useScratchProject: () => ({}) }));
-vi.mock("../logicalProject", () => ({ selectProjectGroupingSettings: () => ({}) }));
+vi.mock("@t3tools/client-runtime/state/project-grouping", () => ({
+  selectProjectGroupingSettings: () => ({}),
+}));
 vi.mock("../sidebarProjectGrouping", () => ({ buildSidebarProjectSnapshots: () => [] }));
 vi.mock("../lib/chatThreadActions", () => ({ startNewThreadFromContext: vi.fn() }));
 vi.mock("../hooks/showThreadUndoNotice", () => ({ undoLatestThreadAction: vi.fn() }));

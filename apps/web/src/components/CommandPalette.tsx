@@ -1,5 +1,4 @@
-import { MonitorIcon } from "lucide-react";
-import { addAppShortcutListener, registerLeaderShortcutHandler } from "~/appShortcutEvents";
+import { registerLeaderShortcutHandler } from "~/appShortcutEvents";
 
 import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 
@@ -2475,6 +2474,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the command palette keyboard handler until unmount
   useEffect(() =>
     registerLeaderShortcutHandler((event) => {
       const command = resolveShortcutCommand(event, keybindings, {

@@ -7,6 +7,7 @@ import * as ConnectionLog from "./connection-log";
 
 export function ReconnectGuessBanner() {
   const [log, setLog] = useState<ConnectionLog.MobileConnectionLog["Service"] | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- loads the connection log service for the external store subscription
   useEffect(() => {
     let active = true;
     void Runtime.runtime
@@ -25,6 +26,7 @@ export function ReconnectGuessBanner() {
 function LoadedBanner({ log }: { readonly log: ConnectionLog.MobileConnectionLog["Service"] }) {
   const prompt = useSyncExternalStore(log.subscribe, log.prompt, log.prompt);
   const insets = useSafeAreaInsets();
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the timer that expires the connection log prompt
   useEffect(() => {
     if (!prompt) return;
     const timer = setTimeout(

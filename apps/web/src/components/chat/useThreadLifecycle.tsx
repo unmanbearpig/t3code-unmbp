@@ -201,8 +201,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     lastVisitedAt: activeThreadLastVisitedAt,
     latestRunCompletedAt: activeLatestRun?.completedAt ?? null,
   });
-  const activeThreadSettled =
-    serverConfigLoaded && isFiledAsSettled(activeThreadShell);
+  const activeThreadSettled = serverConfigLoaded && isFiledAsSettled(activeThreadShell);
   const unsettleThreadMutation = useOrchestrationCommand(threadEnvironment.unsettle, {
     reportFailure: false,
   });

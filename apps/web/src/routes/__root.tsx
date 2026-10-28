@@ -145,7 +145,9 @@ function RootRouteView() {
 }
 
 function RootRouteBranch() {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- installs the desktop paste event handler until unmount
   useEffect(() => installDesktopPasteAsText(window.desktopBridge, window), []);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- installs the window multiline editing shortcut until unmount
   useEffect(() => installTextareaNewlineShortcut(window), []);
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();

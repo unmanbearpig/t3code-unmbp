@@ -360,9 +360,6 @@ describe("resolveSidebarThreadStatus", () => {
 
   it("keeps disconnected activity visible without a running timer", () => {
     expect(
-      resolveSidebarV2TopStatus({ status: "disconnected", isUnread: true, isWoke: true }),
-    ).toBe("disconnected");
-    expect(
       shouldRecedeSidebarThread({
         status: "disconnected",
         isUnread: false,

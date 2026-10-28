@@ -201,10 +201,8 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
       : Effect.fail(CodexError.CodexAppServerRequestError.methodNotFound(request.method));
   };
 
-  const termination = yield* Deferred.make<CodexError.CodexAppServerError>();
   const transport = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
     stdio,
-    onTermination: (error) => Deferred.succeed(termination, error).pipe(Effect.asVoid),
     ...(terminationError ? { terminationError } : {}),
     ...(exited ? { exited } : {}),
     ...(options.logIncoming !== undefined ? { logIncoming: options.logIncoming } : {}),
@@ -281,7 +279,7 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
         unknownNotificationHandler = handler;
       });
     }),
-    terminated: Deferred.await(termination),
+    terminated: Deferred.await(termination).pipe(Effect.flip),
   });
 });
 

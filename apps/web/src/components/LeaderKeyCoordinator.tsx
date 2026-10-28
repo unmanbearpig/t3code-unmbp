@@ -79,6 +79,7 @@ export function LeaderKeyCoordinator() {
     ),
   );
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- owns the window keyboard listeners and leader timeout
   useEffect(() => {
     setLeaderTrigger(settings.leaderShortcut);
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -148,6 +149,7 @@ export function LeaderKeyCoordinator() {
     };
   }, [controller, settings.leaderShortcut]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- configures the native preview keyboard handler and subscribes to its events
   useEffect(() => {
     const preview = window.desktopBridge?.preview;
     void preview
@@ -166,6 +168,7 @@ export function LeaderKeyCoordinator() {
     });
   }, [controller, keybindings, settings.leaderShortcut, terminalOpen]);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the leader shortcut handler until unmount
   useEffect(
     () =>
       registerLeaderShortcutHandler(

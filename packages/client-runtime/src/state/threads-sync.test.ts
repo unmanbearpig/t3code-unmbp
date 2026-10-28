@@ -86,7 +86,7 @@ type TestThreadInput = OrchestrationV2ThreadStreamItem | Error;
 function testSession(client: WsRpcProtocolClient): RpcSession.RpcSession {
   return {
     client,
-    initialConfig: Effect.succeed({} as never),
+    initialConfig: Effect.succeed({ threadResumeCompletionMarker: true } as never),
     subscribeServerConfig: (input) => client.subscribeServerConfig(input),
     ready: Effect.void,
     probe: Effect.void,

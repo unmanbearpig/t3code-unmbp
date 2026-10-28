@@ -288,8 +288,8 @@ it.effect(
         launch: "resume",
         wakeup: "application-active-probe",
         backgroundMs: 1000,
-        at: Date.now(),
-        monotonic: performance.now(),
+        at: 0,
+        monotonic: 0,
       });
       expect(log.prompt()).toBeNull();
     }).pipe(

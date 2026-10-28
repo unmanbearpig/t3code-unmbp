@@ -3303,10 +3303,7 @@ export default function ChatView(props: ChatViewProps) {
                 <ScrollToEndButton
                   bottom={scrollToEndClearance + 4}
                   summary={scrollToEndSummary}
-                  onScrollToEnd={() => {
-                    composerRef.current?.restoreAfterTimelineReachedEnd();
-                    scrollToEnd();
-                  }}
+                  onScrollToEnd={() => scrollToEnd(true)}
                 />
               )}
             </div>

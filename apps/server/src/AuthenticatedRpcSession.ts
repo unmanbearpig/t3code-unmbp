@@ -45,6 +45,7 @@ import {
   type EditorId,
   type FileManagerRevealKind,
   type OrchestrationV2Command,
+  type OrchestrationClientOrigin,
   type GitActionProgressEvent,
   type GitManagerServiceError,
   type MessageId,
@@ -1288,7 +1289,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
 
 export const layerAuthenticatedHandlers = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
-  clientOrigin: OrchestrationClientOrigin,
+  _clientOrigin: OrchestrationClientOrigin,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   leaseOwner: RpcClientId,
 ) =>

@@ -854,6 +854,7 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
         const mcp = yield* auth.issueMcpClientSession({
           label: "agent",
           access: "read-only",
+          peerLink: false,
           client: { deviceType: "bot" },
         });
         const mcpSession = yield* sessions.verify(mcp.token);
