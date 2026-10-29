@@ -1,5 +1,4 @@
-import type { ThreadContextRecord } from "@t3tools/contracts";
-import type { ThreadUserInputQuestion as UserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
+import type { ThreadContextRecord, UserInputQuestion } from "@t3tools/contracts";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 
@@ -13,7 +12,7 @@ export function projectPendingUserInputAnswer(
   const recordsById = new Map(threadContexts.map((record) => [record.contextId, record]));
   return replaceComposerContextReferences(answer, (reference) => {
     const record = reference.kind === "thread" ? recordsById.get(reference.contextId) : undefined;
-    return record ? formatThreadLink(record.threadId, reference.label) : reference.source;
+    return record ? formatThreadLink(record, reference.label) : reference.source;
   });
 }
 
@@ -113,35 +112,6 @@ export function setPendingUserInputCustomAnswer(
   };
 }
 
-export function pendingUserInputRequestKey(
-  environmentId: string,
-  threadId: string | null,
-  requestId: string | undefined,
-): string {
-  return JSON.stringify([environmentId, threadId, requestId]);
-}
-
-/** Drops a thread's drafts for requests that are no longer pending. Unchanged input is returned as is. */
-export function pruneResolvedUserInputDrafts<T>(
-  draftsByRequestKey: Record<string, T>,
-  environmentId: string,
-  threadId: string,
-  pendingRequestIds: ReadonlyArray<string>,
-): Record<string, T> {
-  const threadPrefix = JSON.stringify([environmentId, threadId]).slice(0, -1);
-  const pendingKeys = new Set(
-    pendingRequestIds.map((requestId) =>
-      pendingUserInputRequestKey(environmentId, threadId, requestId),
-    ),
-  );
-  const retained = Object.entries(draftsByRequestKey).filter(
-    ([key]) => !key.startsWith(threadPrefix) || pendingKeys.has(key),
-  );
-  return retained.length === Object.keys(draftsByRequestKey).length
-    ? draftsByRequestKey
-    : Object.fromEntries(retained);
-}
-
 const DISPLACED_ANSWER_SEPARATOR = "\n\n";
 
 export function carryDisplacedCustomAnswerIntoPrompt(
@@ -200,7 +170,7 @@ export function buildPendingUserInputAnswers(
   return answers;
 }
 
-export function countAnsweredPendingUserInputQuestions(
+function countAnsweredPendingUserInputQuestions(
   questions: ReadonlyArray<UserInputQuestion>,
   draftAnswers: Record<string, PendingUserInputDraftAnswer>,
 ): number {
@@ -209,17 +179,6 @@ export function countAnsweredPendingUserInputQuestions(
       ? count + 1
       : count;
   }, 0);
-}
-
-export function findFirstUnansweredPendingUserInputQuestionIndex(
-  questions: ReadonlyArray<UserInputQuestion>,
-  draftAnswers: Record<string, PendingUserInputDraftAnswer>,
-): number {
-  const unansweredIndex = questions.findIndex(
-    (question) => resolvePendingUserInputAnswer(question, draftAnswers[question.id]) === null,
-  );
-
-  return unansweredIndex === -1 ? Math.max(questions.length - 1, 0) : unansweredIndex;
 }
 
 export function derivePendingUserInputProgress(
