@@ -1615,11 +1615,13 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
   adapterOptions: CodexAdapterV2Options,
 ) {
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
-  const readMcpSession = (threadId: ThreadId | null) =>
-    // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
-    threadId === null
-      ? Effect.succeed(undefined)
-      : mcpSessions.read(threadId, adapterOptions.instanceId);
+  const readMcpSession = (threadId: ThreadId | null) => {
+    if (threadId === null) {
+      // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
+      return Effect.succeed(undefined);
+    }
+    return mcpSessions.read(threadId, adapterOptions.instanceId);
+  };
   const { clientFactory, crypto, fileSystem, idAllocator, serverConfig } = adapterOptions;
   const continuationRequests = adapterOptions.continuationRequests;
 
