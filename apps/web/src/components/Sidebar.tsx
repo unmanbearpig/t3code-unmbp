@@ -1621,9 +1621,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     listMotionRef.current = motion;
     motion.update(false);
     return () => {
-      // Search replaces this list while the Sidebar stays mounted, and a drag
-      // whose rows are gone can never drop. The compiler memoizes this callback
-      // with no deps (it reads only refs), so the cleanup runs only on unmount.
       dragSensorRef.current?.cancel();
       motion.dispose();
       if (listMotionRef.current === motion) listMotionRef.current = null;
@@ -1631,14 +1628,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     };
   };
 
-  const attachTreeRef = (node: HTMLUListElement) => {
+  // Detaching this ref cancels pending and active drags, so its identity must survive renders.
+  const attachTreeRef = useStableCallback((node: HTMLUListElement) => {
     const detachMotion = attachListMotionRef(node);
     const detachTree = attachSidebarTree(node);
     return () => {
       detachTree?.();
       detachMotion();
     };
-  };
+  });
 
   const isContextDrag = dragState?.contextDrag === true || dragState?.activeSection === "working";
   const dragTargetSection = isContextDrag ? null : (dragState?.targetSection ?? null);
