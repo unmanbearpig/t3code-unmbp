@@ -31,6 +31,7 @@ import {
   isEmptyComposerEofShortcut,
 } from "./lib/composerEmacsShortcuts";
 import { isTextboxNewlineShortcut } from "./lib/textboxNewline";
+import { isSecretInputKillShortcut } from "./lib/secretInputEditing";
 
 export interface ShortcutEventLike extends SharedShortcutEventLike {
   leaderKey?: boolean;
@@ -219,7 +220,9 @@ export function resolveShortcutCommand(
   if (
     !isLeaderShortcutEvent(event) &&
     !context.terminalFocus &&
-    (isTextboxNewlineShortcut(event, target) || isComposerEmacsEditingShortcut(event, target))
+    (isTextboxNewlineShortcut(event, target) ||
+      isComposerEmacsEditingShortcut(event, target) ||
+      isSecretInputKillShortcut(event, target))
   ) {
     return null;
   }
