@@ -1,3 +1,4 @@
+import serverPackageJson from "../../apps/server/package.json" with { type: "json" };
 import * as NodeURL from "node:url";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -14,6 +15,7 @@ import {
   findInlinedExternalPackages,
   selectCliRuntimeExternalDependencies,
   shouldBundleCliDependency,
+  webTransportInstallEnvironment,
 } from "./cli-external-packages.ts";
 
 // Native bindings live in optionalDependencies; checking dependencies alone misses them.
@@ -39,6 +41,8 @@ describe("shouldBundleCliDependency", () => {
       "@napi-rs/keyring",
       "@clerk/electron-passkeys",
       "node-addon-api",
+      "@fails-components/webtransport",
+      "@fails-components/webtransport-transport-http3-quiche",
     ]) {
       assert.strictEqual(shouldBundleCliDependency(id), false, id);
     }
@@ -110,6 +114,16 @@ it.layer(NodeServices.layer)("external package dependency closure", (it) => {
           ...manifest.peerDependencies,
         };
         for (const dependency of Object.keys(declared)) {
+          // QUIC installs its own disk-backed closure. Ordinary JS can also be
+          // inlined for required callers, so omitting QUIC cannot break WSS.
+          // The real staged import checks these packages and the native loader.
+          if (
+            name.startsWith("@fails-components/webtransport") &&
+            ["@types/debug", "cmake-js", "prebuild-install", "debug", "bindings"].includes(
+              dependency,
+            )
+          )
+            continue;
           if (!isRuntimeExternal(dependency)) {
             violations.push(`${name} -> ${dependency}`);
           }
@@ -264,5 +278,28 @@ describe("findEsmImportsOfExternalPackages", () => {
   it("does not mistake createRequire calls for imports", () => {
     const source = 'const { FileFinder } = createRequire(import.meta.url)("@ff-labs/fff-node");';
     assert.deepStrictEqual(findEsmImportsOfExternalPackages(source), []);
+  });
+});
+
+describe("optional WebTransport runtime", () => {
+  it("selects the pinned optional roots separately from required dependencies", () => {
+    assert.deepStrictEqual(
+      selectCliRuntimeExternalDependencies(serverPackageJson.optionalDependencies),
+      {
+        "@fails-components/webtransport": "1.6.9",
+        "@fails-components/webtransport-transport-http3-quiche": "1.6.9",
+      },
+    );
+  });
+  it("passes the build target to the optional installer", () => {
+    assert.deepStrictEqual(webTransportInstallEnvironment("win", "arm64"), {
+      T3CODE_WEBTRANSPORT_PLATFORM: "win32",
+      T3CODE_WEBTRANSPORT_ARCH: "arm64",
+      T3CODE_WEBTRANSPORT_LIBC: "glibc",
+    });
+    assert.equal(
+      webTransportInstallEnvironment("mac", "universal").T3CODE_WEBTRANSPORT_ARCH,
+      "universal",
+    );
   });
 });

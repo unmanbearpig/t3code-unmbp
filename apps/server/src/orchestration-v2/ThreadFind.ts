@@ -9,6 +9,10 @@ import {
 } from "@t3tools/contracts";
 import { searchableMessageSegments, searchablePlanSegments } from "@t3tools/shared/threadFindText";
 import { countThreadSearchOccurrences } from "@t3tools/shared/threadSearch";
+import {
+  getFoldedUserInputAnswerMessageIds,
+  type UserInputAnswerTimelineItem,
+} from "@t3tools/shared/orchestrationV2Timeline";
 import * as Cache from "effect/Cache";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
@@ -32,6 +36,7 @@ interface FindPayload extends FindRow {
   readonly payload: string;
   readonly entryId: string;
   readonly type: OrchestrationV2TurnItem["type"];
+  readonly runId: OrchestrationV2TurnItem["runId"];
 }
 interface FindDocument extends FindRow {
   readonly entryId: string;
@@ -205,10 +210,12 @@ export const makeThreadFind = Effect.fn("makeThreadFind")(function* (
       payload_json: string;
       entry_id: string;
       item_type: OrchestrationV2TurnItem["type"];
+      run_id: OrchestrationV2TurnItem["runId"];
     }>`
       SELECT item.thread_id, item.turn_item_id, item.payload_json,
         COALESCE(json_extract(item.payload_json, '$.messageId'), item.turn_item_id) AS entry_id,
-        json_extract(item.payload_json, '$.type') AS item_type
+        json_extract(item.payload_json, '$.type') AS item_type,
+        json_extract(item.payload_json, '$.runId') AS run_id
       FROM orchestration_v2_projection_turn_items AS item
       JOIN json_each(${sources}) AS wanted
         ON item.thread_id = json_extract(wanted.value, '$.threadId')
@@ -229,6 +236,7 @@ export const makeThreadFind = Effect.fn("makeThreadFind")(function* (
             payload: payload.payload_json,
             entryId: payload.entry_id,
             type: payload.item_type,
+            runId: payload.run_id,
           });
     });
   });
@@ -338,13 +346,25 @@ export const makeThreadFind = Effect.fn("makeThreadFind")(function* (
             ),
           );
         // Answers rendered inside question cards must not appear as separate matches.
-        const foldedAnswers = new Set<string>();
+        const answerItems: Array<{ readonly item: UserInputAnswerTimelineItem }> = [];
         for (const payload of payloads) {
-          if (payload.type !== "user_input_request") continue;
-          const { item } = yield* decode(payload);
-          if (item.type === "user_input_request" && item.questionAnswer)
-            foldedAnswers.add(`async-answer:${item.questionAnswer.requestId}`);
+          if (payload.type === "user_input_request") {
+            const { item } = yield* decode(payload);
+            answerItems.push({ item });
+          } else if (
+            payload.type === "user_message" &&
+            payload.entryId.startsWith("async-answer:")
+          ) {
+            answerItems.push({
+              item: {
+                type: payload.type,
+                runId: payload.runId,
+                messageId: payload.entryId,
+              },
+            });
+          }
         }
+        const foldedAnswers = getFoldedUserInputAnswerMessageIds(answerItems);
         const rows = payloads.filter(
           (row) =>
             row.type !== "user_input_request" &&

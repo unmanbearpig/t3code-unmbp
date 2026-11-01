@@ -179,6 +179,7 @@ import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
 } from "./floating-working-control";
+import { useReconnectExperimentEnabled } from "../diagnostics/use-reconnect-experiment";
 import { connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
 import {
   derivePendingUserInputMaxHeight,
@@ -519,8 +520,10 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
       : Math.max(bottomSafeArea, 12)) - (hasSidebarTabBar ? 3 : 0),
   );
   const composerKeyboardOffset = composerBottomInset;
+  const experimentEnabled = useReconnectExperimentEnabled();
   const contentPresentationKind = props.contentPresentation.kind;
   const realThreadSyncLabel = (() => {
+    if (experimentEnabled) return null;
     switch (props.threadSyncStatus) {
       case "empty":
       case "cached":
@@ -676,6 +679,7 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
   );
   const floatingStatus = ((): FloatingWorkingStatus | null => {
     const connectionStatus = connectionFloatingStatus({
+      hideReconnectStatus: experimentEnabled,
       connectionError: connectionRetrying ? retryConnectionError : props.connectionError,
       connectionState: props.connectionStateLabel,
       environmentLabel: props.environmentLabel,

@@ -2,6 +2,12 @@ import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
 import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
+import {
+  resolveThreadWorkingStartedAt,
+  settleWaitsForWork,
+  threadActivityIsDisconnected,
+} from "@t3tools/client-runtime/state/models";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
@@ -49,13 +55,17 @@ export function shouldNavigateAfterThreadPark(input: {
   readonly currentThreadKey: string | null;
   readonly action: "settle" | "snooze";
   readonly now: string;
-  readonly thread: (ThreadSnoozeShell & Pick<SidebarThreadSummary, "settledOverride">) | null;
+  readonly thread:
+    | (ThreadSnoozeShell &
+        Pick<SidebarThreadSummary, "settledOverride"> &
+        Partial<Pick<SidebarThreadSummary, "settleWhenIdleAt">>)
+    | null;
 }): boolean {
   return (
     input.threadKey === input.currentThreadKey &&
     input.thread !== null &&
     (input.action === "settle"
-      ? input.thread.settledOverride === "settled"
+      ? isFiledAsSettled(input.thread)
       : effectiveSnoozed(input.thread, { now: input.now }))
   );
 }
@@ -506,19 +516,25 @@ export function applySidebarThreadDrop<
     | "snoozedUntil"
     | "settledAt"
     | "settledOverride"
+    | "settleWhenIdleAt"
     | "unsettledAt"
-  >,
+  > &
+    Partial<Pick<SidebarThreadSummary, "runtime" | "pendingBackgroundTasks">>,
 >(thread: T, section: "pinned" | "active" | "settled", now: string, orderKey?: string): T {
-  const wasSettled = thread.settledOverride === "settled";
-  const awake = { ...thread, snoozedAt: null, snoozedUntil: null };
+  const wasSettled = isFiledAsSettled(thread);
+  const awake = { ...thread, settleWhenIdleAt: null, snoozedAt: null, snoozedUntil: null };
   if (section === "settled") {
     return {
       ...awake,
       pinnedAt: null,
       pinOrderKey: null,
       activeOrderKey: null,
-      settledOverride: "settled",
-      settledAt: wasSettled ? (thread.settledAt ?? now) : now,
+      ...(settleWaitsForWork(thread.runtime?.status, thread.pendingBackgroundTasks)
+        ? { settleWhenIdleAt: thread.settleWhenIdleAt ?? now }
+        : {
+            settledOverride: "settled" as const,
+            settledAt: wasSettled ? (thread.settledAt ?? now) : (thread.settleWhenIdleAt ?? now),
+          }),
       unsettledAt: null,
     };
   }
@@ -696,6 +712,7 @@ export function buildBulkUnpinContextMenuItem(input: {
 
 export interface ThreadStatusPill {
   label:
+    | "Disconnected"
     | "Working"
     | "Connecting"
     | "Completed"
@@ -717,6 +734,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Failed: 3.5,
   Working: 3,
   Connecting: 3,
+  Disconnected: 2.25,
   Waiting: 2.5,
   "Plan Ready": 2,
   Completed: 1,
@@ -732,6 +750,7 @@ type ThreadStatusInput = Pick<
   | "interactionMode"
   | "latestRun"
   | "runtime"
+  | "environmentConnected"
 > & {
   lastVisitedAt?: string | null | undefined;
   pendingBackgroundTasks?: SidebarThreadSummary["pendingBackgroundTasks"] | undefined;
@@ -882,6 +901,7 @@ export function resolveAdjacentThreadId<T>(input: {
 }
 
 export type SidebarThreadStatus =
+  | "disconnected"
   | "approval"
   | "input"
   | "request"
@@ -921,9 +941,11 @@ type SidebarThreadStatusInput = Pick<
   | "pendingGuestMessageCount"
   | "runtime"
   | "blockedOnThreadWait"
+  | "environmentConnected"
 >;
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
+  if (threadActivityIsDisconnected(thread)) return "disconnected";
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
     return "approval";
   }
@@ -1029,6 +1051,7 @@ export function groupSidebarThreadsByProject<
 }
 
 export type SidebarV2TopStatusKind =
+  | "disconnected"
   | "approval"
   | "done"
   | "failed"
@@ -1154,6 +1177,15 @@ export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
   const { thread } = input;
+
+  if (threadActivityIsDisconnected(thread)) {
+    return {
+      label: "Disconnected",
+      colorClass: "text-sidebar-muted-foreground",
+      dotClass: "bg-sidebar-muted-foreground",
+      pulse: false,
+    };
+  }
 
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
     return {

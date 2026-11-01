@@ -1,8 +1,8 @@
 # Effect services
 
-Server features are Effect services. Transports call them: WebSocket RPC handlers in
-[`ws.ts`](../../apps/server/src/ws.ts), HTTP routes, MCP tools, scheduled tasks, and the CLI. This
-page holds the rules for writing them. The
+Server features are Effect services. Transports call them: authenticated RPC handlers in
+[`AuthenticatedRpcSession.ts`](../../apps/server/src/AuthenticatedRpcSession.ts), HTTP routes,
+MCP tools, scheduled tasks, and the CLI. This page holds the rules for writing them. The
 [Effect Service Conventions](../../.macroscope/check-run-agents/effect-service-conventions.md)
 review check enforces the same rules; keep the two in step.
 
@@ -22,7 +22,7 @@ the others, and testing it needs a socket. Plain functions for pure work (a slug
 message) are fine next to the service; the capability itself is the method.
 
 ```ts
-// ws.ts: a thin handler
+// AuthenticatedRpcSession.ts: a thin handler
 [WS_METHODS.projectsCreateNew]: (input) =>
   projectFolders
     .createNamedProject(input)
