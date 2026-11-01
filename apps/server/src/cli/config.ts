@@ -135,6 +135,10 @@ const EnvServerConfig = Config.all({
     Config.map(Option.getOrUndefined),
   ),
   port: Config.Port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  rpcWebTransport: Config.String("T3CODE_RPC_WEBTRANSPORT").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   host: Config.String("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
   t3Home: Config.String("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
@@ -205,6 +209,7 @@ export interface CliServerFlags {
   readonly bootstrapFd: Option.Option<number>;
   readonly autoBootstrapProjectFromCwd: Option.Option<boolean>;
   readonly logWebSocketEvents: Option.Option<boolean>;
+  readonly rpcWebTransport: Option.Option<string>;
   readonly tailscaleServeEnabled: Option.Option<boolean>;
   readonly tailscaleServePort: Option.Option<number>;
   readonly lan: Option.Option<boolean>;
@@ -225,6 +230,12 @@ export const projectLocationFlags = {
 } as const;
 
 export const sharedServerCommandFlags = {
+  rpcWebTransport: Flag.String("rpc-webtransport").pipe(
+    Flag.withDescription(
+      "Optional RPC WebTransport listener JSON: url, host, port, certPath, keyPath.",
+    ),
+    Flag.optional,
+  ),
   mode: modeFlag,
   port: portFlag,
   host: hostFlag,
@@ -274,6 +285,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
   const fs = yield* FileSystem.FileSystem;
   const env = yield* EnvServerConfig;
   const normalizedFlags = {
+    rpcWebTransport: flags.rpcWebTransport ?? Option.none(),
     mode: flags.mode ?? Option.none(),
     port: flags.port ?? Option.none(),
     host: flags.host ?? Option.none(),
@@ -473,7 +485,10 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     },
   );
 
+  const rpcWebTransport =
+    Option.getOrUndefined(normalizedFlags.rpcWebTransport) ?? env.rpcWebTransport;
   const config: ServerConfig.ServerConfig["Service"] = {
+    ...(rpcWebTransport === undefined ? {} : { rpcWebTransport }),
     logLevel,
     traceMinLevel: env.traceMinLevel,
     traceTimingEnabled: env.traceTimingEnabled,
@@ -541,6 +556,7 @@ export const resolveCliAuthConfig = (
       bootstrapFd: Option.none(),
       autoBootstrapProjectFromCwd: Option.none(),
       logWebSocketEvents: Option.none(),
+      rpcWebTransport: Option.none<string>(),
       tailscaleServeEnabled: Option.none(),
       tailscaleServePort: Option.none(),
       lan: Option.none(),

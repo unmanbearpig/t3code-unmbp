@@ -15,6 +15,8 @@ export const ClientCacheKind = Schema.Literals([
   "server-config",
   "vcs-refs",
   "project-favicon",
+  "connection-log",
+  "reconnect-experiment",
   "pull-request",
 ]);
 export type ClientCacheKind = typeof ClientCacheKind.Type;
@@ -217,6 +219,19 @@ const makeAvailable = Effect.gen(function* () {
                 payload,
                 Date.now(),
               );
+              if (kind === "connection-log") {
+                await transaction.runAsync(
+                  `DELETE FROM client_cache WHERE environment_id = ? AND kind = 'connection-log'
+                   AND cache_key IN (
+                     SELECT cache_key FROM client_cache
+                     WHERE environment_id = ? AND kind = 'connection-log'
+                     ORDER BY updated_at DESC, CAST(substr(cache_key, instr(cache_key, '-') + 1) AS INTEGER) DESC
+                     LIMIT -1 OFFSET 2000
+                   )`,
+                  environmentId,
+                  environmentId,
+                );
+              }
               if (kind === "pull-request") {
                 await transaction.runAsync(
                   `DELETE FROM client_cache WHERE environment_id = ? AND kind = 'pull-request'
@@ -236,6 +251,8 @@ const makeAvailable = Effect.gen(function* () {
                 );
               }
             };
+            // Expo's exclusive transactions use another connection and lock out
+            // concurrent cache writes. Saving and pruning can each commit on the shared connection.
             await save(database);
           },
           catch: databaseError("save-cache"),

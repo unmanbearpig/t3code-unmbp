@@ -126,6 +126,7 @@ function PendingSecretRequestForm(props: {
             id={inputId}
             // Password fields prompt to save credentials; this secret is not a login.
             type="text"
+            data-secret-input
             className="[-webkit-text-security:disc]"
             autoComplete="off"
             autoCorrect="off"

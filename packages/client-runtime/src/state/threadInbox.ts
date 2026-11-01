@@ -1,7 +1,9 @@
 // @effect-diagnostics globalTimers:off - Shelf placement timers run in web and native clients, outside an Effect runtime.
 import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
+import type { ScopedThreadRef } from "@t3tools/contracts";
+import { scopedThreadKey } from "../environment/scoped.ts";
+import { effectiveSnoozed, isFiledAsSettled } from "./threadSettled.ts";
 import { toSortableTimestamp } from "./threadSort.ts";
-import { effectiveSnoozed } from "./threadSettled.ts";
 
 type WorkingThreadInput = Pick<
   EnvironmentThreadShell,
@@ -12,9 +14,11 @@ type WorkingThreadInput = Pick<
   | "interactionMode"
   | "latestRun"
   | "runtime"
+  | "environmentConnected"
 >;
 
 export function isThreadWorking(thread: WorkingThreadInput): boolean {
+  if (thread.environmentConnected === false) return false;
   if (thread.hasPendingApprovals || thread.hasPendingUserInput) return false;
   if (thread.pendingSubagentRequest != null) return false;
   if (!threadRuntimeIsActive(thread.runtime) && thread.runtime?.status !== "idle") return false;
@@ -28,6 +32,37 @@ export function isThreadWorking(thread: WorkingThreadInput): boolean {
     run.status !== "waiting" &&
     thread.runtime?.activeRunId !== run.runId;
   return !(thread.interactionMode === "plan" && thread.hasActionableProposedPlan && runSettled);
+}
+
+/** Follow the order captured before settling, checking each candidate's current state. */
+export function findNextActionableThread(input: {
+  readonly threadRef: ScopedThreadRef;
+  readonly orderedThreadRefs: readonly ScopedThreadRef[];
+  readonly readThread: (ref: ScopedThreadRef) => EnvironmentThreadShell | null;
+  readonly excludedThreadKeys?: ReadonlySet<string> | undefined;
+  readonly now: string;
+}): EnvironmentThreadShell | null {
+  const currentKey = scopedThreadKey(input.threadRef);
+  const index = input.orderedThreadRefs.findIndex((ref) => scopedThreadKey(ref) === currentKey);
+  if (index === -1) return null;
+  for (let offset = 1; offset < input.orderedThreadRefs.length; offset += 1) {
+    const ref = input.orderedThreadRefs[(index + offset) % input.orderedThreadRefs.length]!;
+    if (scopedThreadKey(ref) === currentKey || input.excludedThreadKeys?.has(scopedThreadKey(ref)))
+      continue;
+    const thread = input.readThread(ref);
+    if (
+      thread !== null &&
+      thread.environmentConnected !== false &&
+      thread.archivedAt === null &&
+      thread.deletedAt === null &&
+      !isFiledAsSettled(thread) &&
+      !effectiveSnoozed(thread, { now: input.now }) &&
+      !isThreadWorking(thread)
+    ) {
+      return thread;
+    }
+  }
+  return null;
 }
 
 type InboxThreadInput = Pick<
@@ -210,7 +245,9 @@ export function createInboxReturnTracker() {
           thread.pinnedAt != null ||
           thread.settledOverride === "settled" ||
           effectiveSnoozed(thread, { now: observedAt });
-        const actual = isThreadWorking(thread);
+        const actual =
+          isThreadWorking(thread) ||
+          (thread.environmentConnected === false && previous?.working === true);
         // Only shelf placement is held: execution state and attention requests stay authoritative.
         const deadline =
           !actual && previous?.working && !actionable && !moved && !excluded

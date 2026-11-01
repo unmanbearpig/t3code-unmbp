@@ -5,5 +5,12 @@
     "types": ["node", "electron"],
     "lib": ["ESNext", "DOM", "esnext.disposable"]
   },
-  "include": ["src", "vite.config.ts", "../../scripts/lib"]
+  "include": [
+    "../../scripts/update-release-package-versions.ts",
+    "src",
+    "vite.config.ts",
+    "../../scripts/lib",
+    "../../scripts/build-desktop-artifact.ts",
+    "../../scripts/apply-web-brand-assets.ts"
+  ]
 }

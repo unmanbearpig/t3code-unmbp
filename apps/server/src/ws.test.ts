@@ -1,4 +1,6 @@
 import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
+import { RpcClientId } from "@t3tools/contracts";
+import { layerAuthenticatedHandlers } from "./AuthenticatedRpcSession.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -123,13 +125,12 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ProjectEnrichment from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import {
-  layerWsRpc,
   resolveOpenDiscoveryForConfig,
   subscribeOrchestrationV2Shell,
   subscribeOrchestrationV2Thread,
   WS_RPC_SERVER_OPTIONS,
   withLateConfigDiscovery,
-} from "./ws.ts";
+} from "./AuthenticatedRpcSession.ts";
 
 const snapshotConfig = (fields: Partial<ServerConfig>) =>
   ({ availableEditors: [], settings: {}, ...fields }) as unknown as ServerConfig;
@@ -709,7 +710,7 @@ it.effect.each(["pending", "cached"] as const)(
         },
       ).pipe(
         Effect.provide(
-          layerWsRpc(
+          layerAuthenticatedHandlers(
             {
               sessionId: AuthSessionId.make("config-test"),
               subject: "config-test",
@@ -717,8 +718,8 @@ it.effect.each(["pending", "cached"] as const)(
               scopes: [],
             },
             {},
-            yield* ServerBrowser.ServerBrowser,
-            () => Effect.void,
+            {},
+            RpcClientId.make(0),
           ).pipe(Layer.provide(configRpcServices)),
         ),
       );
@@ -796,7 +797,7 @@ it.effect.each(["pending", "cached"] as const)(
         Layer.mergeAll(
           Layer.fresh(layerConfigSources),
           Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
-          Layer.mock(ServerBrowser.ServerBrowser)({}),
+          Layer.mock(ServerBrowser.ServerBrowser)({ profileReporter: Effect.succeed(() => Effect.void) }),
         ),
       ),
       Effect.scoped,
@@ -893,7 +894,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
       },
     ).pipe(
       Effect.provide(
-        layerWsRpc(
+        layerAuthenticatedHandlers(
           {
             sessionId: AuthSessionId.make("config-test"),
             subject: "config-test",
@@ -901,8 +902,8 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
             scopes: [],
           },
           {},
-          yield* ServerBrowser.ServerBrowser,
-          () => Effect.void,
+          {},
+          RpcClientId.make(0),
         ).pipe(Layer.provide(configRpcServices)),
       ),
     );
@@ -953,7 +954,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
       Layer.mergeAll(
         Layer.fresh(layerConfigSources),
         Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
-        Layer.mock(ServerBrowser.ServerBrowser)({}),
+        Layer.mock(ServerBrowser.ServerBrowser)({ profileReporter: Effect.succeed(() => Effect.void) }),
       ),
     ),
     Effect.scoped,

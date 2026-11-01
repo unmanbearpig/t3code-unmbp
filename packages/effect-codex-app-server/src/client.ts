@@ -76,6 +76,8 @@ export class CodexAppServerClient extends Context.Service<
         params: unknown,
       ) => Effect.Effect<void, CodexError.CodexAppServerError>,
     ) => Effect.Effect<void>;
+    /** Reports unexpected termination; deliberate scope closure interrupts its waiters. */
+    readonly terminated: Effect.Effect<CodexError.CodexAppServerError>;
   }
 >()("effect-codex-app-server/client/CodexAppServerClient") {}
 
@@ -99,6 +101,7 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
   stdio: Stdio.Stdio,
   options: CodexAppServerClientOptions = {},
   terminationError?: Effect.Effect<CodexError.CodexAppServerError>,
+  exited?: Effect.Effect<CodexError.CodexAppServerError>,
 ): Effect.fn.Return<CodexAppServerClient["Service"], never, Scope.Scope> {
   const requestHandlers = new Map<string, ServerRequestHandler>();
   const termination = yield* Deferred.make<never, CodexError.CodexAppServerError>();
@@ -224,6 +227,7 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
   const transport = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
     stdio,
     ...(terminationError ? { terminationError } : {}),
+    ...(exited ? { exited } : {}),
     ...(options.logIncoming !== undefined ? { logIncoming: options.logIncoming } : {}),
     ...(options.logOutgoing !== undefined ? { logOutgoing: options.logOutgoing } : {}),
     ...(options.logger ? { logger: options.logger } : {}),
@@ -298,6 +302,7 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
         unknownNotificationHandler = handler;
       });
     }),
+    terminated: Deferred.await(termination).pipe(Effect.flip),
   });
 });
 
@@ -311,9 +316,11 @@ const makeChildProcessClient = Effect.fn(
   "effect-codex-app-server/CodexAppServerClient.makeChildProcessClient",
 )(function* (handle: ChildProcessSpawner.ChildProcessHandle, options: CodexAppServerClientOptions) {
   const stderrTail = yield* makeStderrTail(handle.stderr);
+  const terminationError = makeTerminationError(handle, stderrTail.read);
   return yield* make(
     makeChildStdio(handle, stderrTail.awaitDrained),
     options,
-    makeTerminationError(handle, stderrTail.read),
+    terminationError,
+    terminationError,
   );
 });

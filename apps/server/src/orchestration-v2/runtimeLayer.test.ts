@@ -47,15 +47,24 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ServerConfig from "../config.ts";
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import { CloudManagedEndpointRuntime } from "../cloud/ManagedEndpointRuntime.ts";
+import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
+import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
 import * as ProjectEnrichmentService from "../project/ProjectEnrichmentService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as McpSessionRegistryTestkit from "../mcp/McpSessionRegistry.testkit.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
@@ -4351,9 +4360,10 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       }),
   );
 
-  it.effect("rejects settling a thread while a run is active", () =>
+  it.effect("defers settlement while a run is active and fulfills it once idle", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
       const threadId = ThreadId.make("runtime-layer-active-settle-thread");
 
       yield* orchestrator.dispatch({
@@ -4399,21 +4409,64 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         .pipe(Effect.flip);
       assert.instanceOf(nonEmptyClaim, Orchestrator.OrchestratorDispatchError);
 
-      const error = yield* orchestrator
-        .dispatch({
-          type: "thread.settle",
-          commandId: CommandId.make("runtime-layer-active-settle"),
-          threadId,
-        })
-        .pipe(Effect.flip);
-
-      assert.equal(error._tag, "OrchestratorDispatchError");
-      assert.equal(error.cause, `Thread ${threadId} is still running. Stop it before settling.`);
+      const accepted = yield* orchestrator.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("runtime-layer-active-settle"),
+        threadId,
+      });
+      assert.deepEqual(
+        accepted.storedEvents.map(({ event }) => event.type),
+        ["thread.settle-when-idle-set"],
+      );
       const projection = yield* orchestrator.getThreadProjection(threadId);
       assert.equal(projection.runs[0]?.status, "starting");
+      assert.isNotNull(projection.thread.settleWhenIdleAt);
       assert.isNull(projection.thread.settledOverride);
       assert.isNull(projection.thread.settledAt);
       assert.isNotNull(projection.thread.unsettledAt);
+      assert.deepEqual(
+        (yield* orchestrator.getThreadShell(threadId))?.settleWhenIdleAt,
+        projection.thread.settleWhenIdleAt,
+      );
+      const premature = yield* orchestrator
+        .dispatch({
+          type: "thread.settle-when-idle",
+          commandId: CommandId.make("runtime-layer-active-settle-premature"),
+          threadId,
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(premature, Orchestrator.OrchestratorDispatchError);
+
+      yield* TestClock.adjust("1 second");
+      const now = yield* DateTime.now;
+      const run = projection.runs[0]!;
+      yield* eventSink.commitCommand({
+        commandId: CommandId.make("runtime-layer-active-settle-completed"),
+        threadId,
+        commandType: "provider-runtime.reconcile",
+        acceptedAt: now,
+        events: [
+          {
+            id: EventId.make("runtime-layer-active-settle-completed"),
+            type: "run.updated",
+            threadId,
+            runId: run.id,
+            occurredAt: now,
+            payload: { ...run, status: "completed", startedAt: now, completedAt: now },
+          },
+        ],
+        effects: [],
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.settle-when-idle",
+        commandId: CommandId.make("runtime-layer-active-settle-fulfilled"),
+        threadId,
+      });
+      const settled = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(settled.runs[0]?.status, "completed");
+      assert.equal(settled.thread.settledOverride, "settled");
+      assert.deepEqual(settled.thread.settledAt, projection.thread.settleWhenIdleAt);
+      assert.isNull(settled.thread.settleWhenIdleAt);
     }),
   );
 
@@ -4485,7 +4538,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
     }),
   );
 
-  it.effect("settles past held automatic runs but not held user messages", () =>
+  it.effect("settles past held automatic runs and defers for held user messages", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const eventSink = yield* EventSink.EventSinkV2;
@@ -4577,6 +4630,7 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       assert.isNotNull(settled.thread.settledAt);
       assert.isTrue(settled.runs.every((run) => run.status === "cancelled"));
 
+      // A held message the user typed remains queued until the user handles it.
       yield* orchestrator.dispatch({
         type: "thread.unsettle",
         commandId: CommandId.make("settle-automatic-unsettle"),
@@ -4597,18 +4651,47 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
       });
       yield* queueMessage("settle-automatic-user-queued", false);
       yield* holdQueueAfterRestart("settle-automatic-restart-2");
-      const error = yield* orchestrator
+      const deferred = yield* orchestrator.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("settle-automatic-settle-2"),
+        threadId,
+      });
+      assert.deepEqual(
+        deferred.storedEvents.map(({ event }) => event.type),
+        ["thread.settle-when-idle-set"],
+      );
+      const filed = yield* orchestrator.getThreadProjection(threadId);
+      const queued = filed.runs.find(
+        (run) => run.userMessageId === MessageId.make("settle-automatic-user-queued"),
+      )!;
+      assert.equal(queued.status, "queued");
+      assert.isTrue(queued.queueHeld);
+      assert.isNull(filed.thread.settledAt);
+      assert.isNotNull(filed.thread.settleWhenIdleAt);
+      const premature = yield* orchestrator
         .dispatch({
-          type: "thread.settle",
-          commandId: CommandId.make("settle-automatic-settle-2"),
+          type: "thread.settle-when-idle",
+          commandId: CommandId.make("settle-automatic-premature-2"),
           threadId,
         })
         .pipe(Effect.flip);
-      assert.equal(error._tag, "OrchestratorDispatchError");
-      assert.equal(
-        error.cause,
-        `Thread ${threadId} has a queued message. Send it or remove it from the queue before settling.`,
-      );
+      assert.instanceOf(premature, Orchestrator.OrchestratorDispatchError);
+
+      yield* orchestrator.dispatch({
+        type: "queued-run.cancel",
+        commandId: CommandId.make("settle-automatic-cancel-queued"),
+        threadId,
+        runId: queued.id,
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.settle-when-idle",
+        commandId: CommandId.make("settle-automatic-fulfill-2"),
+        threadId,
+      });
+      const fulfilled = yield* orchestrator.getThreadProjection(threadId);
+      assert.equal(fulfilled.thread.settledOverride, "settled");
+      assert.deepEqual(fulfilled.thread.settledAt, filed.thread.settleWhenIdleAt);
+      assert.isNull(fulfilled.thread.settleWhenIdleAt);
     }),
   );
 
@@ -8501,3 +8584,157 @@ it.layer(layerQueueResumeDisabledInstanceTest)(
     );
   },
 );
+
+const browserOverrideProjectId = ProjectId.make("project:browser-override");
+const browserInheritProjectId = ProjectId.make("project:browser-inherit");
+const browserOptOutProjectId = ProjectId.make("project:browser-opt-out");
+const browserGlobalOffOptInProjectId = ProjectId.make("project:browser-global-off-opt-in");
+const issuedMcpCapabilities = new Map<ThreadId, ReadonlySet<string>>();
+
+const layerProductionBrowserAccessTest = RuntimeLayer.layerProduction.pipe(
+  Layer.provideMerge(ProjectStore.layer),
+  Layer.provide(
+    Layer.mergeAll(
+      Layer.mock(AnalyticsService.AnalyticsService)({}),
+      Layer.mock(CloudManagedEndpointRuntime)({ inspectConnector: Effect.succeed(null) }),
+      Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({}),
+      Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+      Layer.mock(ServerSecretStore.ServerSecretStore)({
+        directory: "/unused",
+        getOrCreateRandom: (_name, bytes) => Effect.succeed(new Uint8Array(bytes)),
+      }),
+      Layer.mock(TextGeneration.TextGeneration)({}),
+      Layer.mock(WorktreeSetupTracker.WorktreeSetupTracker)({}),
+    ),
+  ),
+  Layer.provide(
+    Layer.mock(ProjectEnrichmentService.ProjectEnrichmentService)({
+      peek: () =>
+        Effect.succeed({
+          repositoryIdentity: null,
+          faviconPath: null,
+          repositoryIdentityResolved: false,
+        }),
+      getAvailable: () =>
+        Effect.succeed({
+          repositoryIdentity: null,
+          faviconPath: null,
+          repositoryIdentityResolved: false,
+        }),
+      invalidate: () => Effect.void,
+    }),
+  ),
+  Layer.provide(
+    Layer.mock(WorkspacePaths.WorkspacePaths)({
+      normalizeWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
+    }),
+  ),
+  Layer.provide(
+    Layer.mergeAll(
+      Layer.mock(PreviewManager.PreviewManager)({ close: () => Effect.void }),
+      Layer.mock(TerminalManager.TerminalManager)({ close: () => Effect.void }),
+    ),
+  ),
+  Layer.provide(
+    Layer.effect(
+      McpSessionRegistry.McpSessionRegistry,
+      Effect.gen(function* () {
+        const delegate = yield* McpSessionRegistry.McpSessionRegistry;
+        return McpSessionRegistry.McpSessionRegistry.of({
+          ...delegate,
+          issue: (request) =>
+            Effect.sync(() =>
+              issuedMcpCapabilities.set(request.threadId, request.capabilities ?? new Set()),
+            ).pipe(Effect.andThen(delegate.issue(request))),
+        });
+      }),
+    ).pipe(Layer.provide(McpSessionRegistryTestkit.layer)),
+  ),
+  Layer.provide(McpProviderSessions.layer),
+  Layer.provide(SqlitePersistence.layerMemory),
+  Layer.provide(layerCheckpointStoreTest),
+  Layer.provide(layerServerConfig),
+  Layer.provideMerge(
+    ServerSettings.layerTest({
+      enableAgentBrowserAccess: true,
+      projectSettingsOverrides: {
+        [browserOverrideProjectId]: { enableAgentBrowserAccess: true },
+        [browserOptOutProjectId]: { enableAgentBrowserAccess: false },
+        [browserGlobalOffOptInProjectId]: { enableAgentBrowserAccess: true },
+      },
+    }),
+  ),
+  Layer.provide(layerTestProviderInstanceRegistry),
+  Layer.provide(layerGitWorkflowTest),
+  Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+  Layer.provide(layerPlatformTest),
+);
+
+// regression: #23085 a project without an override lost browser tools once another project set one
+it.layer(layerProductionBrowserAccessTest)("production agent browser access", (it) => {
+  it.effect("grants preview per project policy when another project overrides it", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const sessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
+      const openWithMcp = (projectId: ProjectId) =>
+        Effect.gen(function* () {
+          yield* seedProject({
+            projectId,
+            title: projectId,
+            workspaceRoot: `/workspace/${projectId}`,
+            defaultModelSelection: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          });
+          const threadId = ThreadId.make(`${projectId}:thread`);
+          yield* orchestrator.dispatch({
+            type: "thread.create",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make(`${threadId}:create`),
+            threadId,
+            projectId,
+            title: "Browser access",
+            modelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+          });
+          // The test adapter cannot open a session; MCP access is issued first.
+          yield* sessions
+            .open({
+              threadId,
+              providerSessionId: ProviderSessionId.make(`${threadId}:session`),
+              modelSelection,
+              runtimePolicy: {
+                runtimeMode: "full-access",
+                interactionMode: "default",
+                cwd: process.cwd(),
+              },
+            })
+            .pipe(Effect.exit);
+          return issuedMcpCapabilities.get(threadId)?.has("preview");
+        });
+
+      assert.isTrue(
+        yield* openWithMcp(browserInheritProjectId),
+        "a project without an override inherits the global opt-in",
+      );
+      assert.isTrue(
+        yield* openWithMcp(browserOverrideProjectId),
+        "an explicit project opt-in grants preview",
+      );
+      assert.isFalse(
+        yield* openWithMcp(browserOptOutProjectId),
+        "an explicit project opt-out still withholds preview",
+      );
+
+      const settings = yield* ServerSettings.ServerSettingsService;
+      yield* settings.updateSettings({ enableAgentBrowserAccess: false });
+      assert.isTrue(
+        yield* openWithMcp(browserGlobalOffOptInProjectId),
+        "an explicit project opt-in grants preview when the global setting is off",
+      );
+    }),
+  );
+});

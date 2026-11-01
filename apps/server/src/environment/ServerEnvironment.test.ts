@@ -1,3 +1,5 @@
+import * as WebTransportAvailability from "../transport/WebTransportAvailability.ts";
+import * as Option from "effect/Option";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ORCHESTRATION_PROTOCOL_VERSION } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
@@ -74,6 +76,27 @@ const makeServerConfig = Effect.fn(function* (baseDir: string) {
 });
 
 it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
+  it.effect("advertises RPC WebTransport only while its listener is available", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped();
+      yield* Effect.gen(function* () {
+        const environment = yield* ServerEnvironment.ServerEnvironment;
+        const availability = yield* WebTransportAvailability.WebTransportAvailability;
+        expect((yield* environment.getDescriptor).rpcWebTransport).toBeUndefined();
+        const endpoint = { url: "https://host.example:4443/rpc", wireVersion: 1 };
+        yield* availability.set(Option.some(endpoint));
+        expect((yield* environment.getDescriptor).rpcWebTransport).toEqual(endpoint);
+        yield* availability.set(Option.none());
+        expect((yield* environment.getDescriptor).rpcWebTransport).toBeUndefined();
+      }).pipe(
+        Effect.provide(
+          layerServerEnvironment(baseDir).pipe(Layer.provideMerge(WebTransportAvailability.layer)),
+        ),
+      );
+    }),
+  );
+
   it.effect("publishes proven install ownership only for manually updated servers", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

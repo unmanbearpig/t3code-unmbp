@@ -14,6 +14,10 @@ those modes. Customize these shortcuts under **Settings → Keybindings**.
 On mobile, open **Settings → Appearance**. Mobile has its own themes and text,
 code, and terminal preferences. It does not follow environment themes or defaults.
 
+Choose **unmbp** for pure black backgrounds in dark mode, including message bubbles,
+menus, and settings groups. Hover and selection colors remain visible. Its light palette
+uses white backgrounds.
+
 On Android 12 or newer, choose the **Material You** theme in Appearance to use colors from
 your wallpaper. Selecting another theme replaces those colors. Like other themes, Material You
 can be selected separately for light and dark appearances.
@@ -43,10 +47,13 @@ preference is saved separately on each device.
 
 ## Motion
 
-The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the
-**Panel animations** slider above 0 ms to add motion, up to 400 ms, unless reduced motion is enabled
-in your operating system. Moving between threads always snaps to the selected thread's panel state
-without replaying its transitions.
+On web and desktop, animations are off by default. Use **Settings → Appearance → Motion →
+Animations** to turn them on or off. The change applies immediately and is saved for that client.
+Turning animations off also stops animated indicators and makes navigation and scrolling instant.
+
+With animations enabled, move the **Panel animations** slider above 0 ms to animate the sidebar,
+right panel, and terminal drawer, up to 400 ms. Your operating system's reduced-motion preference
+still applies. Moving between threads always snaps to the selected thread's panel state.
 
 ## Custom themes
 
