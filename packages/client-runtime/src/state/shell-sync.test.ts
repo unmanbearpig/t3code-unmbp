@@ -1,3 +1,5 @@
+import * as Layer from "effect/Layer";
+import * as RemoteAuthorization from "../authorization/service.ts";
 import { type DeferredShellSnapshot } from "./shellPullRequests.ts";
 import * as Diagnostics from "../connection/diagnostics.ts";
 import * as RpcClientError from "effect/rpc/RpcClientError";
@@ -196,6 +198,7 @@ const makeReconnectHarness = Effect.fnUntraced(function* (
   const wakeups = yield* Queue.unbounded<ConnectionWakeups.ConnectionWakeup>();
   const loaderCalls = yield* Ref.make(0);
   const driver = yield* ConnectionDriver.make.pipe(
+    Effect.provide(Layer.mock(RemoteAuthorization.RemoteEnvironmentAuthorization)({})),
     Effect.provideService(
       ConnectionResolver.ConnectionResolver,
       ConnectionResolver.ConnectionResolver.of({
