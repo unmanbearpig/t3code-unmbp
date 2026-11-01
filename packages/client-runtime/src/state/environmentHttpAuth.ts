@@ -16,6 +16,7 @@ import {
   makeEnvironmentHttpApiGroupClient,
   makeEnvironmentHttpApiUrlBuilder,
   RemoteEnvironmentAuthFetchError,
+  RemoteEnvironmentAuthBlockedError,
   RemoteEnvironmentAuthTimeoutError,
   type RemoteEnvironmentRequestError,
 } from "../rpc/http.ts";
@@ -54,7 +55,7 @@ const buildEnvironmentAuthHeaders = Effect.fn("environmentHttpAuth.buildEnvironm
     method: HttpMethod.HttpMethod,
     url: string,
     signer: Option.Option<ManagedRelayDpopSigner["Service"]>,
-  ): Effect.fn.Return<EnvironmentHttpAuthHeaders, RemoteEnvironmentAuthFetchError> {
+  ): Effect.fn.Return<EnvironmentHttpAuthHeaders, RemoteEnvironmentAuthBlockedError> {
     if (authorization === null) {
       return {};
     }
@@ -62,7 +63,8 @@ const buildEnvironmentAuthHeaders = Effect.fn("environmentHttpAuth.buildEnvironm
       return { authorization: `Bearer ${authorization.token}` };
     }
     if (Option.isNone(signer)) {
-      return yield* new RemoteEnvironmentAuthFetchError({
+      return yield* new RemoteEnvironmentAuthBlockedError({
+        reason: "configuration",
         message: "No DPoP signer is available to authorize the environment request.",
         cause: authorization._tag,
       });
@@ -72,7 +74,8 @@ const buildEnvironmentAuthHeaders = Effect.fn("environmentHttpAuth.buildEnvironm
       .pipe(
         Effect.mapError(
           (cause) =>
-            new RemoteEnvironmentAuthFetchError({
+            new RemoteEnvironmentAuthBlockedError({
+              reason: "authentication",
               message: "Could not create the environment request authorization proof.",
               cause,
             }),
@@ -143,7 +146,8 @@ const executeEnvironmentRequest = Effect.fnUntraced(function* <
       if (authorization?._tag === "Dpop") {
         const remote = input.remoteAuthorization;
         if (remote === undefined || Option.isNone(remote)) {
-          return yield* new RemoteEnvironmentAuthFetchError({
+          return yield* new RemoteEnvironmentAuthBlockedError({
+            reason: "configuration",
             message: "No relay authorization service is available for the environment request.",
             cause: input.prepared.target._tag,
           });
@@ -154,12 +158,17 @@ const executeEnvironmentRequest = Effect.fnUntraced(function* <
             ...(rejectedAccessToken === undefined ? {} : { rejectedAccessToken }),
           })
           .pipe(
-            Effect.mapError(
-              (cause) =>
-                new RemoteEnvironmentAuthFetchError({
-                  message: "Could not authorize the environment request.",
-                  cause,
-                }),
+            Effect.mapError((cause) =>
+              cause._tag === "ConnectionBlockedError"
+                ? new RemoteEnvironmentAuthBlockedError({
+                    reason: cause.reason,
+                    message: "Could not authorize the environment request.",
+                    cause,
+                  })
+                : new RemoteEnvironmentAuthFetchError({
+                    message: "Could not authorize the environment request.",
+                    cause,
+                  }),
             ),
           );
         // A learned direct route keeps its own origin; only the token renews.
@@ -204,7 +213,8 @@ const executeEnvironmentRequest = Effect.fnUntraced(function* <
           rejectedAccessToken = authorization.accessToken;
           continue;
         }
-        return yield* new RemoteEnvironmentAuthFetchError({
+        return yield* new RemoteEnvironmentAuthBlockedError({
+          reason: "authentication",
           message: "The environment rejected the renewed session authorization.",
           cause: result.success,
         });

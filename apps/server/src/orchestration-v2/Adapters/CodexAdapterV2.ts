@@ -84,6 +84,7 @@ import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -198,7 +199,10 @@ export function canReuseCodexContextUsage(previous: ModelSelection, next: ModelS
 export function codexProviderTurnTokenUsage(
   tokenUsage: CodexSchema.V2ThreadTokenUsageUpdatedNotification["tokenUsage"],
   updatedAt: string,
+  previousCacheWriteAt?: string,
 ) {
+  const lastCacheWriteAt =
+    (tokenUsage.last.cacheWriteInputTokens ?? 0) > 0 ? updatedAt : previousCacheWriteAt;
   return {
     usedTokens: Math.max(0, tokenUsage.last.totalTokens),
     maxTokens: tokenUsage.modelContextWindow ?? null,
@@ -206,6 +210,7 @@ export function codexProviderTurnTokenUsage(
     cachedInputTokens: Math.max(0, tokenUsage.last.cachedInputTokens),
     outputTokens: Math.max(0, tokenUsage.last.outputTokens),
     reasoningOutputTokens: Math.max(0, tokenUsage.last.reasoningOutputTokens),
+    ...(lastCacheWriteAt === undefined ? {} : { lastCacheWriteAt }),
     updatedAt,
   };
 }
@@ -489,6 +494,9 @@ function codexMcpToolOutput(
 
 // A hung MCP resource read must not hold run ingestion open.
 const MCP_APP_CAPTURE_TIMEOUT = "20 seconds";
+// Reading the in-memory thread list is cheap; even an error reply proves liveness.
+const CODEX_LIVENESS_PROBE_INTERVAL = "1 minute";
+const CODEX_LIVENESS_PROBE_TIMEOUT = "1 minute";
 
 function codexMcpAppResourceUri(item: CodexDynamicToolItem): string | undefined {
   if (item.type !== "mcpToolCall") return undefined;
@@ -1150,6 +1158,7 @@ interface ActiveCodexTurnContext {
   hookStopReason?: string;
   capacityRetryAttempt?: number;
   capacityRetryPending?: Deferred.Deferred<ActiveCodexTurnContext | undefined>;
+  lastCacheWriteAt?: string | undefined;
   closedCommandItemIds?: ReadonlySet<string>;
   latestProviderFailure?: {
     readonly nativeMessage: string;
@@ -1667,6 +1676,12 @@ export interface CodexAdapterV2Options {
   readonly fileSystem: FileSystem.FileSystem;
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
   readonly serverConfig: ServerConfig["Service"];
+  /**
+   * How often the open app-server is probed for responsiveness. Null disables
+   * the probe; replay drivers reject unexpected outbound frames, so scenarios
+   * turn it off.
+   */
+  readonly livenessProbeInterval?: Duration.Input | null;
   /** Omitting this leaves late completions projection-only. */
   readonly continuationRequests?: {
     readonly offer: (
@@ -4497,6 +4512,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               return;
             }
             const now = yield* DateTime.now;
+            const tokenUsage = codexProviderTurnTokenUsage(
+              payload.tokenUsage,
+              DateTime.formatIso(now),
+              context.lastCacheWriteAt,
+            );
+            context.lastCacheWriteAt = tokenUsage.lastCacheWriteAt;
             yield* emitProviderEvent({
               type: "provider_turn.updated",
               driver: CODEX_PROVIDER,
@@ -4515,10 +4536,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 status: "running",
                 startedAt: context.startedAt,
                 completedAt: null,
-                tokenUsage: codexProviderTurnTokenUsage(
-                  payload.tokenUsage,
-                  DateTime.formatIso(now),
-                ),
+                tokenUsage,
               },
             });
           }).pipe(Effect.orDie),
@@ -7001,6 +7019,45 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             Effect.mapError(mcpAppsError("Codex MCP resource read failed.")),
           ),
         };
+
+        // Drain buffered events before failing every run sharing this process.
+        const livenessProbeInterval =
+          adapterOptions.livenessProbeInterval === undefined
+            ? CODEX_LIVENESS_PROBE_INTERVAL
+            : adapterOptions.livenessProbeInterval;
+        if (livenessProbeInterval !== null) {
+          const unresponsive = Effect.gen(function* () {
+            while (true) {
+              yield* Effect.sleep(livenessProbeInterval);
+              const answered = yield* client
+                .request("thread/loaded/list", { limit: 1 })
+                .pipe(
+                  Effect.catchTags({ CodexAppServerRequestError: () => Effect.void }),
+                  Effect.timeoutOption(CODEX_LIVENESS_PROBE_TIMEOUT),
+                );
+              if (Option.isNone(answered)) {
+                return `Codex stopped responding: it did not answer a liveness check within ${CODEX_LIVENESS_PROBE_TIMEOUT}.`;
+              }
+            }
+          });
+          yield* Effect.raceFirst(
+            client.terminated,
+            // A probe that fails with a transport error is the termination above.
+            unresponsive.pipe(Effect.catch(() => Effect.never)),
+          ).pipe(
+            Effect.flatMap((cause) =>
+              Queue.fail(
+                events,
+                new ProviderAdapter.ProviderAdapterEventStreamError({
+                  driver: CODEX_PROVIDER,
+                  providerSessionId: input.providerSessionId,
+                  cause,
+                }),
+              ),
+            ),
+            Effect.forkIn(scope),
+          );
+        }
 
         const runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime = {
           instanceId: adapterOptions.instanceId,

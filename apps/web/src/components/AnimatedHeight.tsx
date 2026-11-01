@@ -1,6 +1,8 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { observeResize } from "../lib/observeResize";
 
+import { useReducedMotion } from "~/hooks/useReducedMotion";
+
 const HEIGHT_TRANSITION_FALLBACK_MS = 250;
 
 export function AnimatedHeight({
@@ -10,6 +12,7 @@ export function AnimatedHeight({
   readonly children: ReactNode;
   readonly holdHeight?: boolean;
 }) {
+  const reducedMotion = useReducedMotion();
   const contentRef = useRef<HTMLDivElement>(null);
   const [heightState, setHeightState] = useState<{
     readonly height: number | null;
@@ -18,7 +21,7 @@ export function AnimatedHeight({
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- fallback timer that ends clipping when the height transition never reports its end
   useEffect(() => {
-    if (!heightState.isClipping) return;
+    if (reducedMotion || !heightState.isClipping) return;
     const timeoutId = window.setTimeout(() => {
       setHeightState((currentState) =>
         currentState.isClipping ? { ...currentState, isClipping: false } : currentState,
@@ -29,6 +32,7 @@ export function AnimatedHeight({
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A height change mid-transition starts a new transition, so the fallback timer restarts.
     heightState.height,
     heightState.isClipping,
+    reducedMotion,
   ]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the content element and observes its size before paint to animate height
@@ -45,7 +49,7 @@ export function AnimatedHeight({
         if (currentState.height === nextHeight) return currentState;
         return {
           height: nextHeight,
-          isClipping: currentState.height !== null,
+          isClipping: !reducedMotion && currentState.height !== null,
         };
       });
     };
@@ -78,7 +82,7 @@ export function AnimatedHeight({
       stopObserving();
       cancelPendingFrames();
     };
-  }, [holdHeight]);
+  }, [holdHeight, reducedMotion]);
 
   return (
     <div
@@ -89,7 +93,8 @@ export function AnimatedHeight({
           ? undefined
           : {
               height: heightState.height,
-              overflow: holdHeight || heightState.isClipping ? "clip" : "visible",
+              overflow:
+                holdHeight || (!reducedMotion && heightState.isClipping) ? "clip" : "visible",
             }
       }
       onTransitionEnd={(event) => {

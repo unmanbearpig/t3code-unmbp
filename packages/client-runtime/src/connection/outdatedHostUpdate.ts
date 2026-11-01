@@ -18,10 +18,10 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as HttpClient from "effect/http/HttpClient";
 import * as RpcClient from "effect/rpc/RpcClient";
 import * as RpcSerialization from "effect/rpc/RpcSerialization";
-import * as Socket from "effect/socket/Socket";
 
 import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
 import { makeWsRpcProtocolClient, PING_TIMEOUT } from "../rpc/protocol.ts";
+import { makeWebSocketLayer } from "../rpc/webSocket.ts";
 import { isLegacyUpdateHandoffLoss, resolveServerUpdateProgressResult } from "../state/server.ts";
 import * as RelayEnvironmentDiscovery from "../relay/discovery.ts";
 import * as ConnectionResolver from "./resolver.ts";
@@ -36,7 +36,6 @@ import {
 
 // A v1 host restarting into v2 runs migrations before its descriptor answers again.
 const OUTDATED_HOST_RESTART_TIMEOUT = Duration.minutes(4);
-const SOCKET_OPEN_TIMEOUT = "15 seconds";
 
 export class OutdatedHostUpdateError extends Schema.TaggedError<OutdatedHostUpdateError>()(
   "OutdatedHostUpdateError",
@@ -79,7 +78,7 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
     onStage: (stage: OutdatedHostUpdateStage) => Effect.Effect<void>,
   ) {
     const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
-    const webSocketConstructor = yield* Socket.WebSocketConstructor;
+    const webSocketLayer = yield* makeWebSocketLayer;
     const httpClient = yield* HttpClient.HttpClient;
     const { entry, prepared, descriptor } = yield* reachOutdatedHost(environmentId);
     // Discovery still holds the old relay descriptor and would re-block the
@@ -123,16 +122,7 @@ export const updateOutdatedHost = Effect.fn("clientRuntime.connection.updateOutd
               retryPolicy: Schedule.recurs(0),
             }),
           ).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Socket.layerWebSocket(prepared.socketUrl, {
-                  openTimeout: SOCKET_OPEN_TIMEOUT,
-                }).pipe(
-                  Layer.provide(Layer.succeed(Socket.WebSocketConstructor, webSocketConstructor)),
-                ),
-                RpcSerialization.layerJson,
-              ),
-            ),
+            Layer.provide(Layer.mergeAll(webSocketLayer(prepared), RpcSerialization.layerJson)),
           ),
         );
         const client = yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));

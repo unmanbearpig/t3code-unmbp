@@ -7,6 +7,7 @@ import {
   type DesktopUpdateCheckResult,
   type DesktopUpdateState,
 } from "@t3tools/contracts";
+import { CLI_RELEASE_REPOSITORY } from "@t3tools/shared/cliRelease";
 import { errorTag } from "@t3tools/shared/observability";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -454,7 +455,11 @@ export const make = Effect.gen(function* () {
   const hasUpdateFeedConfig = Ref.get(appUpdateYmlConfigRef).pipe(
     Effect.map(
       (appUpdateYmlConfig) =>
-        Option.isSome(appUpdateYmlConfig) || mockUpdates || policy.feedUrl !== undefined,
+        mockUpdates || policy.feedUrl !== undefined ||
+        (Option.isSome(appUpdateYmlConfig) &&
+          appUpdateYmlConfig.value.provider === "github" &&
+          `${appUpdateYmlConfig.value.owner}/${appUpdateYmlConfig.value.repo}` ===
+            CLI_RELEASE_REPOSITORY),
     ),
   );
 

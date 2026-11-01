@@ -246,6 +246,12 @@ function getWindowTitleBarOptions(
     };
   }
 
+  if (platform === "linux") {
+    // Electron's hidden titlebar adds a client-side resize border on Linux.
+    // Let the window manager supply decorations, as it does for other apps.
+    return { titleBarStyle: "default" };
+  }
+
   return {
     titleBarStyle: "hidden",
     titleBarOverlay: {
@@ -669,10 +675,13 @@ export const make = Effect.gen(function* () {
       }
     });
     window.webContents.on("input-event", (_event, input) => {
+      if (window.isDestroyed()) return;
+      const webContents = window.webContents;
+      if (webContents.isDestroyed()) return;
       if (input.type === "gestureScrollBegin") {
-        window.webContents.send(TRACKPAD_SCROLL_BEGIN_CHANNEL);
+        webContents.send(TRACKPAD_SCROLL_BEGIN_CHANNEL);
       } else if (input.type === "gestureScrollEnd") {
-        window.webContents.send(TRACKPAD_SCROLL_END_CHANNEL);
+        webContents.send(TRACKPAD_SCROLL_END_CHANNEL);
       }
     });
     // Ctrl+wheel bypasses menus; guest contents emit their own zoom-changed event.

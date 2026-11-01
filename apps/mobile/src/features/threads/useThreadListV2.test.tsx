@@ -1,10 +1,13 @@
+import { WORKING_EXIT_GRACE_MS } from "@t3tools/client-runtime/state/thread-inbox";
+import { threadListInboxReturns } from "./threadListV2";
+import { makeThreadShellFixture } from "../../test-fixtures";
 import { act, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { RegistryContext } from "@effect/atom-react";
 import type { OlderSettledShelfEnvironment } from "@t3tools/client-runtime/state/threads";
 import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
 import * as DateTime from "effect/DateTime";
-import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 
@@ -241,4 +244,76 @@ it("reuses a large thread list across tab renders and updates when its inputs ch
   expect(loaded.layout.items).toHaveLength(160);
   expect(loaded.olderSettledShelf.isListed(threads[150]!)).toBe(true);
   expect(loaded.items).not.toBe(loading.items);
+});
+
+const NOW = "2026-06-02T00:00:00.000Z";
+const environmentId = EnvironmentId.make("environment-1");
+
+it("returns a thread from the Working shelf once its exit grace expires", async () => {
+  using _globals = { [Symbol.dispose]: () => vi.unstubAllGlobals() };
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  using _timers = { [Symbol.dispose]: () => vi.useRealTimers() };
+  using _tracker = { [Symbol.dispose]: () => threadListInboxReturns.observe(null) };
+  vi.useFakeTimers({ now: Date.parse(NOW) });
+  const shelfAtom = Atom.make<ReadonlyMap<EnvironmentId, OlderSettledShelfEnvironment>>(new Map());
+  vi.mocked(olderSettledThreads.shelfAtom).mockReturnValue(shelfAtom);
+  const registry = AtomRegistry.make();
+  using _registry = { [Symbol.dispose]: () => registry.dispose() };
+  const working = makeThreadShellFixture({
+    environmentId,
+    id: ThreadId.make("echo"),
+    title: "echo",
+    runtime: {
+      status: "running",
+      activeRunId: null,
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      providerName: "Codex",
+      lastError: null,
+      updatedAt: NOW,
+    },
+  });
+  const completed = { ...working, runtime: null };
+  const seen: Array<ReturnType<typeof useThreadListV2>["layout"]> = [];
+  function ListProbe(props: { readonly threads: ReadonlyArray<typeof working> }) {
+    const { layout } = useThreadListV2({
+      threads: props.threads,
+      pendingTasks: [],
+      environmentId: null,
+      projectRefs: null,
+      searchQuery: "",
+      searchMatches: new Map(),
+      settlementEnvironmentIds: new Set(),
+      snoozeEnvironmentIds: new Set(),
+      pinReorderEnvironmentIds: new Set(),
+      activeReorderEnvironmentIds: new Set(),
+      queuedThreadKeys: new Set(),
+      settledLimit: 10,
+      now: NOW,
+      pendingOrder: null,
+      shelfPreferencesLoaded: true,
+      workingShelfEnabled: true,
+      workingShelfExpanded: false,
+      snoozedShelfExpanded: false,
+      settledShelfExpanded: false,
+      selectedThreadKey: null,
+    });
+    useLayoutEffect(() => {
+      seen.push(layout);
+    });
+    return null;
+  }
+
+  function Probe(props: { readonly threads: ReadonlyArray<typeof working> }) {
+    return <RegistryContext value={registry}><ListProbe {...props} /></RegistryContext>;
+  }
+  const root = createRoot(document.createElement("div"));
+  using _root = { [Symbol.dispose]: () => act(() => root.unmount()) };
+  await act(async () => root.render(<Probe threads={[working]} />));
+  await act(async () => root.render(<Probe threads={[completed]} />));
+  expect(seen.at(-1)?.workingCount).toBe(1);
+
+  await act(async () => vi.advanceTimersByTime(WORKING_EXIT_GRACE_MS));
+  expect(threadListInboxReturns.isWorking(completed)).toBe(false);
+  expect(seen.at(-1)?.workingCount, "the list still shows the finished thread as working").toBe(0);
+  expect(seen.at(-1)?.items.map((item) => item.thread.id)).toEqual(["echo"]);
 });

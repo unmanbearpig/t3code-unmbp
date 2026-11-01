@@ -1,5 +1,8 @@
+import { composerCommandKeyHandler } from "./composerCommandKey";
+import { resolveShortcutCommand } from "../../keybindings";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
+import { registerLeaderShortcutHandler } from "~/appShortcutEvents";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { BackgroundThreadContext } from "./backgroundThread";
 import {
@@ -277,7 +280,6 @@ import {
   usePreparingComposerImages,
 } from "./preparingComposerImages";
 import { ComposerControlsBar } from "./ComposerControlsBar";
-import { composerCommandKeyHandler } from "./composerCommandKey";
 
 function consumePasteAsTextShortcut(deadline: { current: number }): boolean {
   const armed = Date.now() <= deadline.current;
@@ -429,6 +431,7 @@ export interface ChatComposerProps {
   contextWindowEntries: Parameters<typeof deriveLatestContextWindowSnapshot>[0];
   contextWindowLiveUsage: Parameters<typeof deriveLatestContextWindowSnapshot>[1];
   contextWindowProviderThread: Parameters<typeof deriveLatestContextWindowSnapshot>[2];
+  lastPromptCacheWriteAt: number | null;
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
@@ -555,6 +558,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     contextWindowEntries,
     contextWindowLiveUsage,
     contextWindowProviderThread,
+    lastPromptCacheWriteAt,
     compactThreadUnavailable,
     compactDisabled,
     compactDisabledReason,
@@ -2198,8 +2202,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   };
   const expandMobileComposerStable = useStableCallback(expandMobileComposer);
 
-  const onComposerCommandKey = (key: string, event: KeyboardEvent, isTaskItem?: boolean) =>
+  const onComposerCommandKey = (
+    ...args: Parameters<ReturnType<typeof composerCommandKeyHandler>>
+  ) =>
     composerCommandKeyHandler({
+      composerEmacsEditingEnabled: settings.composerEmacsEditingEnabled,
       keybindings,
       sendShortcut: settings.sendShortcut,
       routeKind,
@@ -2235,7 +2242,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       readComposerSnapshot,
       applyPromptReplacement,
       submitComposer,
-    })(key, event, isTaskItem);
+    })(...args);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the composer leader shortcut handler until unmount
+  useEffect(() =>
+    registerLeaderShortcutHandler((event) => {
+      const target = event.target ?? document.activeElement;
+      if (!(target instanceof Node) || !composerFormRef.current?.contains(target)) return;
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          composerFocus: true,
+          draftThreadRoute: routeKind === "draft",
+          turnRunning: phase === "running",
+        },
+      });
+      if (!command?.startsWith("composer.send")) return;
+      if (onComposerCommandKey(event.key, event)) event.preventDefault();
+    }, true),
+  );
 
   const {
     stashQueue,
@@ -3503,6 +3527,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
+                    lastPromptCacheWriteAt={lastPromptCacheWriteAt}
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}

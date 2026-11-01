@@ -20,6 +20,7 @@ import {
   type AuthWebSocketTicketResult,
   type AuthWebSocketTicketUse,
   DpopFailureReason,
+  ORCHESTRATION_PROTOCOL_VERSION,
   type DpopFailureReason as DpopFailureReasonType,
   mcpClientScopes,
 } from "@t3tools/contracts";
@@ -531,6 +532,9 @@ export class EnvironmentAuth extends Context.Service<
     ) => Effect.Effect<number, ServerAuthInternalError>;
     readonly authenticateHttpRequest: (
       request: HttpServerRequest.HttpServerRequest,
+    ) => Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError>;
+    readonly authenticateRpcTicket: (
+      ticket: string,
     ) => Effect.Effect<AuthenticatedSession, ServerAuthCredentialError | ServerAuthInternalError>;
     readonly authenticateWebSocketUpgrade: (
       request: HttpServerRequest.HttpServerRequest,
@@ -1230,6 +1234,7 @@ export const make = Effect.gen(function* () {
           (issued) =>
             ({
               ticket: Redacted.make(issued.token),
+              orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
               expiresAt: DateTime.toUtc(issued.expiresAt),
             }) satisfies AuthWebSocketTicketResult,
         ),
@@ -1240,6 +1245,20 @@ export const make = Effect.gen(function* () {
     request,
   ) =>
     authenticateRequest(request).pipe(Effect.withSpan("EnvironmentAuth.authenticateHttpRequest"));
+
+  const authenticateRpcTicket: EnvironmentAuth["Service"]["authenticateRpcTicket"] = (ticket) =>
+    sessions.verifyWebSocketToken(ticket).pipe(
+      mapSessionVerificationErrors,
+      Effect.flatMap(rejectMcpClientAudience),
+      Effect.map((session) => ({
+        sessionId: session.sessionId,
+        subject: session.subject,
+        method: session.method,
+        scopes: session.scopes,
+        ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
+      })),
+      Effect.withSpan("EnvironmentAuth.authenticateRpcTicket"),
+    );
 
   const authenticateWebSocketUpgrade: EnvironmentAuth["Service"]["authenticateWebSocketUpgrade"] =
     Effect.fn("EnvironmentAuth.authenticateWebSocketUpgrade")(function* (request, use) {
@@ -1291,7 +1310,6 @@ export const make = Effect.gen(function* () {
           };
         }
       }
-
       return yield* authenticateRequest(request);
     });
 
@@ -1401,6 +1419,7 @@ export const make = Effect.gen(function* () {
     revokeOtherClientSessions,
     authenticateHttpRequest,
     authenticateWebSocketUpgrade,
+    authenticateRpcTicket,
     issueWebSocketTicket,
     issueStartupPairingUrl,
     authenticateMcpClient,

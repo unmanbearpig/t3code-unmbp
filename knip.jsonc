@@ -53,6 +53,12 @@
         "scripts/probe-claude-fork-local-rollback-replay.ts",
         "scripts/update-test-shard-weights.ts",
         "scripts/verify-background-live.ts",
+        "bench/network/run.ts",
+        "bench/network/reconnectRun.ts",
+        "bench/network/reconnectServer.ts",
+        "bench/network/reconnectWorker.ts",
+        "bench/network/server.ts",
+        "bench/network/operationsServer.ts",
         "src/provider/testFixtures/*.mjs",
         // graphqlgen reads its config.
         "graphql.config.ts",
@@ -68,6 +74,8 @@
         "@t3tools/web",
         "@napi-rs/keyring",
         "ffi-rs",
+        // WebTransport loads its native HTTP/3 transport by package name.
+        "@fails-components/webtransport-transport-http3-quiche",
       ],
     },
     "apps/desktop": {

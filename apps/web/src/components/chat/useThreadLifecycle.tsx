@@ -1,3 +1,4 @@
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { Dispatch } from "react";
@@ -217,12 +218,11 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   );
   const activeThreadWokeVisible = isThreadWokeUnseen({
     wokeAt: activeThreadWokeAt,
-    settled: activeThreadShell?.settledOverride === "settled",
+    settled: isFiledAsSettled(activeThreadShell),
     lastVisitedAt: activeThreadLastVisitedAt,
     latestRunCompletedAt: activeLatestRun?.completedAt ?? null,
   });
-  const activeThreadSettled =
-    serverConfigLoaded && activeThreadShell?.settledOverride === "settled";
+  const activeThreadSettled = serverConfigLoaded && isFiledAsSettled(activeThreadShell);
   const unsettleThreadMutation = useOrchestrationCommand(threadEnvironment.unsettle, {
     reportFailure: false,
   });
@@ -621,7 +621,13 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   ) : activeThreadSettled ? (
     <ThreadStatusLine
       icon={<CheckCircle2Icon />}
-      label={settledAt ? `Settled ${formatRelativeTimeLabel(settledAt)}` : "Settled"}
+      label={
+        activeThreadShell?.settleWhenIdleAt != null
+          ? "Settles when work finishes"
+          : settledAt
+            ? `Settled ${formatRelativeTimeLabel(settledAt)}`
+            : "Settled"
+      }
       clockMinute={nowMinute}
       actionLabel={isUnsettling ? "Un-settling..." : "Un-settle"}
       actionDisabled={!canOperateThread || isUnsettling}
@@ -648,7 +654,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       );
     };
   const shortcuts = {
-    "thread.settle": () => {
+    "thread.settle": ({ event }) => {
+      if (event.repeat) return;
       if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
       if (!activeThreadShell || !activeThreadRef || !serverConfigLoaded) return;
       if (activeThreadSettled) {

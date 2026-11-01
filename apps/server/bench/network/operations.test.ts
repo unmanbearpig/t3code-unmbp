@@ -1,0 +1,416 @@
+import { assert, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as SubscriptionRef from "effect/SubscriptionRef";
+import type { EnvironmentThreadState } from "../../../../packages/client-runtime/src/state/threads.ts";
+
+import * as EventSink from "../../src/orchestration-v2/EventSink.ts";
+import * as EventStore from "../../src/orchestration-v2/EventStore.ts";
+import * as ProjectionStore from "../../src/orchestration-v2/ProjectionStore.ts";
+import * as SqlitePersistence from "../../src/persistence/Sqlite.ts";
+import * as OrchestrationEventStore from "../../src/persistence/OrchestrationEventStore.ts";
+import { THREAD_RESUME_MAX_REPLAY_EVENTS } from "../../src/orchestration-v2/ThreadStream.ts";
+import {
+  buildBoundedThreadProjection,
+  THREAD_HISTORY_PAGE_POLICY,
+  THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,
+} from "../../src/orchestration-v2/threadHistoryPaging.ts";
+import { EMPTY_ENVIRONMENT_THREAD_STATE } from "../../../../packages/client-runtime/src/state/threadState.ts";
+import { operationStateError, waitForOperationState } from "./operationsWorkloads.ts";
+import {
+  operationMessageEvents,
+  operationMessageText,
+  operationNames,
+  operationSettings,
+  operationThreadCreated,
+  operationThreadId,
+  type OperationControlResponse,
+} from "./operationsFixture.ts";
+import { compareSuites, type SuiteResults, validateSuiteResults } from "./comparison.ts";
+import {
+  caseId,
+  makeCurrentOperationSuitePlan,
+  makeOperationSuitePlan,
+  makeOperationSuiteV5Plan,
+  makeOperationControlsSuitePlan,
+  makeSuitePlan,
+} from "./suite.ts";
+
+const persistence = EventSink.layer.pipe(
+  Layer.provideMerge(EventStore.layerFromOrchestrationEventStore),
+  Layer.provideMerge(ProjectionStore.layer),
+  Layer.provideMerge(OrchestrationEventStore.layer),
+  Layer.provideMerge(SqlitePersistence.layerMemory),
+);
+
+it.effect(
+  "verifies real persisted conversation state and rejects missing, duplicate, or corrupted data",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const sink = yield* EventSink.EventSinkV2;
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
+        yield* sink.write({ events: [operationThreadCreated, ...operationMessageEvents(0, 100)] });
+        const snapshot = yield* projections.getThreadSnapshot(operationThreadId);
+        const expected: OperationControlResponse = {
+          startedAt: 0,
+          sequence: snapshot.snapshotSequence,
+          messages: 100,
+          windowMessageIds: [],
+          windowRunIds: [],
+          hasMoreHistory: false,
+          latestLocalTurnOrdinal: null,
+        };
+        const state = {
+          ...EMPTY_ENVIRONMENT_THREAD_STATE,
+          status: "live" as const,
+          data: Option.some(snapshot.projection),
+        };
+        assert.isUndefined(operationStateError(state, expected, false));
+        assert.isUndefined(
+          operationStateError({ ...state, status: "cached" }, expected, false, "cached"),
+        );
+        assert.isString(operationStateError({ ...state, status: "cached" }, expected, false));
+        for (const messages of [
+          snapshot.projection.messages.slice(1),
+          [...snapshot.projection.messages.slice(0, -1), snapshot.projection.messages[0]!],
+          snapshot.projection.messages.map((message, i) =>
+            i === 99 ? { ...message, text: "corrupted" } : message,
+          ),
+        ]) {
+          assert.isString(
+            operationStateError(
+              { ...state, data: Option.some({ ...snapshot.projection, messages }) },
+              expected,
+              false,
+            ),
+          );
+        }
+        assert.isString(
+          operationStateError({ ...state, status: "synchronizing" }, expected, false),
+        );
+        const loaded = yield* projections.getThreadSnapshotWindow(operationThreadId, {
+          rowLimit: THREAD_HISTORY_SNAPSHOT_ROW_LIMIT,
+          userTurnLimit: THREAD_HISTORY_PAGE_POLICY.maxUserTurns,
+        });
+        const bounded = buildBoundedThreadProjection(loaded);
+        assert.isAbove(bounded.projection.messages.length, 0);
+        assert.isBelow(bounded.projection.messages.length, 100);
+        assert.isTrue(bounded.hasMoreHistory);
+        const boundedExpected = {
+          ...expected,
+          windowMessageIds: bounded.projection.messages.map((message) => message.id),
+          windowRunIds: bounded.projection.runs.map((run) => run.id),
+          hasMoreHistory: true,
+          latestLocalTurnOrdinal: bounded.latestLocalTurnOrdinal,
+        };
+        assert.isUndefined(
+          operationStateError(
+            {
+              ...state,
+              data: Option.some(bounded.projection),
+              history: {
+                ...state.history,
+                hasMoreHistory: true,
+                historyCursor: bounded.historyCursor,
+                latestLocalTurnOrdinal: bounded.latestLocalTurnOrdinal,
+              },
+            },
+            boundedExpected,
+            true,
+          ),
+        );
+        // A server-side projection bug must not pass by also corrupting the
+        // inspector's expected window in the same way.
+        const duplicateMessages = bounded.projection.messages.map((message, index) =>
+          index === 1 ? bounded.projection.messages[0]! : message,
+        );
+        assert.isString(
+          operationStateError(
+            {
+              ...state,
+              data: Option.some({
+                ...bounded.projection,
+                messages: duplicateMessages,
+                visibleTurnItems: bounded.projection.visibleTurnItems.map((row, index) =>
+                  index === 1 ? bounded.projection.visibleTurnItems[0]! : row,
+                ),
+              }),
+              history: {
+                ...state.history,
+                hasMoreHistory: true,
+                historyCursor: bounded.historyCursor,
+                latestLocalTurnOrdinal: bounded.latestLocalTurnOrdinal,
+              },
+            },
+            {
+              ...boundedExpected,
+              windowMessageIds: duplicateMessages.map((message) => message.id),
+            },
+            true,
+          ),
+        );
+      }),
+    ).pipe(Effect.provide(persistence)),
+);
+
+it.effect("waits for the last visible item when incremental events arrive in separate chunks", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const sink = yield* EventSink.EventSinkV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      yield* sink.write({ events: [operationThreadCreated, ...operationMessageEvents(0, 100)] });
+      const added = operationMessageEvents(100, 5);
+      yield* sink.write({ events: added.slice(0, -1) });
+      const intermediate = yield* projections.getThreadSnapshot(operationThreadId);
+      assert.equal(intermediate.projection.messages.length, 105);
+      assert.equal(intermediate.projection.visibleTurnItems.length, 104);
+      const state = yield* SubscriptionRef.make<EnvironmentThreadState>({
+        ...EMPTY_ENVIRONMENT_THREAD_STATE,
+        status: "live" as const,
+        data: Option.some(intermediate.projection),
+      });
+      const expected: OperationControlResponse = {
+        startedAt: 0,
+        sequence: intermediate.snapshotSequence + 1,
+        messages: 105,
+        windowMessageIds: [],
+        windowRunIds: [],
+        hasMoreHistory: false,
+        latestLocalTurnOrdinal: null,
+      };
+      const completed = yield* Deferred.make<void>();
+      const waiting = yield* waitForOperationState(state, expected, false).pipe(
+        Effect.tap(() => Deferred.succeed(completed, undefined)),
+        Effect.forkChild,
+      );
+      yield* Effect.yieldNow;
+      assert.isFalse(yield* Deferred.isDone(completed));
+      yield* sink.write({ events: added.slice(-1) });
+      const final = yield* projections.getThreadSnapshot(operationThreadId);
+      yield* SubscriptionRef.set<EnvironmentThreadState>(state, {
+        ...EMPTY_ENVIRONMENT_THREAD_STATE,
+        status: "live",
+        data: Option.some(final.projection),
+      });
+      const observed = yield* Fiber.join(waiting);
+      assert.equal(Option.getOrThrow(observed.data).visibleTurnItems.length, 105);
+      assert.isUndefined(operationStateError(observed, expected, false));
+    }),
+  ).pipe(Effect.provide(persistence)),
+);
+
+it("keeps the busy reconnect on replay and exercises snapshot fallback separately", () => {
+  assert.isAtMost(
+    operationMessageEvents(100, operationSettings.replayMessages).length,
+    THREAD_RESUME_MAX_REPLAY_EVENTS,
+  );
+  assert.isAbove(
+    operationMessageEvents(100, operationSettings.snapshotMessages).length,
+    THREAD_RESUME_MAX_REPLAY_EVENTS,
+  );
+  assert.notEqual(operationMessageText(0), operationMessageText(1));
+});
+
+function operationResults(value = 100): SuiteResults {
+  const plan = makeOperationSuitePlan();
+  assert.equal(plan.version, "operations-v4");
+  return {
+    suite: { hash: plan.hash },
+    complete: true,
+    metadata: { revision: "test", environmentHash: "same-host" },
+    rows: plan.cases.map((entry) => ({
+      ...entry,
+      scenario: entry.scenario.name,
+      seed: entry.seed!,
+      metrics: {
+        operationMs: value,
+        linkTxBytes: 10000,
+        linkTxPackets: 100,
+        loadedMessages: 100,
+        totalMessages: 100,
+      },
+    })),
+  };
+}
+
+it("uses independent loss draws, every critical drop phase, TLS controls, and warm pools", () => {
+  const plan = makeOperationSuiteV5Plan();
+  assert.deepEqual(plan, makeOperationSuiteV5Plan());
+  assert.equal(plan.hash, "2b84bed34fac359a825e6cd2cc94849cccc3d152bbe4c35b9f9ac59755520c4c");
+  assert.equal(plan.cases.length, 990);
+  assert.equal(new Set(plan.cases.map(caseId)).size, 990);
+  for (const scenario of ["loss2", "loss5", "nth20-drop"]) {
+    const ws = plan.cases.filter(
+      (c) =>
+        c.scenario.name === scenario && c.workload === "sync-five" && c.transport === "rpc-wss",
+    );
+    const wt = plan.cases.filter(
+      (c) => c.scenario.name === scenario && c.workload === "sync-five" && c.transport === "rpc-wt",
+    );
+    assert.equal(ws.length, 20);
+    assert.deepEqual(
+      ws.map((c) => c.seed),
+      wt.map((c) => c.seed),
+    );
+    assert.equal(new Set(ws.map((c) => c.seed)).size, 20);
+    if (scenario === "nth20-drop")
+      assert.deepEqual(
+        ws.map((c) => c.packetPhase),
+        Array.from({ length: 20 }, (_, i) => i),
+      );
+  }
+  assert.equal(plan.cases.filter((c) => c.httpPool === "warm").length, 36);
+  const result: SuiteResults = {
+    ...operationResults(),
+    suite: { hash: plan.hash },
+    rows: plan.cases.map((c) => ({
+      ...c,
+      scenario: c.scenario.name,
+      seed: c.seed!,
+      metrics: {
+        operationMs: 100,
+        linkTxBytes: 10000,
+        linkTxPackets: 100,
+        loadedMessages: 20,
+        totalMessages: 100,
+      },
+    })),
+  };
+  validateSuiteResults(result);
+  const warm = compareSuites(result, result).filter((g) => g.case.endsWith("/warm"));
+  assert.equal(warm.length, 12);
+});
+
+it("balances every critical transport pair and isolates HTTP compression controls", () => {
+  const plan = makeCurrentOperationSuitePlan();
+  assert.equal(plan.cases.length, 1062);
+  assert.equal(new Set(plan.cases.map(caseId)).size, 1062);
+  for (const scenario of ["loss2", "loss5", "nth20-drop"]) {
+    for (const workload of ["sync-five", "open-new", "reconnect-replay"]) {
+      const pair = plan.cases.filter(
+        (entry) =>
+          entry.scenario.name === scenario &&
+          entry.workload === workload &&
+          ["rpc-wss", "rpc-wt"].includes(entry.transport),
+      );
+      assert.equal(pair.length, 40);
+      assert.equal(
+        pair.filter((entry, index) => index % 2 === 0 && entry.transport === "rpc-wss").length,
+        10,
+      );
+    }
+  }
+  const control = makeOperationControlsSuitePlan();
+  assert.equal(control.cases.length, 432);
+  const compression = control.cases.filter((entry) => entry.httpEncoding !== undefined);
+  assert.equal(compression.length, 72);
+  assert.isTrue(compression.every((entry) => entry.transport === "rpc-wss"));
+  const result: SuiteResults = {
+    ...operationResults(),
+    suite: { hash: control.hash },
+    rows: control.cases.map((entry) => ({
+      ...entry,
+      scenario: entry.scenario.name,
+      seed: entry.seed!,
+      metrics: {
+        operationMs: 100,
+        linkTxBytes: 10000,
+        linkTxPackets: 100,
+        loadedMessages: 20,
+        totalMessages: 100,
+      },
+    })),
+  };
+  validateSuiteResults(result);
+  assert.equal(
+    compareSuites(result, result).filter((group) => /\/(gzip|br)$/.test(group.case)).length,
+    24,
+  );
+});
+
+it("fixes every operation, network profile, transport, and repetition independently of the old suite", () => {
+  const plan = makeOperationSuitePlan();
+  assert.deepEqual(plan, makeOperationSuitePlan());
+  assert.deepEqual(plan.workloads, operationNames);
+  assert.equal(plan.cases.length, 648);
+  assert.equal(new Set(plan.cases.map(caseId)).size, 648);
+  assert.equal(
+    makeSuitePlan().hash,
+    "624d269925dfbfb4b098791d6c46dfe91abedf451f01d3852e61f50cf5fd16f6",
+  );
+  validateSuiteResults(operationResults());
+  assert.throws(
+    () =>
+      validateSuiteResults({
+        ...operationResults(),
+        suite: { hash: "796f7a83bf04f051a7c193cc132588e079ef0e17eb9d4405793ddb591334a20e" },
+      }),
+    /configuration differs/,
+  );
+  assert.throws(
+    () => validateSuiteResults({ ...operationResults(), rows: operationResults().rows.slice(1) }),
+    /incomplete/,
+  );
+  assert.throws(
+    () =>
+      validateSuiteResults({
+        ...operationResults(),
+        rows: [operationResults().rows[1]!, ...operationResults().rows.slice(1)],
+      }),
+    /duplicate/,
+  );
+  assert.throws(
+    () =>
+      compareSuites(operationResults(), {
+        ...operationResults(),
+        suite: { hash: makeSuitePlan().hash },
+        rows: makeSuitePlan().cases.map((entry) => ({
+          ...entry,
+          scenario: entry.scenario.name,
+          seed: entry.seed!,
+          metrics: {},
+        })),
+      }),
+    /configuration differs/,
+  );
+});
+
+it("flags slower completion and extra transfer cost without letting an incomplete attempt win", () => {
+  const candidate = operationResults(130);
+  const comparisons = compareSuites(operationResults(), {
+    ...candidate,
+    rows: candidate.rows.map((row) => ({
+      ...row,
+      metrics: { ...row.metrics, linkTxBytes: 15000 },
+    })),
+  });
+  assert.deepEqual(
+    comparisons[0]!.metrics.map((metric) => metric.signal),
+    ["regressed", "regressed", "inconclusive"],
+  );
+  const failures = compareSuites(operationResults(), {
+    ...candidate,
+    rows: candidate.rows.map((row) =>
+      row.repetition === 1 ? { ...row, metrics: { ...row.metrics, outcome: "timeout" } } : row,
+    ),
+  });
+  assert.equal(failures[0]!.completion, "regressed");
+  assert.deepEqual(failures[0]!.metrics, []);
+});
+
+it("does not award a speedup for delivering fewer messages", () => {
+  const candidate = operationResults(1);
+  const comparison = compareSuites(operationResults(), {
+    ...candidate,
+    rows: candidate.rows.map((row) => ({
+      ...row,
+      metrics: { ...row.metrics, loadedMessages: 10 },
+    })),
+  });
+  assert.equal(comparison[0]!.deliveredState, "changed");
+  assert.deepEqual(comparison[0]!.metrics, []);
+});

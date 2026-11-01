@@ -1,3 +1,4 @@
+import { AttemptReconnectArm, ReconnectExperiment } from "./reconnectExperiment.ts";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -16,6 +17,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as Tracer from "effect/Tracer";
 
 import type { ConnectionCatalogEntry, ConnectionRoute } from "./catalog.ts";
+import * as Diagnostics from "./diagnostics.ts";
 import * as Connectivity from "./connectivity.ts";
 import * as ConnectionDriver from "./driver.ts";
 import {
@@ -287,6 +289,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
   const connectivity = yield* Connectivity.Connectivity;
   const driver = yield* ConnectionDriver.ConnectionDriver;
+  const diagnostics = yield* Diagnostics.ConnectionDiagnostics;
+  const experiment = yield* ReconnectExperiment;
+  let nextReconnect = true;
+  const record = (event: Diagnostics.ConnectionDiagnosticDetail) =>
+    diagnostics?.record({ ...event, environmentId: target.environmentId });
   const wakeups = yield* ConnectionWakeups.ConnectionWakeups;
   // The primary environment served this client or runs beside it on loopback,
   // so the device reporting offline (often wrongly) never parks it. The report
@@ -432,6 +439,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     next: SupervisorConnectionState,
   ) {
     yield* SubscriptionRef.set(state, next);
+    if (next.phase === "offline" || next.phase === "backoff" || next.phase === "blocked")
+      record({ kind: "state", phase: next.phase, error: next.lastFailure?.reason ?? null });
   });
 
   const signal = Effect.fn("EnvironmentSupervisor.signal")(function* (next: SupervisorSignal) {
@@ -724,7 +733,15 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   // all probe the live session instead of replacing it, so a healthy socket is
   // not torn down (the offline report is often wrong, for example for a
   // loopback server).
-  const monitorConnectedLease = Effect.fnUntraced(function* (lease: ConnectedLease) {
+  const monitorConnectedLease = Effect.fnUntraced(function* (
+    lease: ConnectedLease,
+  ) {
+    let probing = false;
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (probing) record({ kind: "probe", result: "interrupted" });
+      }),
+    );
     // A probe answers an explicit retry here, so the retry must not also reset
     // the backoff of a later, unrelated failure.
     const takeSignal = Queue.take(signals).pipe(
@@ -756,6 +773,12 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       if (probeTimeout === undefined) {
         continue;
       }
+      probing = true;
+      record({
+        kind: "probe",
+        result: "started",
+        route: Diagnostics.diagnosticRoute(lease.prepared.target._tag, lease.prepared.httpBaseUrl),
+      });
       yield* Ref.set(probeUnanswered, true);
       const probe = yield* Effect.forkChild(lease.session.probe);
       let silentSocket: Fiber.Fiber<"silent" | "alive"> | undefined;
@@ -815,9 +838,9 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           return true;
         }
         if (probeEvent._tag === "TimedOut") {
+          probing = false;
+          record({ kind: "probe", result: "timeout" });
           yield* stopProbe;
-          // A long suspension leaves the socket suspect even when the network
-          // reports offline, so it is replaced like a silent one.
           if (longResume) return true;
           return yield* new ConnectionTransientError({
             reason: "timeout",
@@ -826,6 +849,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         }
         if (probeEvent._tag === "ProbeCompleted") {
           if (silentSocket) yield* Fiber.interrupt(silentSocket);
+          probing = false;
+          record({
+            kind: "probe",
+            result: Exit.isSuccess(probeEvent.exit) ? "answered" : "failed",
+          });
           if (Exit.isSuccess(probeEvent.exit)) {
             yield* Ref.set(probeUnanswered, false);
           }
@@ -834,6 +862,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         }
         const endDuringProbe = yield* connectedLeaseEnd(probeEvent.signal, lease);
         if (endDuringProbe !== undefined) {
+          probing = false;
+          record({ kind: "probe", result: "interrupted" });
           yield* stopProbe;
           return endDuringProbe === "reset";
         }
@@ -988,6 +1018,12 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
     const connectedExit = yield* Effect.raceFirst(
       connectedLease.session.closed.pipe(
+        Effect.onExit((exit) =>
+          Effect.sync(() => {
+            if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause))
+              record({ kind: "session-closed" });
+          }),
+        ),
         Effect.mapError((error): TracedAttemptFailure => ({
           error,
           attemptSpan: active.attemptSpan,
@@ -1089,6 +1125,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         yield* waitForSignal;
         continue;
       }
+      experiment?.begin(target.environmentId, nextReconnect);
+      nextReconnect = false;
       if (currentIntent.network === "offline" && !replacing) {
         yield* clearLease;
         yield* setState(offlineState(currentIntent, generation, failureCount + 1, latestFailure));
@@ -1101,9 +1139,14 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
       const attempt = failureCount + 1;
       const nextGeneration = generation + 1;
-      const outcome: AttemptOutcome = yield* Effect.scoped(
+      const outcome: AttemptOutcome = yield* Diagnostics.observeSessionScope(
         runAttempt(attempt, nextGeneration, latestFailure, pendingRetry, replacing),
+        diagnostics,
+        target.environmentId,
+      ).pipe(
+        Effect.provideService(AttemptReconnectArm, experiment?.arm(target.environmentId) ?? "new"),
       );
+      nextReconnect = outcome.established;
       replacing = false;
       const failedProbe = yield* Ref.getAndSet(probeUnanswered, false);
       if (outcome.established) {
@@ -1202,11 +1245,23 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   );
   yield* wakeups.changes.pipe(
     Stream.runForEach((reason) =>
-      // A long suspension can hide a network change the platform never reported.
-      (reason === "network-changed" || reason === "application-active-long"
-        ? forgetSilentRoutes
-        : Effect.void
-      ).pipe(Effect.andThen(signal({ _tag: "Wakeup", reason }))),
+      Effect.gen(function* () {
+        if (reason !== "credentials-changed") {
+          const current = yield* SubscriptionRef.get(state);
+          experiment?.begin(target.environmentId, current.phase !== "connecting");
+          nextReconnect = false;
+        }
+        record({
+          kind: "wakeup",
+          reason,
+          hasSession: Option.isSome(yield* SubscriptionRef.get(session)),
+          desired: (yield* Ref.get(intent)).desired,
+        });
+        if (reason === "network-changed" || reason === "application-active-long") {
+          yield* forgetSilentRoutes;
+        }
+        yield* signal({ _tag: "Wakeup", reason });
+      }),
     ),
     Effect.forkScoped,
   );
