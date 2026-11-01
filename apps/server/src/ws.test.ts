@@ -995,7 +995,9 @@ it.effect.each([
         Layer.mergeAll(
           Layer.fresh(layerConfigSources),
           Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
-          Layer.mock(ServerBrowser.ServerBrowser)({ profileReporter: Effect.succeed(() => Effect.void) }),
+          Layer.mock(ServerBrowser.ServerBrowser)({
+            profileReporter: Effect.succeed(() => Effect.void),
+          }),
         ),
       ),
       Effect.scoped,
@@ -1155,7 +1157,9 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
       Layer.mergeAll(
         Layer.fresh(layerConfigSources),
         Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
-        Layer.mock(ServerBrowser.ServerBrowser)({ profileReporter: Effect.succeed(() => Effect.void) }),
+        Layer.mock(ServerBrowser.ServerBrowser)({
+          profileReporter: Effect.succeed(() => Effect.void),
+        }),
       ),
     ),
     Effect.scoped,

@@ -230,7 +230,7 @@ describe("preferred bearer route preflight", () => {
       Effect.gen(function* () {
         const harness = yield* makeHarness();
 
-        expect(yield* harness.driver.preflight(ENTRY, PREFERRED_ROUTE)).toBe(false);
+        expect(yield* harness.driver.preflight(ENTRY, PREFERRED_ROUTE)).toBe("unprepared");
 
         const [ticket] = harness.ticketRequests();
         expect(ticket?.method).toBe("POST");
@@ -245,7 +245,7 @@ describe("preferred bearer route preflight", () => {
       const harness = yield* makeHarness();
       yield* harness.setPreferredEnvironmentId(EnvironmentId.make("another-environment"));
 
-      expect(yield* harness.driver.preflight(ENTRY, PREFERRED_ROUTE)).toBe(false);
+      expect(yield* harness.driver.preflight(ENTRY, PREFERRED_ROUTE)).toBe("silent");
       expect(harness.ticketRequests()).toHaveLength(0);
       expect(harness.requests.every((request) => !request.headers.has("authorization"))).toBe(true);
       expect(harness.socketCount()).toBe(0);
@@ -265,7 +265,7 @@ describe("preferred bearer route preflight", () => {
     Effect.gen(function* () {
       const sessionCount = yield* Ref.make(0);
       const releaseCount = yield* Ref.make(0);
-      const preflightCompleted = yield* Deferred.make<boolean>();
+      const preflightCompleted = yield* Deferred.make<ConnectionDriver.RoutePreflight>();
       const harness = yield* makeHarness({
         sessions: {
           connect: () =>
@@ -332,7 +332,7 @@ describe("preferred bearer route preflight", () => {
         expect(yield* Ref.get(sessionCount)).toBe(1);
         expect(yield* Ref.get(releaseCount)).toBe(0);
       }
-      expect(passed).toBe(accepted);
+      expect(passed).toBe(accepted ? "ready" : "unprepared");
       expect(harness.ticketRequests()).toHaveLength(1);
       expect(harness.socketCount()).toBe(0);
     }).pipe(Effect.provide(TestClock.layer())),

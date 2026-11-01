@@ -1,6 +1,5 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { type ScheduledTaskUpsertInput } from "@t3tools/contracts";
-import { GitCommandError } from "@t3tools/contracts";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -2928,6 +2927,10 @@ describe("OrchestratorMcpService provider resolution", () => {
         ),
       );
     const masterRepository: Partial<GitVcsDriver.GitVcsDriver["Service"]> = {
+      execute: () => Effect.succeed({ exitCode: 0, stdout: ".git", stderr: "" } as never),
+      listLocalBranchNames: () => Effect.succeed([]),
+      remoteBranchExists: ({ refName }) => Effect.succeed(refName === "master"),
+      statusDetailsLocal: () => Effect.succeed({ branch: "master" } as never),
       resolvePrimaryRemoteName: () => Effect.succeed("origin"),
       resolveDefaultBranchName: (cwd, remoteName) =>
         Effect.succeed(cwd === workspaceRoot && remoteName === "origin" ? "master" : null),
@@ -2948,7 +2951,7 @@ describe("OrchestratorMcpService provider resolution", () => {
       }),
     );
 
-    it.effect("follows the default branch when a task is unbound from its thread", () =>
+    it.effect("keeps the saved workspace when the task is already unbound", () =>
       Effect.gen(function* () {
         const saved = yield* Ref.make<ReadonlyArray<ScheduledTask["workspaceStrategy"]>>([]);
         const mcp = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
@@ -2958,9 +2961,7 @@ describe("OrchestratorMcpService provider resolution", () => {
           scheduledTaskId: existing.id,
           bindToCurrentThread: false,
         });
-        assert.deepEqual(yield* Ref.get(saved), [
-          { type: "worktree", baseRef: "origin/master", startFromOrigin: true },
-        ]);
+        assert.deepEqual(yield* Ref.get(saved), [{ type: "root" }]);
       }),
     );
 
@@ -2984,7 +2985,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         remote: null,
         remoteDefault: null,
         refs: ["refs/heads/develop"],
-        baseRef: "main",
+        baseRef: "develop",
       },
       {
         name: "no recorded HEAD, remote main and a stale local master",
@@ -3005,7 +3006,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         remote: "origin",
         remoteDefault: null,
         refs: ["refs/heads/main", "refs/remotes/origin/master"],
-        baseRef: "origin/master",
+        baseRef: "main",
       },
       {
         name: "no recorded HEAD, nothing conventional on the remote, local main",
@@ -3019,7 +3020,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         remote: "origin",
         remoteDefault: "main",
         refs: ["refs/heads/main", "refs/remotes/origin/master"],
-        baseRef: "origin/master",
+        baseRef: "main",
       },
       {
         name: "a remote not called origin",
@@ -3044,6 +3045,22 @@ describe("OrchestratorMcpService provider resolution", () => {
           Effect.provide(
             service(
               {
+                execute: () => Effect.succeed({ exitCode: 0, stdout: ".git", stderr: "" } as never),
+                listLocalBranchNames: () =>
+                  Effect.succeed(
+                    refs
+                      .filter((ref) => ref.startsWith("refs/heads/"))
+                      .map((ref) => ref.slice("refs/heads/".length)),
+                  ),
+                remoteBranchExists: ({ remoteName, refName }) =>
+                  Effect.succeed(refs.includes(`refs/remotes/${remoteName}/${refName}`)),
+                statusDetailsLocal: () =>
+                  Effect.succeed({
+                    branch:
+                      refs
+                        .find((ref) => ref.startsWith("refs/heads/"))
+                        ?.slice("refs/heads/".length) ?? null,
+                  } as never),
                 resolvePrimaryRemoteName: (cwd) =>
                   remote === null
                     ? Effect.fail(gitFailure(cwd, "No git remote is configured."))
@@ -3937,7 +3954,7 @@ describe("OrchestratorMcpService scheduled tasks that launch a fresh worktree pe
 
   it.effect("keeps main when it exists, even if origin's default is another branch", () =>
     Effect.gen(function* () {
-      yield* expectBase(yield* cloneOf("develop", ["main"]), "main");
+      yield* expectBase(yield* cloneOf("develop", ["main"]), "origin/main");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -3959,7 +3976,7 @@ describe("OrchestratorMcpService scheduled tasks that launch a fresh worktree pe
           yield* scheduleUnbound(service);
           assert.deepStrictEqual(yield* lastWorkspaceStrategy(upserts), {
             type: "worktree",
-            baseRef: "master",
+            baseRef: "origin/master",
             startFromOrigin: true,
           });
 
@@ -3972,7 +3989,7 @@ describe("OrchestratorMcpService scheduled tasks that launch a fresh worktree pe
           assert.equal(all.length, 2);
           assert.deepStrictEqual(all[1]?.workspaceStrategy, {
             type: "worktree",
-            baseRef: "master",
+            baseRef: "origin/master",
             startFromOrigin: true,
           });
         }),

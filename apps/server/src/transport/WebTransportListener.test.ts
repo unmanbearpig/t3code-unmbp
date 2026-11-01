@@ -1,3 +1,4 @@
+import * as Redacted from "effect/Redacted";
 // @effect-diagnostics nodeBuiltinImport:off -- Isolated TLS and loopback UDP listener fixtures.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
@@ -248,12 +249,10 @@ it.effect.each(["cancel", "timeout", "ready rejection", "start failure"] as cons
 
 it.live(
   "survives cancellation during the pinned native backend's DNS initialization without a socket",
-  (test) =>
+  () =>
     Effect.gen(function* () {
       const backend = yield* WebTransportBackend.WebTransportBackend;
-      if (Option.isNone(yield* backend.load.pipe(Effect.option))) {
-        return test.skip("Optional QUIC backend unavailable");
-      }
+      yield* backend.load;
       const cert = yield* certificates();
       const child = yield* Effect.promise(
         () =>
@@ -278,7 +277,6 @@ it.live(
       Effect.scoped,
       Effect.provide(Layer.merge(WebTransportBackend.layer, NodeServices.layer)),
     ),
-  { timeout: 20_000 },
 );
 
 it.effect(
@@ -389,12 +387,10 @@ const Group = RpcGroup.make(
 
 it.live(
   "authenticates real CONNECT tickets, serves RPC, bounds a missing control stream, and closes revoked sessions",
-  (test) =>
+  () =>
     Effect.gen(function* () {
       const native = yield* WebTransportBackend.WebTransportBackend;
-
-      const available = yield* native.load.pipe(Effect.option);
-      if (Option.isNone(available)) return test.skip("Optional QUIC backend unavailable");
+      yield* native.load;
       const { WebTransport } = yield* Effect.promise(
         () => import("@fails-components/webtransport"),
       );
@@ -520,7 +516,7 @@ it.live(
           ),
         ).toBe(true);
 
-        const idle = connect(ticket.ticket);
+        const idle = connect(Redacted.value(ticket.ticket));
         void idle.closed.catch(() => undefined);
 
         yield* Effect.promise(() => idle.ready);
@@ -534,7 +530,7 @@ it.live(
 
         const revoked = yield* auth.issueSession();
         const revokedTicket = yield* auth.issueWebSocketTicket(revoked);
-        const admittedBeforeRevoke = connect(revokedTicket.ticket);
+        const admittedBeforeRevoke = connect(Redacted.value(revokedTicket.ticket));
         void admittedBeforeRevoke.closed.catch(() => undefined);
         yield* Effect.promise(() => admittedBeforeRevoke.ready);
         yield* sessions.revoke(revoked.sessionId);
@@ -547,7 +543,7 @@ it.live(
         ).pipe(Effect.scoped, Effect.option);
         expect(Option.isNone(rejectedPrepare)).toBe(true);
         expect(acceptedOrigins).toHaveLength(0);
-        const raw = connect(ticket.ticket);
+        const raw = connect(Redacted.value(ticket.ticket));
         void raw.closed.catch(() => undefined);
 
         yield* Effect.promise(() => raw.ready);

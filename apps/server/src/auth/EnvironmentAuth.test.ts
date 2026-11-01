@@ -714,7 +714,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
       const headerSession = yield* serverAuth.authenticateWebSocketUpgrade(headerRequest, "rpc");
       const ticket = yield* serverAuth.issueWebSocketTicket(headerSession);
       expect(ticket.orchestrationProtocolVersion).toBe(ORCHESTRATION_PROTOCOL_VERSION);
-      url.searchParams.set("wsTicket", ticket.ticket);
+      url.searchParams.set("wsTicket", Redacted.value(ticket.ticket));
       const ticketRequest = HttpServerRequest.fromWeb(new Request(url));
       const ticketSession = yield* serverAuth.authenticateWebSocketUpgrade(ticketRequest, "rpc");
 
@@ -877,10 +877,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
         const sessions = yield* SessionStore.SessionStore;
         const bearer = yield* auth.issueSession({ scopes: ["orchestration:read"] });
         const ticket = yield* auth.issueWebSocketTicket(bearer);
-        const first = yield* auth.authenticateRpcTicket(ticket.ticket);
+        const first = yield* auth.authenticateRpcTicket(Redacted.value(ticket.ticket));
         const second = yield* auth.authenticateWebSocketUpgrade(
           {
-            url: `/ws?wsTicket=${encodeURIComponent(ticket.ticket)}`,
+            url: `/ws?wsTicket=${encodeURIComponent(Redacted.value(ticket.ticket))}`,
             cookies: {},
             headers: { host: "localhost:13773" },
           } as never,
@@ -889,9 +889,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
         expect(first).toEqual(second);
         expect(first.scopes).toEqual(["orchestration:read"]);
         yield* sessions.revoke(bearer.sessionId);
-        expect((yield* Effect.flip(auth.authenticateRpcTicket(ticket.ticket)))._tag).toBe(
-          "ServerAuthInvalidCredentialError",
-        );
+        expect(
+          (yield* Effect.flip(auth.authenticateRpcTicket(Redacted.value(ticket.ticket))))._tag,
+        ).toBe("ServerAuthInvalidCredentialError");
       }).pipe(Effect.provide(layerEnvironmentAuth())),
   );
 
@@ -940,7 +940,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodePlatformCrypto.layer))(
           proofKeyThumbprint: "test-key",
         });
         const ticket = yield* auth.issueWebSocketTicket(dpop);
-        expect((yield* auth.authenticateRpcTicket(ticket.ticket)).method).toBe("dpop-access-token");
+        expect((yield* auth.authenticateRpcTicket(Redacted.value(ticket.ticket))).method).toBe(
+          "dpop-access-token",
+        );
       }).pipe(Effect.provide(layerEnvironmentAuth())),
   );
   },

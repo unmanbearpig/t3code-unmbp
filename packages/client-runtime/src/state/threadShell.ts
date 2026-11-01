@@ -523,8 +523,9 @@ export function createEnvironmentThreadShellAtoms(input: {
         return previous;
       }
       const subagentRequests = get(pendingSubagentRequestsAtom(ref.environmentId));
+      const connected = get(input.connectedAtom(ref.environmentId));
       const next = sideChats.map((thread) =>
-        scopedThread(ref.environmentId, thread, subagentRequests),
+        scopedThread(ref.environmentId, thread, subagentRequests, connected),
       );
       if (
         previous.length === next.length &&

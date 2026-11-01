@@ -2,7 +2,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import {
   CommandId,
-  type EnvironmentId,
+  type GitCommandError,
   type RunId,
   isProviderAvailable,
   MessageId,
@@ -1852,38 +1852,50 @@ const make = Effect.gen(function* () {
       effect.pipe(Effect.timeoutOption(Duration.millis(timeoutMs)), Effect.map(Option.flatten)),
   );
 
-  const refExists = (cwd: string, revision: string) =>
-    gitDriver.resolveCommit({ cwd, revision }).pipe(
-      Effect.as(true),
-      Effect.orElseSucceed(() => false),
+  const defaultScheduledTaskWorktree = Effect.fn(
+    "OrchestratorMcpService.defaultScheduledTaskWorktree",
+  )(function* (
+    projectId: ProjectId,
+  ): Effect.fn.Return<ScheduledTask["workspaceStrategy"], OrchestratorMcpFailure> {
+    const { workspaceRoot: cwd } = yield* requireProject(projectId);
+    const worktreeFrom = (baseRef: string) =>
+      ({ type: "worktree", baseRef, startFromOrigin: true }) as const;
+    const unreadable = failure(
+      "orchestration_error",
+      "Could not read the project's branches to pick a base branch; try again.",
     );
-
-  const resolveScheduledTaskBaseRef = Effect.fn(
-    "OrchestratorMcpService.resolveScheduledTaskBaseRef",
-  )(function* (cwd: string) {
+    const readGit = <A>(read: Effect.Effect<A, GitCommandError>) =>
+      read.pipe(Effect.mapError(() => unreadable));
+    const probe = yield* readGit(
+      gitDriver.execute({
+        operation: "OrchestratorMcpService.scheduledTaskBase",
+        cwd,
+        args: ["rev-parse", "--git-dir"],
+        allowNonZeroExit: true,
+        env: { LC_ALL: "C" },
+      }),
+    );
+    if (probe.exitCode !== 0) {
+      if (probe.stderr.toLowerCase().includes("not a git repository")) return worktreeFrom("main");
+      return yield* unreadable;
+    }
+    const localBranches = yield* readGit(gitDriver.listLocalBranchNames(cwd));
+    if (localBranches.includes("main")) return worktreeFrom("main");
     const remoteName = yield* gitDriver
       .resolvePrimaryRemoteName(cwd)
-      .pipe(Effect.orElseSucceed(() => null));
-    const conventional = ["main", "master"];
-    if (remoteName !== null) {
-      const remoteDefault = yield* gitDriver
-        .resolveDefaultBranchName(cwd, remoteName)
-        .pipe(Effect.orElseSucceed(() => null));
-      // Fetch does not update a recorded HEAD, so it can outlive the branch it names.
-      for (const branch of remoteDefault === null
-        ? conventional
-        : [remoteDefault, ...conventional]) {
-        // Launch resolves a bare name through a local branch's upstream, or else assumes `origin`.
-        if (yield* refExists(cwd, `refs/remotes/${remoteName}/${branch}`)) {
-          return `${remoteName}/${branch}`;
-        }
-      }
+      .pipe(Effect.orElseSucceed(() => "origin"));
+    {
+      const remoteBranchExists = (branch: string) =>
+        readGit(gitDriver.remoteBranchExists({ cwd, remoteName, refName: branch }));
+      if (yield* remoteBranchExists("main")) return worktreeFrom(`${remoteName}/main`);
+      const remoteDefault = yield* readGit(gitDriver.resolveDefaultBranchName(cwd, remoteName));
+      if (remoteDefault !== null && (yield* remoteBranchExists(remoteDefault)))
+        return worktreeFrom(`${remoteName}/${remoteDefault}`);
+      if (remoteDefault === null && (yield* remoteBranchExists("master")))
+        return worktreeFrom(`${remoteName}/master`);
     }
-    // Local-only repositories, or a remote with neither a usable HEAD nor a conventional branch.
-    for (const branch of conventional) {
-      if (yield* refExists(cwd, `refs/heads/${branch}`)) return branch;
-    }
-    return "main";
+    const { branch } = yield* readGit(gitDriver.statusDetailsLocal(cwd));
+    return worktreeFrom(branch ?? "main");
   });
 
   const scheduledTaskRunModes = Effect.fn("OrchestratorMcpService.scheduledTaskRunModes")(
@@ -1982,12 +1994,7 @@ const make = Effect.gen(function* () {
     workspace: "root" | "worktree" | undefined,
   ): Effect.fn.Return<ScheduledTask["workspaceStrategy"], OrchestratorMcpFailure> {
     if (boundToThread || workspace === "root") return { type: "root" };
-    const { workspaceRoot } = yield* requireProject(projectId);
-    const worktree = {
-      type: "worktree" as const,
-      baseRef: yield* resolveScheduledTaskBaseRef(workspaceRoot),
-      startFromOrigin: true,
-    };
+    const worktree = yield* defaultScheduledTaskWorktree(projectId);
     if (workspace !== undefined) {
       yield* threadLaunch
         .checkWorktreeBase({ projectId, workspaceStrategy: worktree })

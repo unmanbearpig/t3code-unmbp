@@ -16,7 +16,6 @@ import { encodeOAuthScope } from "@t3tools/shared/oauthScope";
 import { hashTelemetryId } from "@t3tools/shared/telemetryId";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
-import * as Redacted from "effect/Redacted";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import {
@@ -384,7 +383,7 @@ export const resolveRemoteDpopWebSocketConnection = Effect.fn(
 });
 
 const prepareRpcTicket = (issued: AuthWebSocketTicketResult): PreparedRpcTicket => ({
-  value: Redacted.make(issued.ticket),
+  value: issued.ticket,
   expiresAtEpochMs: DateTime.toEpochMillis(issued.expiresAt),
 });
 
