@@ -1,3 +1,4 @@
+import * as Redacted from "effect/Redacted";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import type { RpcClientId } from "@t3tools/contracts";
@@ -83,7 +84,7 @@ it.effect("isolates concurrent same-credential connections and a delayed old fin
     const sessions = yield* SessionStore.SessionStore;
     const issued = yield* auth.issueSession();
     const ticket = yield* auth.issueWebSocketTicket(issued);
-    const session = yield* auth.authenticateRpcTicket(ticket.ticket);
+    const session = yield* auth.authenticateRpcTicket(Redacted.value(ticket.ticket));
     const start = Effect.fnUntraced(function* (late = false) {
       const arrived = yield* Deferred.make<RpcClientId>();
       const stop = yield* Deferred.make<void>();
@@ -143,7 +144,7 @@ it.effect.each(["logical-close", "revocation", "expiry"] as const)(
       const policy = yield* BackgroundPolicy.BackgroundPolicy;
       const issued = yield* auth.issueSession({ ttl: Duration.seconds(10) });
       const session = yield* auth.authenticateRpcTicket(
-        (yield* auth.issueWebSocketTicket(issued)).ticket,
+        Redacted.value((yield* auth.issueWebSocketTicket(issued)).ticket),
       );
       const pair = memorySessionPair({ neverAcknowledgeClose: true });
       let nativeAcknowledged = false;

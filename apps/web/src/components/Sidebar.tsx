@@ -2963,9 +2963,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
     (shouldCreateNewThreadInCurrentProject(false, scopeGroups.length, projectGroups.length)
-      ? shortcutLabelForCommand(keybindings, "chat.newLocal", { context: { externalTerminalAvailable } })
+      ? shortcutLabelForCommand(keybindings, "chat.newLocal", {
+          context: { externalTerminalAvailable },
+        })
       : undefined);
-  const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal", { context: { externalTerminalAvailable } });
+  const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal", {
+    context: { externalTerminalAvailable },
+  });
   return (
     <>
       <ThreadContextDragGhost />

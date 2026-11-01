@@ -292,25 +292,17 @@ export const make = Effect.gen(function* () {
             ? Effect.succeed("silent" as const)
             : checkRoute(entry, route, descriptorScope)
         ).pipe(
-          Effect.flatMap((check) =>
-            check === "answered"
-              ? resolver.prepare(routeEntry(entry, route), "preflight").pipe(
-                  Effect.as(true),
-                  Effect.orElseSucceed(() => false),
-                )
-              : Effect.succeed(false),
+          Effect.filterOrElse(
+            (check): check is Exclude<RouteCheck, "answered"> => check !== "answered",
+            () =>
+              resolver.prepare(routeEntry(entry, route), "preflight").pipe(
+                Effect.as<RoutePreflight>("ready"),
+                Effect.orElseSucceed((): RoutePreflight => "unprepared"),
+              ),
           ),
         );
       }),
     ).pipe(
-      Effect.filterOrElse(
-        (check): check is Exclude<RouteCheck, "answered"> => check !== "answered",
-        () =>
-          resolver.prepare(routeEntry(entry, route)).pipe(
-            Effect.as<RoutePreflight>("ready"),
-            Effect.orElseSucceed((): RoutePreflight => "unprepared"),
-          ),
-      ),
       ConnectionDescriptors.withConnectionDescriptors,
       Effect.provideService(HttpClient.HttpClient, httpClient),
       Effect.withSpan("ConnectionDriver.preflight"),

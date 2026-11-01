@@ -76,12 +76,14 @@ vi.mock("../state/entities", async (original) => ({
   readEnvironmentSupportsPinReorder: () => true,
   readEnvironmentSupportsSettlement: () => true,
   readEnvironmentSupportsSnooze: () => true,
-  readThreadShell: (ref: { environmentId: string; threadId: string }) => !shellLoaded.current ? null :
-    navigationThreads.length > 0
-      ? (navigationThreads.find(
-          (thread) => thread.environmentId === ref.environmentId && thread.id === ref.threadId,
-        ) ?? null)
-      : threadShell,
+  readThreadShell: (ref: { environmentId: string; threadId: string }) =>
+    !shellLoaded.current
+      ? null
+      : navigationThreads.length > 0
+        ? (navigationThreads.find(
+            (thread) => thread.environmentId === ref.environmentId && thread.id === ref.threadId,
+          ) ?? null)
+        : threadShell,
 }));
 vi.mock("../state/use-atom-command", () => ({
   useAtomCommand: (command: unknown) => {
@@ -126,7 +128,9 @@ beforeEach(() => {
     command.mockReset().mockResolvedValue({ _tag: "Success", value: undefined });
   }
   router.navigate.mockReset().mockResolvedValue(undefined);
-  newThread.mockReset().mockImplementation(async () => { router.state.location.href = "/draft/project"; });
+  newThread.mockReset().mockImplementation(async () => {
+    router.state.location.href = "/draft/project";
+  });
   navigationThreads.length = 0;
   updateThreadShortcutTargets([], null);
   router.state.location.href = "/";

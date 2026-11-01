@@ -469,7 +469,7 @@ describe("RpcSessionFactory", () => {
             return { prepared: BEARER_PREPARED, session };
           }),
         checkHost: () => Effect.succeed("unchecked" as const),
-        preflight: () => Effect.succeed(false),
+        preflight: () => Effect.succeed("unchecked" as const),
       });
       const supervisor = yield* EnvironmentSupervisor.make(
         { target: TARGET, enabled: true, profile: Option.none() },
@@ -958,7 +958,7 @@ describe("RpcSessionFactory", () => {
               return { prepared: PREPARED, session };
             }),
           checkHost: () => Effect.succeed("unchecked" as const),
-          preflight: () => Effect.succeed(false),
+          preflight: () => Effect.succeed("unchecked" as const),
         }),
         Effect.provideService(Connectivity.Connectivity, {
           status: Effect.succeed("online" as const),
@@ -1005,7 +1005,7 @@ describe("RpcSessionFactory", () => {
               return { prepared: PREPARED, session };
             }),
           checkHost: () => Effect.succeed("unchecked" as const),
-          preflight: () => Effect.succeed(false),
+          preflight: () => Effect.succeed("unchecked" as const),
         });
         const supervisor = yield* EnvironmentSupervisor.make(
           {
