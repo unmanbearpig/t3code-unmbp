@@ -1,3 +1,5 @@
+import * as NodePlatformCrypto from "@effect/platform-node/NodeCrypto";
+import * as ManagedPolicy from "./policy/ManagedPolicy.ts";
 import * as Redacted from "effect/Redacted";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -37,6 +39,7 @@ import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import { prepareRpcWebTransportServer } from "./transport/WebTransportProtocol.ts";
 
 const authLayer = EnvironmentAuth.layer.pipe(
+  Layer.provide(ManagedPolicy.layerTest()),
   Layer.provideMerge(SqlitePersistence.layerMemory),
   Layer.provide(ServerSecretStore.layer),
   Layer.provide(ServerEnvironment.layerIdentity),
@@ -56,7 +59,7 @@ const testLayer = RpcSessionLifetime.layer.pipe(
       flush: Effect.void,
     }),
   ),
-  Layer.provide(NodeServices.layer),
+  Layer.provide(Layer.merge(NodeServices.layer, NodePlatformCrypto.layer)),
 );
 const Group = RpcGroup.make(Rpc.make("listen", { success: Schema.String, stream: true }));
 

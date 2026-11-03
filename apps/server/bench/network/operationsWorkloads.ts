@@ -267,7 +267,7 @@ export const runOperation = Effect.fnUntraced(function* (
     const session: RpcSession = {
       client,
       initialConfig: Deferred.await(config),
-      subscribeServerConfig: client.subscribeServerConfig,
+      subscribeServerConfig: (input = {}) => client.subscribeServerConfig(input),
       ready: Deferred.await(config).pipe(Effect.asVoid),
       probe: Effect.void,
       inboundFrames: Effect.succeed(0),

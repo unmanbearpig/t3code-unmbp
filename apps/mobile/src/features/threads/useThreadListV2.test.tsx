@@ -304,7 +304,11 @@ it("returns a thread from the Working shelf once its exit grace expires", async 
   }
 
   function Probe(props: { readonly threads: ReadonlyArray<typeof working> }) {
-    return <RegistryContext value={registry}><ListProbe {...props} /></RegistryContext>;
+    return (
+      <RegistryContext value={registry}>
+        <ListProbe {...props} />
+      </RegistryContext>
+    );
   }
   const root = createRoot(document.createElement("div"));
   using _root = { [Symbol.dispose]: () => act(() => root.unmount()) };

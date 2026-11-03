@@ -1,3 +1,5 @@
+import * as NodePlatformCrypto from "@effect/platform-node/NodeCrypto";
+import * as ManagedPolicy from "../../src/policy/ManagedPolicy.ts";
 // @effect-diagnostics effectFnOpportunity:off - Protocol benchmarks must not add tracing spans to measured operations.
 // @effect-diagnostics nodeBuiltinImport:off - Isolated benchmark listener and IPC fixture control.
 import * as NodeFS from "node:fs";
@@ -275,6 +277,7 @@ const secrets = Layer.mock(ServerSecretStore.ServerSecretStore)({
   })(),
 });
 const auth = EnvironmentAuth.layer.pipe(
+  Layer.provide(ManagedPolicy.layerTest()),
   Layer.provideMerge(fixtureServices),
   Layer.provideMerge(environment),
   Layer.provideMerge(secrets),
@@ -767,7 +770,7 @@ await Effect.runPromise(
       }
     }),
   ).pipe(
-    Effect.provide(NodeServices.layer),
+    Effect.provide(Layer.merge(NodeServices.layer, NodePlatformCrypto.layer)),
     Effect.provideService(Logger.CurrentLoggers, new Set()),
   ),
 );

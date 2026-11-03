@@ -627,6 +627,7 @@ it.effect("records a run whose worktree cannot be made as failed instead of laun
         namedProjectsRoot: "/projects",
         isScratchProject: () => Effect.succeed(false),
       }),
+      ManagedPolicy.layerTest(),
       NodeCrypto.layer,
       Scheduler.layer,
       // No launch: a run that got past the check would die on the mock.
@@ -684,6 +685,7 @@ const runWithRunUpdates = (
         namedProjectsRoot: "/projects",
         isScratchProject: () => Effect.succeed(false),
       }),
+      ManagedPolicy.layerTest(),
       NodeCrypto.layer,
       Scheduler.layer,
       Layer.mock(ThreadLaunchService.ThreadLaunchService)({

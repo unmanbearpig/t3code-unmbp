@@ -40,7 +40,9 @@ const make = Effect.gen(function* () {
         // Subscribe/revalidate before the transport starts. A revoke between ticket
         // admission and acceptance must also close the newly accepted session.
         return yield* Effect.raceFirst(
-          sessions.awaitInvalidation(session.sessionId, session.proofKeyThumbprint).pipe(Effect.as(undefined)),
+          sessions
+            .awaitInvalidation(session.sessionId, session.proofKeyThumbprint)
+            .pipe(Effect.as(undefined)),
           use(owner),
         );
       }),

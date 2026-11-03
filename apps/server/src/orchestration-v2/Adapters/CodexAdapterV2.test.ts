@@ -1288,7 +1288,7 @@ NodeReadline.createInterface({ input: process.stdin }).on("line", (line) => {
               settings: DEFAULT_CODEX_SETTINGS,
               environment: {},
               clientFactory: yield* CodexAdapterV2.CodexAppServerClientFactory,
-              crypto: yield* Crypto.Crypto,
+              digest: yield* Digest.Digest,
               fileSystem: yield* FileSystem.FileSystem,
               idAllocator: yield* IdAllocator.IdAllocatorV2,
               serverConfig: yield* ServerConfig.ServerConfig,
@@ -1301,7 +1301,7 @@ NodeReadline.createInterface({ input: process.stdin }).on("line", (line) => {
               layerFactory,
               IdAllocator.layer,
               ServerConfig.layerTest(cwd, { prefix: "t3-codex-session-recovery-config-" }),
-            ).pipe(Layer.provideMerge(NodeServices.layer)),
+            ).pipe(Layer.provideMerge(Layer.merge(NodeServices.layer, NodeCrypto.layer))),
           ),
         );
 

@@ -1,3 +1,5 @@
+import * as NodePlatformCrypto from "@effect/platform-node/NodeCrypto";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as Redacted from "effect/Redacted";
 // @effect-diagnostics nodeBuiltinImport:off -- Isolated TLS and loopback UDP listener fixtures.
 import * as NodeChildProcess from "node:child_process";
@@ -275,7 +277,9 @@ it.live(
       expect(child.stdout).toContain('"stops":1,"sockets":1,"closes":1,"publications":0');
     }).pipe(
       Effect.scoped,
-      Effect.provide(Layer.merge(WebTransportBackend.layer, NodeServices.layer)),
+      Effect.provide(
+        Layer.mergeAll(WebTransportBackend.layer, NodeServices.layer, NodePlatformCrypto.layer),
+      ),
     ),
 );
 
@@ -418,6 +422,7 @@ it.live(
           ),
       });
       const authLayer = EnvironmentAuth.layer.pipe(
+        Layer.provide(ManagedPolicy.layerTest()),
         Layer.provideMerge(SqlitePersistence.layerMemory),
         Layer.provide(ServerSecretStore.layer),
         Layer.provideMerge(ServerEnvironment.layerIdentity),
@@ -592,7 +597,9 @@ it.live(
       );
     }).pipe(
       Effect.scoped,
-      Effect.provide(Layer.merge(WebTransportBackend.layer, NodeServices.layer)),
+      Effect.provide(
+        Layer.mergeAll(WebTransportBackend.layer, NodeServices.layer, NodePlatformCrypto.layer),
+      ),
     ),
 );
 

@@ -2776,6 +2776,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         Layer.provide(
           Layer.mergeAll(
             NodeServices.layer,
+            NodeCrypto.layer,
             Layer.mock(ThreadManagementService.ThreadManagementService)({}),
             ServerSettings.layerTest(),
             Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
@@ -3791,7 +3792,7 @@ describe("OrchestratorMcpService scheduled tasks that launch a fresh worktree pe
   const layerRealGit = GitVcsDriver.layer.pipe(
     Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-schedule-config-" })),
     Layer.provide(VcsProcess.layer),
-    Layer.provide(NodeServices.layer),
+    Layer.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer)),
   );
   // An MCP client outside any T3 thread, so schedules default to unbound.
   const clientScope: McpInvocationScope = {
@@ -3920,7 +3921,14 @@ describe("OrchestratorMcpService scheduled tasks that launch a fresh worktree pe
       return yield* Effect.gen(function* () {
         const service = yield* OrchestratorMcpService.OrchestratorMcpService;
         return yield* body(service, upserts);
-      }).pipe(Effect.provide(OrchestratorMcpService.layer.pipe(Layer.provide(layerDependencies))));
+      }).pipe(
+        Effect.provide(
+          OrchestratorMcpService.layer.pipe(
+            Layer.provide(layerDependencies),
+            Layer.provide(NodeCrypto.layer),
+          ),
+        ),
+      );
     });
 
   const scheduleUnbound = (service: OrchestratorMcpService.OrchestratorMcpService["Service"]) =>

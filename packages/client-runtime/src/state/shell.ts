@@ -238,105 +238,119 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   // time, so neither can overwrite what the other wrote in between.
   const snapshotWriteLock = yield* Semaphore.make(1);
 
-  const applyItems = Effect.fn("EnvironmentShellState.applyItems")(function* (
-    items: ReadonlyArray<OrchestrationV2ShellStreamItem>,
-    pendingLinkIds?: ReadonlySet<ThreadId>,
-    subscription = activeSubscription,
-  ) {
-    // Buffered rows from an old subscription must not certify its replacement.
-    if (subscription === undefined || subscription.failed || subscription !== activeSubscription ||
-        Option.getOrNull(yield* SubscriptionRef.get(supervisor.session)) !== subscription.session) return;
-    const initial = yield* SubscriptionRef.get(state);
-    let waiting = subscription.awaitingCompletion;
-    let next = initial;
-    let deltas: Array<ShellStreamEvent> = [];
-    const flushDeltas = () => {
-      if (deltas.length > 0 && Option.isSome(next.snapshot)) {
-        let sequence = next.snapshot.value.snapshotSequence;
-        let removedAt: Map<ThreadId, number> | undefined;
-        for (const delta of deltas) {
-          if (delta.sequence <= sequence) continue;
-          switch (delta.kind) {
-            case "thread.removed":
-              removedAt ??= new Map(next.removedAt);
-              removedAt.set(delta.threadId, delta.sequence);
-              break;
-            case "thread.updated":
-            case "project.updated":
-            case "project.removed":
-              break;
-            default:
-              continue;
+  const applyItems = Effect.fn("EnvironmentShellState.applyItems")(
+    function* (
+      items: ReadonlyArray<OrchestrationV2ShellStreamItem>,
+      pendingLinkIds?: ReadonlySet<ThreadId>,
+      subscription = activeSubscription,
+    ) {
+      // Buffered rows from an old subscription must not certify its replacement.
+      if (
+        subscription === undefined ||
+        subscription.failed ||
+        subscription !== activeSubscription ||
+        Option.getOrNull(yield* SubscriptionRef.get(supervisor.session)) !== subscription.session
+      )
+        return;
+      const initial = yield* SubscriptionRef.get(state);
+      let waiting = subscription.awaitingCompletion;
+      let next = initial;
+      let deltas: Array<ShellStreamEvent> = [];
+      const flushDeltas = () => {
+        if (deltas.length > 0 && Option.isSome(next.snapshot)) {
+          let sequence = next.snapshot.value.snapshotSequence;
+          let removedAt: Map<ThreadId, number> | undefined;
+          for (const delta of deltas) {
+            if (delta.sequence <= sequence) continue;
+            switch (delta.kind) {
+              case "thread.removed":
+                removedAt ??= new Map(next.removedAt);
+                removedAt.set(delta.threadId, delta.sequence);
+                break;
+              case "thread.updated":
+              case "project.updated":
+              case "project.removed":
+                break;
+              default:
+                continue;
+            }
+            sequence = delta.sequence;
           }
-          sequence = delta.sequence;
+          next = {
+            ...next,
+            removedAt: removedAt ?? next.removedAt,
+            snapshot: Option.some(applyShellStreamEvents(next.snapshot.value, deltas)),
+            status: waiting ? "synchronizing" : "live",
+            error: Option.none(),
+          };
+        }
+        deltas = [];
+      };
+      for (const item of items) {
+        if (item.kind !== "snapshot" && item.kind !== "synchronized") {
+          deltas.push(item);
+          continue;
+        }
+        // Snapshots can reset the cursor; completion markers change the sync status.
+        flushDeltas();
+        if (item.kind === "synchronized") {
+          waiting = false;
+          if (Option.isSome(next.snapshot)) {
+            subscription.synchronized =
+              subscription.supportsCompletionMarker &&
+              subscription.authoritative &&
+              subscription.serverStartedAt !== undefined;
+            next = { ...next, status: "live", error: Option.none() };
+          }
+          continue;
+        }
+        const authoritative = item.resolvedRepositoryIdentityRoots === undefined;
+        const nextSnapshot = mergeShellSnapshotProjects(
+          Option.getOrNull(next.snapshot),
+          item.snapshot,
+          item.resolvedRepositoryIdentityRoots === undefined
+            ? undefined
+            : { resolvedRepositoryIdentityRoots: item.resolvedRepositoryIdentityRoots },
+        );
+        if (authoritative) {
+          subscription.authoritative = true;
+          subscription.synchronized = false;
         }
         next = {
-          ...next,
-          removedAt: removedAt ?? next.removedAt,
-          snapshot: Option.some(applyShellStreamEvents(next.snapshot.value, deltas)),
+          snapshot: Option.some(nextSnapshot),
           status: waiting ? "synchronizing" : "live",
           error: Option.none(),
+          generation: authoritative ? ++lastShellGeneration : next.generation,
+          removedAt: authoritative ? EMPTY_REMOVALS : next.removedAt,
         };
       }
-      deltas = [];
-    };
-    for (const item of items) {
-      if (item.kind !== "snapshot" && item.kind !== "synchronized") {
-        deltas.push(item);
-        continue;
-      }
-      // Snapshots can reset the cursor; completion markers change the sync status.
       flushDeltas();
-      if (item.kind === "synchronized") {
-        waiting = false;
-        if (Option.isSome(next.snapshot)) {
-          subscription.synchronized = subscription.supportsCompletionMarker && subscription.authoritative && subscription.serverStartedAt !== undefined;
-          next = { ...next, status: "live", error: Option.none() };
-        }
-        continue;
+      subscription.awaitingCompletion = waiting;
+      if (next === initial) return;
+      if (pendingLinkIds !== undefined && Option.isSome(next.snapshot)) {
+        pendingLinkRows = new Set(
+          next.snapshot.value.threads.filter((thread) => pendingLinkIds.has(thread.id)),
+        );
       }
-      const authoritative = item.resolvedRepositoryIdentityRoots === undefined;
-      const nextSnapshot = mergeShellSnapshotProjects(
-        Option.getOrNull(next.snapshot),
-        item.snapshot,
-        item.resolvedRepositoryIdentityRoots === undefined
-          ? undefined
-          : { resolvedRepositoryIdentityRoots: item.resolvedRepositoryIdentityRoots },
-      );
-      if (authoritative) {
-        subscription.authoritative = true;
-        subscription.synchronized = false;
+      if (Option.isSome(next.snapshot)) {
+        yield* Ref.set(latestLiveSnapshot, next.snapshot);
       }
-      next = {
-        snapshot: Option.some(nextSnapshot),
-        status: waiting ? "synchronizing" : "live",
-        error: Option.none(),
-        generation: authoritative ? ++lastShellGeneration : next.generation,
-        removedAt: authoritative ? EMPTY_REMOVALS : next.removedAt,
-      };
-    }
-    flushDeltas();
-    subscription.awaitingCompletion = waiting;
-    if (next === initial) return;
-    if (pendingLinkIds !== undefined && Option.isSome(next.snapshot)) {
-      pendingLinkRows = new Set(
-        next.snapshot.value.threads.filter((thread) => pendingLinkIds.has(thread.id)),
-      );
-    }
-    if (Option.isSome(next.snapshot)) {
-      yield* Ref.set(latestLiveSnapshot, next.snapshot);
-    }
-    yield* SubscriptionRef.set(state, next);
-    if (diagnosticSyncActive && next.status === "live") {
-      diagnosticSyncActive = false;
-      observeSync("live");
-    }
-    if (next.snapshot !== initial.snapshot && Option.isSome(next.snapshot)) {
-      yield* Queue.offer(persistence, next.snapshot.value);
-    }
-  }, (effect, items, _pendingLinkIds?: ReadonlySet<ThreadId>, _subscription = activeSubscription) =>
-      Performance.measure(effect, performance, { operation: "shell.apply-batch", itemCount: items.length }),
-    snapshotWriteLock.withPermit);
+      yield* SubscriptionRef.set(state, next);
+      if (diagnosticSyncActive && next.status === "live") {
+        diagnosticSyncActive = false;
+        observeSync("live");
+      }
+      if (next.snapshot !== initial.snapshot && Option.isSome(next.snapshot)) {
+        yield* Queue.offer(persistence, next.snapshot.value);
+      }
+    },
+    (effect, items, _pendingLinkIds?: ReadonlySet<ThreadId>, _subscription = activeSubscription) =>
+      Performance.measure(effect, performance, {
+        operation: "shell.apply-batch",
+        itemCount: items.length,
+      }),
+    snapshotWriteLock.withPermit,
+  );
 
   const stateScope = yield* Effect.scope;
   // Each full snapshot supersedes the previous one's fill; links from an older snapshot must

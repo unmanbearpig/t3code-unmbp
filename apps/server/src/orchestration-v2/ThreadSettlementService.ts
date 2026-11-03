@@ -325,7 +325,7 @@ export const make = Effect.gen(function* () {
         backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])
       )
         continue;
-      const uuid = yield* crypto.randomUUIDv4();
+      const uuid = yield* random.uuidV4();
       yield* orchestrator
         .dispatch({
           type: "thread.settle-when-idle",

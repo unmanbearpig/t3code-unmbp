@@ -153,7 +153,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         command: "thread.next",
       });
       assert.isTrue(
-        result.some(
+        result.keybindings.some(
           (rule) =>
             rule.command === "thread.next" &&
             "leader" in rule.shortcut &&
