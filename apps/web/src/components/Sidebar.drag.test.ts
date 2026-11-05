@@ -510,7 +510,7 @@ describe("sidebar drag projection", () => {
     expect(result.get(sidebarMarkerId("settled-placeholder"))).toEqual({ ...stationary, y: -83 });
   });
 
-  it("previews a time-ordered inbox drop at its time slot, above the Working shelf", () => {
+  it("previews the requested Active position above the Working shelf", () => {
     const items = [
       pinnedHeader,
       thread("p", "pinned"),
@@ -523,11 +523,14 @@ describe("sidebar drag projection", () => {
       marker("settled-placeholder"),
     ];
     const input = { items, settledOrder: [], settledExpanded: false };
-    expect(preview(input, "p", "a1").get("a2")?.y).toBe(0);
-    const byTime = preview({ ...input, activeOrder: ["a1", "a2", "p"] }, "p", "a1");
-    expect(byTime.get("a2")?.y).toBe(-83);
-    expect(byTime.get(sidebarMarkerId("working-header"))).toEqual(stationary);
-    expect(byTime.get("w")).toEqual(stationary);
+    const beforeFirst = preview(input, "p", "a1");
+    expect(beforeFirst.get("a2")?.y).toBe(0);
+    const afterLast = preview(input, "a1", "a2");
+    expect(afterLast.get("a2")?.y).toBe(-83);
+    for (const result of [beforeFirst, afterLast]) {
+      expect(result.get(sidebarMarkerId("working-header"))).toEqual(stationary);
+      expect(result.get("w")).toEqual(stationary);
+    }
   });
 
   it("updates the projection when the target or measured geometry changes", () => {

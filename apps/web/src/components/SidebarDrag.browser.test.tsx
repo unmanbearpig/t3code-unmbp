@@ -31,53 +31,62 @@ vi.mock(import("../rpc/requestLatencyState"), async (original) => ({
   trackRpcRequestSent: () => {},
 }));
 
-it("keeps a thread drag alive when the sidebar renders before and after activation", async () => {
-  const thread = threadWithHistory("sidebar-drag", 1);
-  using _environment = installFakeEnvironment([thread, threadWithHistory("other-thread", 1)]);
-  __setClientSettingsForTests({
-    ...DEFAULT_CLIENT_SETTINGS,
-    onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
-    sidebarWorkingShelfEnabled: false,
-    confirmThreadArchive: true,
-  });
-  await page.viewport(1400, 900);
-  const router = getRouter(
-    createMemoryHistory({ initialEntries: [`/${ENVIRONMENT_ID}/${thread.id}`] }),
-  );
-  await router.load();
-  const container = document.createElement("div");
-  container.style.cssText = "height: 900px; width: 1400px;";
-  await using screen = await render(<AppRoot router={router} />, {
-    container,
-    // AppRoot supplies its own router.
-    router: false,
-  });
-  const item = screen.getByRole("treeitem", { name: /Thread sidebar-drag/ });
-  await expect.element(item).toBeVisible();
-  const row = item.element().closest("li");
-  if (row === null) throw new Error("Sidebar thread has no list row");
-  const bounds = row.getBoundingClientRect();
-  const pointer = (type: string, offset: number, buttons: number) =>
-    new PointerEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      pointerId: 1,
-      isPrimary: true,
-      button: 0,
-      buttons,
-      clientX: bounds.left + bounds.width / 2,
-      clientY: bounds.top + bounds.height / 2 + offset,
+it.each([false, true])(
+  "reorders across sidebar renders with Working grouping %s",
+  async (working) => {
+    const thread = threadWithHistory("sidebar-drag", 1);
+    using _environment = installFakeEnvironment([thread, threadWithHistory("z-other-thread", 1)]);
+    __setClientSettingsForTests({
+      ...DEFAULT_CLIENT_SETTINGS,
+      onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+      sidebarWorkingShelfEnabled: working,
+      confirmThreadArchive: true,
     });
+    await page.viewport(1400, 900);
+    const router = getRouter(
+      createMemoryHistory({ initialEntries: [`/${ENVIRONMENT_ID}/${thread.id}`] }),
+    );
+    await router.load();
+    const container = document.createElement("div");
+    container.style.cssText = "height: 900px; width: 1400px;";
+    await using screen = await render(<AppRoot router={router} />, {
+      container,
+      // AppRoot supplies its own router.
+      router: false,
+    });
+    const item = screen.getByRole("button", { name: /Thread sidebar-drag/ });
+    await expect.element(item).toBeVisible();
+    const row = item.element().closest("li");
+    if (row === null) throw new Error("Sidebar thread has no list row");
+    const bounds = row.getBoundingClientRect();
+    const other = screen.getByRole("button", { name: /Thread z-other-thread/ });
+    const otherBounds = other.element().getBoundingClientRect();
+    const distance = otherBounds.top + otherBounds.height / 2 - (bounds.top + bounds.height / 2);
+    const pointer = (type: string, offset: number, buttons: number) =>
+      new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        pointerId: 1,
+        isPrimary: true,
+        button: 0,
+        buttons,
+        clientX: bounds.left + bounds.width / 2,
+        clientY: bounds.top + bounds.height / 2 + offset,
+      });
 
-  await act(() => row.dispatchEvent(pointer("pointerdown", 0, 1)));
-  await act(() => updateClientSettings({ confirmThreadArchive: false }));
-  await act(() => document.dispatchEvent(pointer("pointermove", 20, 1)));
-  await expect.element(page.elementLocator(row)).toHaveClass("z-20");
+    await act(() => row.dispatchEvent(pointer("pointerdown", 0, 1)));
+    await act(() => updateClientSettings({ confirmThreadArchive: false }));
+    await act(() => document.dispatchEvent(pointer("pointermove", distance, 1)));
+    await expect.element(page.elementLocator(row)).toHaveClass("z-20");
 
-  await act(() => updateClientSettings({ confirmThreadArchive: true }));
-  await act(() => document.dispatchEvent(pointer("pointermove", 24, 1)));
-  await expect.element(page.elementLocator(row)).toHaveClass("z-20");
+    await act(() => updateClientSettings({ confirmThreadArchive: true }));
+    await act(() => document.dispatchEvent(pointer("pointermove", distance + 2, 1)));
+    await expect.element(page.elementLocator(row)).toHaveClass("z-20");
 
-  await act(() => document.dispatchEvent(pointer("pointerup", 24, 0)));
-  await expect.element(page.elementLocator(row)).not.toHaveClass("z-20");
-});
+    await act(() => document.dispatchEvent(pointer("pointerup", distance + 2, 0)));
+    await expect.element(page.elementLocator(row)).not.toHaveClass("z-20");
+    await expect
+      .element(screen.getByRole("button", { name: /Thread (sidebar-drag|z-other-thread)/ }).first())
+      .toHaveAccessibleName(/Thread z-other-thread/);
+  },
+);

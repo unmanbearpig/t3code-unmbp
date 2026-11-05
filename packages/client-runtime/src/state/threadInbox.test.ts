@@ -316,6 +316,15 @@ describe("createInboxReturnTracker", () => {
       "b",
       "a",
     ]);
+    expect(
+      sortInboxThreadsByReturn(
+        [
+          { ...a, activeOrderKey: "b" },
+          { ...b, activeOrderKey: "t" },
+        ],
+        tracker.returnedAt,
+      ).map((entry) => entry.id),
+    ).toEqual(["a", "b"]);
   });
 
   it("cancels pending timers for removed threads and disabled shelves", () => {

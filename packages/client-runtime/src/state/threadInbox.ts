@@ -3,7 +3,7 @@ import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts"
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { scopedThreadKey } from "../environment/scoped.ts";
 import { effectiveSnoozed, isFiledAsSettled } from "./threadSettled.ts";
-import { toSortableTimestamp } from "./threadSort.ts";
+import { sortActiveThreadsByOrderKey, toSortableTimestamp } from "./threadSort.ts";
 
 type WorkingThreadInput = Pick<
   EnvironmentThreadShell,
@@ -68,25 +68,22 @@ export function findNextActionableThread(input: {
 type InboxThreadInput = Pick<
   EnvironmentThreadShell,
   "id" | "environmentId" | "createdAt" | "unsettledAt" | "latestRun"
->;
+> &
+  Partial<Pick<EnvironmentThreadShell, "activeOrderKey">>;
 
 export function sortInboxThreadsByReturn<T extends InboxThreadInput>(
   threads: readonly T[],
   observedReturnAt?: (thread: T) => number | undefined,
 ): T[] {
-  const timestamps = new Map(
-    threads.map((thread) => [
-      thread,
-      Math.max(
-        toSortableTimestamp(thread.createdAt) ?? 0,
-        toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
-        toSortableTimestamp(thread.latestRun?.requestedAt ?? undefined) ?? 0,
-        toSortableTimestamp(thread.latestRun?.completedAt ?? undefined) ?? 0,
-        observedReturnAt?.(thread) ?? 0,
-      ),
-    ]),
+  return sortActiveThreadsByOrderKey(threads, (thread) =>
+    Math.max(
+      toSortableTimestamp(thread.createdAt) ?? 0,
+      toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
+      toSortableTimestamp(thread.latestRun?.requestedAt ?? undefined) ?? 0,
+      toSortableTimestamp(thread.latestRun?.completedAt ?? undefined) ?? 0,
+      observedReturnAt?.(thread) ?? 0,
+    ),
   );
-  return sortNewestFirst(threads, timestamps);
 }
 
 type WorkingSortInput = Pick<

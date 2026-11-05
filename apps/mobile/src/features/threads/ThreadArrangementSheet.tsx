@@ -28,7 +28,9 @@ import {
 import { queuedThreadKeysAtom } from "../../state/use-thread-outbox";
 import { useThreadListActions } from "../home/useThreadListActions";
 import {
+  applyPendingThreadOrder,
   createThreadMovePlanner,
+  reconcilePendingThreadOrder,
   threadDragAction,
   type ThreadMoveDestination,
 } from "./threadOrder";
@@ -206,7 +208,13 @@ function ThreadArrangementSheet(props: { onClose: () => void }) {
     return {
       pinned,
       active: workingShelfEnabled
-        ? sortInboxThreadsByReturn(active, threadListInboxReturns.returnedAt)
+        ? applyPendingThreadOrder(
+            sortInboxThreadsByReturn(active, threadListInboxReturns.returnedAt),
+            "active",
+            pendingOrder?.section === "active"
+              ? reconcilePendingThreadOrder(pendingOrder, active)
+              : null,
+          )
         : active,
       snoozed: parked.filter((thread) => effectiveSnoozed(thread, { now })),
       settled: sortSettledThreads(parked.filter((thread) => !effectiveSnoozed(thread, { now }))),
@@ -225,12 +233,10 @@ function ThreadArrangementSheet(props: { onClose: () => void }) {
         reorderableEnvironmentIds:
           section === "pinned"
             ? listEnvironments.pinReorderEnvironmentIds
-            : workingShelfEnabled
-              ? new Set()
-              : listEnvironments.activeReorderEnvironmentIds,
+            : listEnvironments.activeReorderEnvironmentIds,
       });
     return { pinned: planner("pinned"), active: planner("active") };
-  }, [sections, threads, listEnvironments, workingShelfEnabled]);
+  }, [sections, threads, listEnvironments]);
   const rows = useMemo(() => {
     const result: Row[] = [];
     let offset = 0;

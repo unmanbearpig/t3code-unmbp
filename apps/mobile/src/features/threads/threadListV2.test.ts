@@ -996,6 +996,7 @@ describe("pending mobile thread moves", () => {
     rows: EnvironmentThreadShell[],
     pendingOrder: PendingThreadOrder | null,
     searchQuery = "",
+    workingShelfEnabled = false,
   ) {
     return buildThreadListV2Items({
       threads: rows,
@@ -1003,17 +1004,23 @@ describe("pending mobile thread moves", () => {
       environmentId: null,
       searchQuery,
       now: NOW,
+      workingShelfEnabled,
     }).items.map((item) => item.thread.id);
   }
 
-  it.each(["active", "pinned"] as const)(
-    "holds %s order through every intermediate key upsert",
-    (section) => {
+  it.each([
+    { section: "active", working: false },
+    { section: "active", working: true },
+    { section: "pinned", working: false },
+    { section: "pinned", working: true },
+  ] as const)(
+    "holds $section order through key upserts with Working grouping $working",
+    ({ section, working }) => {
       const { rows, assignments, pending, update } = fixture(section);
       let current = rows;
       let hold: PendingThreadOrder | null = pending;
       const desired = pending.orderedIds.map((id) => id.split(":")[1]);
-      expect(layout(current, hold)).toEqual(desired);
+      expect(layout(current, hold, "", working)).toEqual(desired);
       for (const assignment of assignments) {
         current = update(current, assignment);
         hold = reconcilePendingThreadOrder(
@@ -1021,10 +1028,10 @@ describe("pending mobile thread moves", () => {
           getThreadListV2OrderedSection({ threads: current, section, now: NOW }),
         );
         expect(hold).not.toBeNull();
-        expect(layout(current, hold)).toEqual(desired);
+        expect(layout(current, hold, "", working)).toEqual(desired);
       }
       expect(reconcilePendingThreadOrder({ ...hold!, commandsComplete: true }, current)).toBeNull();
-      expect(layout(current, null)).toEqual(desired);
+      expect(layout(current, null, "", working)).toEqual(desired);
     },
   );
 

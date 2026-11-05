@@ -308,12 +308,15 @@ export function sortActiveThreadsByOrderKey<
     readonly activeOrderKey?: string | null | undefined;
     readonly environmentId?: string | undefined;
   },
->(threads: readonly T[]): T[] {
+>(
+  threads: readonly T[],
+  anchorTimestamp: (thread: T) => number = activeThreadAnchorTimestampMs,
+): T[] {
   if (threads.length < 2) return [...threads];
   const timestamps = new Map<T, number>();
   for (const thread of threads) {
     if (thread.activeOrderKey == null) {
-      timestamps.set(thread, activeThreadAnchorTimestampMs(thread));
+      timestamps.set(thread, anchorTimestamp(thread));
     }
   }
   return [...threads].sort((left, right) => {

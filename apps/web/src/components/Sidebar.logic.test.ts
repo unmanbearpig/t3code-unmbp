@@ -1150,7 +1150,6 @@ describe("Working shelf (beta)", () => {
               ["a1", "f"],
               ["a2", "t"],
             ]),
-            activeTimeOrdered: true,
           }),
         ).toEqual({ kind: "none" });
       },
@@ -1431,7 +1430,7 @@ describe("Working shelf (beta)", () => {
       );
     });
 
-    it("only changes lifecycle when the inbox is time-ordered", () => {
+    it("saves the requested position within Active and when unpinning", () => {
       const base = {
         pinnedOrder: ["p1"],
         pinnedKeysById: new Map([["p1", "m"]]),
@@ -1440,7 +1439,6 @@ describe("Working shelf (beta)", () => {
           ["a1", "f"],
           ["a2", "t"],
         ]),
-        activeTimeOrdered: true,
       };
       expect(
         planSidebarThreadDrop({
@@ -1449,7 +1447,14 @@ describe("Working shelf (beta)", () => {
           activeSection: "active",
           target: { section: "active", pinnedOrder: ["p1"], activeOrder: ["a2", "a1"] },
         }),
-      ).toEqual({ kind: "none" });
+      ).toEqual({
+        kind: "move-active",
+        order: ["a2", "a1"],
+        assignments: [{ id: "a1", orderKey: "x" }],
+        unpin: false,
+        unsettle: false,
+        unsnooze: false,
+      });
       expect(
         planSidebarThreadDrop({
           ...base,
@@ -1459,8 +1464,8 @@ describe("Working shelf (beta)", () => {
         }),
       ).toEqual({
         kind: "move-active",
-        order: null,
-        assignments: [],
+        order: ["a1", "p1", "a2"],
+        assignments: [{ id: "p1", orderKey: "m" }],
         unpin: true,
         unsettle: false,
         unsnooze: false,
