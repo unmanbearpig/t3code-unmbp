@@ -37,8 +37,9 @@ To stop sending them, turn off **Send crash reports** in **Settings > About T3 C
 
 ## Mobile reconnect experiments
 
-Enable **Randomized reconnect A/B** in **Settings > About > Diagnostics** to compare reconnect
-behavior. While enabled, the app saves timing and traffic samples and uploads them to the
+Enable **Randomized reconnect A/B** in **Settings > About > Diagnostics** to compare cached
+and full reconnect snapshots with the connection pipeline held fixed. While enabled, the app
+saves timing and traffic samples and uploads them to the
 environment it connected to after reconnecting. Turn it off to stop new trials and uploads.
 Samples include the assigned variants, network type, server RTT, cache reuse and readiness
 times. Android also reports app-wide byte and packet counters, which include other connected

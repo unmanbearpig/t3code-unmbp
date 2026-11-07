@@ -109,8 +109,9 @@ const make = Effect.gen(function* () {
     () => ({ wall: Date.now(), monotonic: performance.now() }),
     changed,
     () => ({
-      experiment: experimentEnabled,
-      arm: experimentEnabled && Math.random() < 0.5 ? "old" : "new",
+      // Only snapshot caching varies during collection; the connection pipeline stays fixed.
+      experiment: false,
+      arm: "new",
       networkType,
     }),
     mobileJsLaunch,

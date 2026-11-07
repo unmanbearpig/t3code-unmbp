@@ -1,4 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
+import { ReconnectExperiment, SnapshotExperiment } from "@t3tools/client-runtime/connection";
+import { EnvironmentId } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -7,9 +9,14 @@ import { vi } from "vite-plus/test";
 
 const openDatabaseAsync = vi.hoisted(() => vi.fn());
 vi.mock("expo-sqlite", () => ({ openDatabaseAsync }));
+vi.mock("expo", () => ({ requireOptionalNativeModule: () => null }));
+vi.mock("expo-crypto", () => ({ randomUUID: () => "trial" }));
+vi.mock("expo-constants", () => ({ default: { expoConfig: { version: "test" } } }));
+vi.mock("react-native", () => ({ Platform: { OS: "android" } }));
 
 import * as MobileDatabase from "../../persistence/mobile-database";
 import * as ConnectionLog from "./connection-log";
+import * as MobileSnapshotExperiment from "./snapshot-experiment";
 
 const logLayer = ConnectionLog.layer.pipe(Layer.provide(MobileDatabase.layer));
 
@@ -195,10 +202,8 @@ describe("on-device connection log storage", () => {
             completion: "marker",
           });
           const trial = log.read().at(-1)!;
-          expect(trial.experiment).toBe(true);
-          expect(["old", "new"]).toContain(trial.arm);
-          expect(log.prompt()?.id).toBe(trial.eventId);
-          log.guess(trial.eventId!, "old");
+          expect(trial.experiment).toBe(false);
+          expect(trial.arm).toBe("new");
           expect(log.prompt()).toBeNull();
           log.record({
             kind: "http",
@@ -208,9 +213,9 @@ describe("on-device connection log storage", () => {
             status: 200,
             outcome: "response",
           });
-          expect(log.read().at(-1)?.guess).toBe("old");
+          expect(log.read().at(-1)?.guess).toBeNull();
           yield* Queue.take(writes).pipe(
-            Effect.repeat({ until: (payload) => JSON.parse(payload).guess === "old" }),
+            Effect.repeat({ until: (payload) => JSON.parse(payload).http.length > 0 }),
           );
         }).pipe(Effect.provide(logLayer));
         yield* Effect.gen(function* () {
@@ -218,7 +223,7 @@ describe("on-device connection log storage", () => {
           expect(log.read()).toHaveLength(2000);
           expect(log.storageAvailable()).toBe(true);
           expect(log.experimentEnabled()).toBe(true);
-          expect(log.read().at(-1)?.guess).toBe("old");
+          expect(log.read().at(-1)?.guess).toBeNull();
           const restored = log.read().find((record) => record.shell.outcome === "live");
           expect(restored?.shell.completion).toBe("marker");
           expect(restored?.cleanup).toMatchObject([
@@ -246,64 +251,70 @@ describe("on-device connection log storage", () => {
   });
 });
 
-it.effect(
-  "prompts once after the event's environments finish and stores one guess on every row",
-  () =>
-    Effect.gen(function* () {
-      const log = yield* ConnectionLog.MobileConnectionLog;
-      yield* log.setExperimentEnabled(true);
-      log.environments(["a", "b"]);
-      for (const environmentId of ["a", "b"]) {
-        log.begin(environmentId, true);
-        log.record({ kind: "attempt-start", environmentId });
-        log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
-      }
-      log.record({
-        kind: "shell-sync",
-        environmentId: "a",
-        milestone: "live",
-        completion: "marker",
-      });
-      expect(log.prompt()).toBeNull();
-      log.record({
-        kind: "shell-sync",
-        environmentId: "b",
-        milestone: "live",
-        completion: "marker",
-      });
-      const eventId = log.prompt()!.id;
-      expect(log.read().every((record) => record.eventId === eventId)).toBe(true);
-      expect(new Set(log.read().map((record) => record.arm)).size).toBe(1);
-      log.guess(eventId, "new");
-      expect(log.prompt()).toBeNull();
-      expect(log.read().map((record) => record.guess)).toEqual(["new", "new"]);
-      log.record({
-        kind: "shell-sync",
-        environmentId: "a",
-        milestone: "live",
-        completion: "marker",
-      });
-      expect(log.prompt()).toBeNull();
-      log.wakeup({
-        launch: "resume",
-        wakeup: "application-active-probe",
-        backgroundMs: 1000,
-        at: 0,
-        monotonic: 0,
-      });
-      expect(log.prompt()).toBeNull();
-    }).pipe(
-      Effect.provide(
-        ConnectionLog.layer.pipe(
-          Layer.provide(
-            Layer.mock(MobileDatabase.MobileDatabase)({
-              loadCache: () => Effect.succeedNone,
-              listCache: () => Effect.succeed([]),
-              saveCache: () => Effect.void,
-              clearCacheKind: () => Effect.void,
-            }),
-          ),
+it.effect("keeps the connection pipeline fixed when cache A/B collection is enabled", () =>
+  Effect.gen(function* () {
+    using _random = vi.spyOn(Math, "random").mockReturnValue(0);
+    const log = yield* ConnectionLog.MobileConnectionLog;
+    const pipeline = yield* ReconnectExperiment.ReconnectExperiment;
+    const snapshots = yield* SnapshotExperiment.SnapshotExperiment;
+    yield* log.setExperimentEnabled(true);
+    expect(snapshots?.begin(EnvironmentId.make("a"))?.arm).toBe("old");
+    _random.mockReturnValue(0.99);
+    expect(snapshots?.begin(EnvironmentId.make("a"))?.arm).toBe("new");
+    _random.mockReturnValue(0);
+    log.environments(["a", "b"]);
+    for (const environmentId of ["a", "b"]) {
+      log.begin(environmentId, true);
+      expect(pipeline?.arm(environmentId)).toBe("new");
+      log.record({ kind: "attempt-start", environmentId });
+      log.record({ kind: "attempt-end", environmentId, outcome: "connected", error: null });
+    }
+    log.record({
+      kind: "shell-sync",
+      environmentId: "a",
+      milestone: "live",
+      completion: "marker",
+    });
+    expect(log.prompt()).toBeNull();
+    log.record({
+      kind: "shell-sync",
+      environmentId: "b",
+      milestone: "live",
+      completion: "marker",
+    });
+    expect(log.experimentEnabled()).toBe(true);
+    expect(log.read().every((record) => record.arm === "new" && !record.experiment)).toBe(true);
+    expect(log.prompt()).toBeNull();
+    log.record({
+      kind: "shell-sync",
+      environmentId: "a",
+      milestone: "live",
+      completion: "marker",
+    });
+    expect(log.prompt()).toBeNull();
+    log.wakeup({
+      launch: "resume",
+      wakeup: "application-active-probe",
+      backgroundMs: 1000,
+      at: 0,
+      monotonic: 0,
+    });
+    log.begin("a", true);
+    expect(pipeline?.arm("a")).toBe("new");
+    expect(log.prompt()).toBeNull();
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(ConnectionLog.layerExperiment, MobileSnapshotExperiment.layer).pipe(
+        Layer.provideMerge(ConnectionLog.layer),
+        Layer.provide(
+          Layer.mock(MobileDatabase.MobileDatabase)({
+            loadCache: () => Effect.succeedNone,
+            listCache: () => Effect.succeed([]),
+            saveCache: () => Effect.void,
+            clearCacheKind: () => Effect.void,
+          }),
         ),
       ),
     ),
+  ),
 );
