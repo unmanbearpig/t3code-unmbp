@@ -624,6 +624,7 @@ export const ServerConfig = Schema.Struct({
   /** Present when an administrator's policy file manages this environment. */
   managedPolicy: Schema.optionalKey(ManagedPolicySummary),
   shellResumeCompletionMarker: Schema.optionalKey(Schema.Boolean),
+  reconnectMeasurements: Schema.optionalKey(Schema.Boolean),
   /**
    * The shell can leave idle subagent children out of snapshots (`omitIdleSubagents`), and
    * `getThreadFamily` and `getWorktreeThreadIds` serve the rows it leaves out.
@@ -731,6 +732,8 @@ export const ServerConfigStreamSnapshotEvent = Schema.Struct({
   version: Schema.Literal(1),
   type: Schema.Literal("snapshot"),
   config: ServerConfig,
+  /** Opted-in clients restore these catalogs from their matching local revisions. */
+  cachedProviderCatalogs: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 export type ServerConfigStreamSnapshotEvent = typeof ServerConfigStreamSnapshotEvent.Type;
 

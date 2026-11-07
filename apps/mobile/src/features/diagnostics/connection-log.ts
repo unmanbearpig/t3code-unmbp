@@ -33,6 +33,7 @@ export class MobileConnectionLog extends Context.Service<
     readonly clear: () => void;
     readonly storageAvailable: () => boolean;
     readonly experimentEnabled: () => boolean;
+    readonly networkType: () => "wifi" | "cellular" | "other";
     readonly setExperimentEnabled: (
       enabled: boolean,
     ) => Effect.Effect<void, MobileDatabase.MobileDatabaseError>;
@@ -164,6 +165,7 @@ const make = Effect.gen(function* () {
       notify();
     },
     experimentEnabled: () => experimentEnabled,
+    networkType: () => networkType,
     setExperimentEnabled: (enabled) =>
       database
         .saveCache(

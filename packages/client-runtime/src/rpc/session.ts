@@ -7,6 +7,8 @@ import {
   withRpcWebTransportProbe,
 } from "./webTransportProtocol.ts";
 import { AttemptReconnectArm, ReconnectExperiment } from "../connection/reconnectExperiment.ts";
+import { providerCatalogRevision } from "@t3tools/shared/reconnectSnapshots";
+import { makeReconnectMeasurement } from "./reconnectMeasurement.ts";
 import {
   type ServerConfig,
   type ServerConfigStreamEvent,
@@ -67,6 +69,8 @@ import { environmentMismatchError, mapRemoteEnvironmentError } from "../connecti
 import { orchestrationProtocolCompatibilityError } from "../connection/compatibility.ts";
 
 export interface RpcSession {
+  readonly snapshotCacheArm?: "old" | "new";
+  readonly reconnectReady?: Effect.Effect<void>;
   /** Selected protocol, for runtime diagnostics without exposing admission URLs. */
   readonly transport?: "websocket" | "webtransport";
   readonly client: WsRpcProtocolClient;
@@ -201,6 +205,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
   const webTransportConnector = yield* Effect.serviceOption(RpcWebTransportConnector);
   const cooldown = yield* makeRpcWebTransportCooldown;
   const httpClient = yield* HttpClient.HttpClient;
+  const lastConfigs = new Map<PreparedConnection["environmentId"], ServerConfig>();
   const constructorWithHeaders = yield* Effect.serviceOption(
     ClientCapabilities.WebSocketConstructorWithHeaders,
   );
@@ -220,6 +225,8 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     const networkHint = via === "relay" ? ` ${NETWORK_BLOCKING_HINT}` : "";
     const oldArm = (yield* AttemptReconnectArm) === "old";
     const experiment = yield* ReconnectExperiment;
+    const reconnectMeasurement = yield* makeReconnectMeasurement(connection.environmentId);
+    const snapshotCacheArm = reconnectMeasurement.arm;
     const mapRpcError = (error: Parameters<typeof mapSessionRpcError>[0]) =>
       mapSessionRpcError(error, networkHint, via);
     yield* Effect.annotateCurrentSpan({
@@ -435,13 +442,36 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
                   Effect.tap((chunks) =>
                     Effect.sync(() => {
                       inboundFrames += chunks.length;
+                      for (const chunk of chunks) reconnectMeasurement.track("in", chunk);
                     }),
                   ),
                 ),
               })),
               writer: Effect.map(socket.writer, (writer) => ({
-                write: (chunk) => writeWhileLive(writer.write(chunk)),
-                writeAll: (chunks) => writeWhileLive(writer.writeAll(chunks)),
+                write: (chunk) =>
+                  reconnectMeasurement.enabled
+                    ? writeWhileLive(
+                        writer
+                          .write(chunk)
+                          .pipe(
+                            Effect.tap(() =>
+                              Effect.sync(() => reconnectMeasurement.track("out", chunk)),
+                            ),
+                          ),
+                      )
+                    : writeWhileLive(writer.write(chunk)),
+                writeAll: (chunks) =>
+                  reconnectMeasurement.enabled
+                    ? writeWhileLive(
+                        writer.writeAll(chunks).pipe(
+                          Effect.tap(() =>
+                            Effect.sync(() => {
+                              for (const chunk of chunks) reconnectMeasurement.track("out", chunk);
+                            }),
+                          ),
+                        ),
+                      )
+                    : writeWhileLive(writer.writeAll(chunks)),
               })),
             }),
           ),
@@ -468,6 +498,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
         );
       }));
     yield* Effect.annotateCurrentSpan("connection.rpc.transport", transport);
+    reconnectMeasurement.selectedTransport(transport);
     // Building the protocol only starts the socket; this span times the
     // handshake up to the first open, without making `connect` wait for it.
     yield* Deferred.await(connected).pipe(
@@ -477,6 +508,23 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       Effect.forkScoped,
     );
     const protocolClient = yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));
+    const cachedConfig = Option.fromUndefinedOr(lastConfigs.get(connection.environmentId));
+    const cachedProjection = Option.map(cachedConfig, (config): ServerConfigProjection => ({
+      config,
+      latestEvent: { version: 1, type: "snapshot", config },
+      source: "cache",
+    }));
+    reconnectMeasurement.cached(Option.getOrUndefined(cachedConfig)?.providers.length ?? 0);
+    const providerCatalogRevisions = Option.map(
+      Option.filter(cachedConfig, () => snapshotCacheArm === "new"),
+      (config) =>
+        Object.fromEntries(
+          config.providers.map((provider) => [
+            provider.instanceId,
+            providerCatalogRevision(provider),
+          ]),
+        ),
+    );
     const initialConfigDeferred = yield* Deferred.make<ServerConfig>();
     const serverConfigExit = yield* Deferred.make<void, ServerConfigSubscriptionError>();
     const configSubscriptionClosed = yield* Deferred.make<never, ConnectionAttemptError>();
@@ -486,15 +534,23 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       reason: "remote-unavailable",
       detail: `${connection.label} config subscription ended.`,
     });
-    const serverConfigSource = protocolClient[WS_METHODS.subscribeServerConfig](
-      onDemandSnapshots(serverConfigInput),
-    ).pipe(
+    const serverConfigSource = protocolClient[WS_METHODS.subscribeServerConfig]({
+      ...onDemandSnapshots(serverConfigInput),
+      ...(Option.isSome(providerCatalogRevisions)
+        ? { providerCatalogRevisions: providerCatalogRevisions.value }
+        : {}),
+    }).pipe(
       Stream.runForEach((event) =>
         Effect.gen(function* () {
+          yield* reconnectMeasurement.snapshot(event);
           const buffered = yield* Ref.modify(serverConfigState, (current) => {
             const projection = applyServerConfigProjection(
-              Option.map(current, (state) => state.projection),
+              Option.orElse(
+                Option.map(current, (state) => state.projection),
+                () => cachedProjection,
+              ),
               event,
+              Option.getOrUndefined(cachedConfig)?.providers,
             );
             if (Option.isNone(projection)) {
               return [Option.none<BufferedServerConfigEvent>(), current] as const;
@@ -515,15 +571,41 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
                   : Option.getOrUndefined(current)?.sourcesEvent,
             } satisfies ServerConfigReplayState;
             return [
-              Option.some({ event, replay: next, revision: next.revision }),
+              Option.some({
+                event:
+                  event.type === "snapshot"
+                    ? {
+                        version: 1 as const,
+                        type: "snapshot" as const,
+                        config: projection.value.config,
+                      }
+                    : event,
+                replay: next,
+                revision: next.revision,
+              }),
               Option.some(next),
             ] as const;
           });
           if (Option.isSome(buffered)) {
+            const config = buffered.value.replay.projection.config;
+            if (config.environment.environmentId === connection.environmentId) {
+              lastConfigs.delete(connection.environmentId);
+              lastConfigs.set(connection.environmentId, config);
+              if (lastConfigs.size > 64) lastConfigs.delete(lastConfigs.keys().next().value!);
+            }
             yield* PubSub.publish(serverConfigUpdates, buffered.value);
           }
           if (event.type === "snapshot") {
-            yield* Deferred.succeed(initialConfigDeferred, event.config);
+            if (Option.isNone(buffered)) {
+              return yield* new RpcClientError.RpcClientError({
+                reason: new RpcClientError.RpcClientDefect({
+                  message:
+                    "The server configuration could not restore its cached provider catalogs.",
+                  cause: undefined,
+                }),
+              });
+            }
+            yield* Deferred.succeed(initialConfigDeferred, buffered.value.replay.projection.config);
           }
         }),
       ),
@@ -660,6 +742,14 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       yield* Effect.addFinalizer(() => disposeSelectedTransport!);
     }
     return {
+      snapshotCacheArm,
+      ...(reconnectMeasurement.enabled
+        ? {
+            reconnectReady: reconnectMeasurement
+              .ready(protocolClient, transport)
+              .pipe(Effect.forkIn(sessionScope), Effect.asVoid),
+          }
+        : {}),
       transport,
       client: protocolClient,
       initialConfig,

@@ -1,4 +1,5 @@
 import { ReconnectExperiment } from "../connection/reconnectExperiment.ts";
+import { projectSnapshotRevision } from "@t3tools/shared/reconnectSnapshots";
 import {
   ORCHESTRATION_V2_WS_METHODS,
   type EnvironmentId,
@@ -243,7 +244,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       items: ReadonlyArray<OrchestrationV2ShellStreamItem>,
       pendingLinkIds?: ReadonlySet<ThreadId>,
       subscription = activeSubscription,
-    ) {
+    ): Effect.fn.Return<void> {
       // Buffered rows from an old subscription must not certify its replacement.
       if (
         subscription === undefined ||
@@ -339,6 +340,13 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       if (diagnosticSyncActive && next.status === "live") {
         diagnosticSyncActive = false;
         observeSync("live");
+      }
+      if (
+        next.status === "live" &&
+        initial.status !== "live" &&
+        subscription?.session.reconnectReady !== undefined
+      ) {
+        yield* subscription.session.reconnectReady;
       }
       if (next.snapshot !== initial.snapshot && Option.isSome(next.snapshot)) {
         yield* Queue.offer(persistence, next.snapshot.value);
@@ -589,6 +597,11 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         }
         return {
           afterSequence: current.snapshot.value.snapshotSequence,
+          ...(session.snapshotCacheArm === "old"
+            ? {}
+            : {
+                projectsRevision: projectSnapshotRevision(current.snapshot.value.projects),
+              }),
           ...omission,
           ...completionOptions,
         };

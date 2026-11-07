@@ -82,6 +82,7 @@ import {
   EnvironmentAuthorizationError,
 } from "./auth.ts";
 import { ClientActivityReportInput } from "./background.ts";
+import { ReconnectSamplesInput, ReconnectMetricsError } from "./reconnectMetrics.ts";
 import {
   FilesystemGetMetadataInput,
   FilesystemGetMetadataResult,
@@ -535,6 +536,7 @@ export const WS_METHODS = {
   serverPrepareTriage: "server.prepareTriage",
   serverSignalProcess: "server.signalProcess",
   serverReportClientActivity: "server.reportClientActivity",
+  serverRecordReconnectSamples: "server.recordReconnectSamples",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
 
@@ -992,6 +994,11 @@ const WsCloudInstallRelayClientRpc = Rpc.make(WS_METHODS.cloudInstallRelayClient
 const WsServerReportClientActivityRpc = Rpc.make(WS_METHODS.serverReportClientActivity, {
   payload: ClientActivityReportInput,
   error: EnvironmentAuthorizationError,
+});
+
+const WsServerRecordReconnectSamplesRpc = Rpc.make(WS_METHODS.serverRecordReconnectSamples, {
+  payload: ReconnectSamplesInput,
+  error: Schema.Union([EnvironmentAuthorizationError, ReconnectMetricsError]),
 });
 
 const PullRequestRpcError = Schema.Union([
@@ -1886,6 +1893,7 @@ export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerCon
     usageLimitsCommand: Schema.optional(Schema.Boolean),
     /** Omit per-cwd provider snapshots; the client fetches its cwd through `server.refreshProviders`. */
     workspaceSnapshotsOnDemand: Schema.optional(Schema.Boolean),
+    providerCatalogRevisions: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   }),
   success: ServerConfigStreamEvent,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
@@ -2175,6 +2183,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsDeviceActionRpc,
   WsSubscribeDeviceStateRpc,
   WsSubscribeServerConfigRpc,
+  WsServerRecordReconnectSamplesRpc,
   WsSubscribeServerLifecycleRpc,
   WsSubscribeAuthAccessRpc,
   WsSubscribeResourceTelemetryRpc,

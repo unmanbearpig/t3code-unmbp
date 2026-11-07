@@ -25,6 +25,8 @@ import { ORCHESTRATION_V2_WS_METHODS } from "@t3tools/contracts";
 import { EnvironmentRpcSubscriptionObserver } from "./client.ts";
 import { type ReliableSession } from "@t3tools/shared/rpcWebTransport";
 import { AttemptReconnectArm } from "../connection/reconnectExperiment.ts";
+import { SnapshotExperiment } from "../connection/snapshotExperiment.ts";
+import { providerCatalogRevision } from "@t3tools/shared/reconnectSnapshots";
 
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -35,6 +37,8 @@ import {
   type ServerConfigStreamEvent as ServerConfigStreamEventType,
   WS_METHODS,
   UsageLimitSourceId,
+  ProviderDriverKind,
+  ProviderInstanceId,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
@@ -436,6 +440,98 @@ const completeQuicConfig = Effect.fnUntraced(function* (
 });
 
 describe("RpcSessionFactory", () => {
+  it.effect.each(["old", "new"] as const)(
+    "hydrates cached catalogs on the %s snapshot-cache arm",
+    (arm) =>
+      Effect.gen(function* () {
+        const provider = {
+          instanceId: ProviderInstanceId.make("codex"),
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+          installed: true,
+          version: "1",
+          status: "ready" as const,
+          auth: { status: "authenticated" as const },
+          checkedAt: "2026-11-07T00:00:00Z",
+          models: [{ slug: "luna", name: "Luna", isCustom: false, capabilities: null }],
+          skills: [],
+          slashCommands: [{ name: "help" }],
+        };
+        const cached = { ...SERVER_CONFIG, providers: [provider] };
+        const { factory, sockets } = yield* makeFactory();
+        const warmScope = yield* Scope.make();
+        const warm = yield* factory
+          .connect(PREPARED)
+          .pipe(Effect.provideService(Scope.Scope, warmScope));
+        const warmSocket = yield* awaitSocket(sockets, 0);
+        warmSocket.open();
+        const firstRequest = yield* awaitRequest(warmSocket, 0);
+        expect(firstRequest.payload).not.toHaveProperty("providerCatalogRevisions");
+        warmSocket.serverMessage(
+          encodeJson({
+            _tag: "Chunk",
+            requestId: firstRequest.id,
+            values: [
+              encodeServerConfigStreamEvent({ version: 1, type: "snapshot", config: cached }),
+            ],
+          }),
+        );
+        yield* warm.initialConfig;
+        yield* Scope.close(warmScope, Exit.void);
+        const session = yield* factory.connect(PREPARED);
+        const socket = yield* awaitSocket(sockets, 1);
+        socket.open();
+        const request = yield* awaitRequest(socket, 0);
+        expect(request.payload).toMatchObject(
+          arm === "new"
+            ? { providerCatalogRevisions: { codex: providerCatalogRevision(provider) } }
+            : {},
+        );
+        if (arm === "old") expect(request.payload).not.toHaveProperty("providerCatalogRevisions");
+        socket.serverMessage(
+          encodeJson({
+            _tag: "Chunk",
+            requestId: request.id,
+            values: [
+              encodeServerConfigStreamEvent({
+                version: 1,
+                type: "snapshot",
+                config: {
+                  ...cached,
+                  providers: [
+                    {
+                      ...provider,
+                      models: arm === "new" ? [] : provider.models,
+                      slashCommands: arm === "new" ? [] : provider.slashCommands,
+                    },
+                  ],
+                },
+                ...(arm === "new"
+                  ? { cachedProviderCatalogs: { codex: providerCatalogRevision(provider) } }
+                  : {}),
+              }),
+            ],
+          }),
+        );
+        const config = yield* session.initialConfig;
+        expect(config.providers[0]?.models).toEqual(provider.models);
+        expect(config.providers[0]?.slashCommands).toEqual(provider.slashCommands);
+      }).pipe(
+        Effect.provideService(SnapshotExperiment, {
+          begin: () => ({
+            id: "trial",
+            arm,
+            platform: "android",
+            appVersion: "test",
+            networkType: "cellular",
+            readTraffic: () => null,
+          }),
+          save: () => Effect.void,
+          pending: () => Effect.succeed([]),
+          acknowledge: () => Effect.void,
+        }),
+      ),
+  );
   it.effect("blocks a revoked bearer with the ticket path's error and stops retrying", () =>
     Effect.gen(function* () {
       const requests: Request[] = [];

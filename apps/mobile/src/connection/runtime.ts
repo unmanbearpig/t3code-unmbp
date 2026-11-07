@@ -13,6 +13,7 @@ import { hotSwappableAtomRuntime } from "../lib/hot-swappable-atom-runtime";
 import * as Runtime from "../lib/runtime";
 import { appAtomRegistry } from "../state/atom-registry";
 import * as MobileConnectionLog from "../features/diagnostics/connection-log";
+import * as SnapshotExperiment from "../features/diagnostics/snapshot-experiment";
 import * as BackgroundActivity from "./background-activity";
 import * as ConnectionPlatform from "./platform";
 
@@ -35,6 +36,7 @@ type ConnectionLayerSource =
   | typeof BackgroundActivity.layerObserver
   | typeof BackgroundActivity.layerReporter
   | typeof MobileConnectionLog.layerObserver
+  | typeof SnapshotExperiment.layer
   | typeof MobileConnectionLog.layerExperiment;
 
 const layerProvidedClientConnection = layerSnapshotLoader.pipe(
@@ -48,6 +50,7 @@ const layerProvidedClientConnection = layerSnapshotLoader.pipe(
       BackgroundActivity.layerObserver,
       MobileConnectionLog.layerObserver.pipe(Layer.provide(Runtime.layer)),
       MobileConnectionLog.layerExperiment.pipe(Layer.provide(Runtime.layer)),
+      SnapshotExperiment.layer.pipe(Layer.provide(Runtime.layer)),
     ),
   ),
 );

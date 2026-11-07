@@ -126,6 +126,9 @@ import * as DocumentText from "./provider/DocumentText.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
+import { omitCachedProviderCatalogs } from "./reconnectSnapshots.ts";
+import * as ReconnectMetrics from "./diagnostics/ReconnectMetrics.ts";
+import { projectSnapshotRevision } from "@t3tools/shared/reconnectSnapshots";
 import * as GuestShareService from "./guest/GuestShareService.ts";
 import {
   bufferShellLiveStream,
@@ -1079,6 +1082,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
 export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subscribeShell")(
   function* (input: {
     readonly afterSequence?: number;
+    readonly projectsRevision?: string;
     readonly requestCompletionMarker?: boolean;
     readonly legacyCatchUpPacing?: boolean;
     readonly omitIdleSubagents?: boolean;
@@ -1290,7 +1294,11 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
       subagentThreadIds = new Set(yield* threadManagement.listActiveSubagentThreadIds());
 
       const loaded = yield* loadProjectMetadataSnapshot(highWater);
-      const initial = shellStreamItemsFromResumeSnapshot(loaded);
+      const initial =
+        input.projectsRevision !== undefined &&
+        input.projectsRevision === projectSnapshotRevision(loaded.snapshot.projects)
+          ? []
+          : shellStreamItemsFromResumeSnapshot(loaded);
       const replay = toShellStream(
         applicationEvents
           .readApplicationEvents({
@@ -1381,6 +1389,7 @@ export const layerAuthenticatedHandlers = (
       const serverBrowser = yield* ServerBrowser.ServerBrowser;
       const reportProfiles = yield* serverBrowser.profileReporter;
       const sql = yield* SqlClient.SqlClient;
+      const reconnectMetrics = yield* ReconnectMetrics.ReconnectMetrics;
       const threadManagement = yield* ThreadManagementService.ThreadManagementService;
       const intakeContext = yield* Effect.context<
         | ThreadManagementService.ThreadManagementService
@@ -1933,6 +1942,7 @@ export const layerAuthenticatedHandlers = (
             ? {}
             : { managedPolicy: serverSettings.managedPolicy }),
           shellResumeCompletionMarker: true,
+          reconnectMeasurements: true,
           legacyCatchUpPacing: true,
           shellThreadFamilies: true,
           shellOlderSettled: true,
@@ -2673,6 +2683,8 @@ export const layerAuthenticatedHandlers = (
         [WS_METHODS.serverSignalProcess]: (input) => processDiagnostics.signal(input),
         [WS_METHODS.serverReportClientActivity]: (input) =>
           backgroundPolicy.reportClientActivity(currentSessionId, leaseOwner, input),
+        [WS_METHODS.serverRecordReconnectSamples]: (input) =>
+          reconnectMetrics.record(input.samples),
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) => relayClient.resolve,
         [WS_METHODS.cloudInstallRelayClient]: (_input) =>
           Stream.callback<RelayClientInstallProgressEvent, RelayClientInstallFailedError>((queue) =>
@@ -3334,6 +3346,10 @@ export const layerAuthenticatedHandlers = (
                     resolveTargets: () => Fiber.join(remoteTargets),
                   },
                   { resolve: () => Fiber.join(directResult) },
+                ),
+              ).pipe(
+                Stream.map((event) =>
+                  omitCachedProviderCatalogs(event, input.providerCatalogRevisions),
                 ),
               );
             }),

@@ -1,4 +1,5 @@
 import { AttemptReconnectArm, ReconnectExperiment } from "./reconnectExperiment.ts";
+import { AttemptSnapshotTrial, beginSnapshotAttempt } from "./snapshotExperiment.ts";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -1137,12 +1138,21 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
       const attempt = failureCount + 1;
       const nextGeneration = generation + 1;
+      const snapshotAttempt = yield* beginSnapshotAttempt(target.environmentId);
+      const pipelineArm = experiment?.arm(target.environmentId) ?? "new";
       const outcome: AttemptOutcome = yield* Diagnostics.observeSessionScope(
         runAttempt(attempt, nextGeneration, latestFailure, pendingRetry, replacing),
         diagnostics,
         target.environmentId,
       ).pipe(
-        Effect.provideService(AttemptReconnectArm, experiment?.arm(target.environmentId) ?? "new"),
+        Effect.provideService(AttemptReconnectArm, pipelineArm),
+        Effect.provideService(AttemptSnapshotTrial, snapshotAttempt.value),
+        Effect.onExit((exit) =>
+          snapshotAttempt.failed(
+            pipelineArm,
+            Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause) ? "interrupted" : "failed",
+          ),
+        ),
       );
       nextReconnect = outcome.established;
       replacing = false;

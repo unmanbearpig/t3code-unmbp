@@ -17,6 +17,7 @@ export const ClientCacheKind = Schema.Literals([
   "project-favicon",
   "connection-log",
   "reconnect-experiment",
+  "reconnect-sample",
   "pull-request",
 ]);
 export type ClientCacheKind = typeof ClientCacheKind.Type;

@@ -1,6 +1,8 @@
 package expo.modules.t3nativecontrols
 
 import android.content.Intent
+import android.net.TrafficStats
+import android.os.Process
 import android.text.format.DateFormat
 import androidx.core.content.FileProvider
 import expo.modules.kotlin.Promise
@@ -15,6 +17,18 @@ class T3NativeControlsModule : Module() {
   @Suppress("TooGenericExceptionCaught") // Clear the pending promise before rethrowing.
   override fun definition() = ModuleDefinition {
     Name("T3NativeControls")
+
+    Function("getAppNetworkTraffic") {
+      val uid = Process.myUid()
+      val values = mapOf(
+        "receivedBytes" to TrafficStats.getUidRxBytes(uid),
+        "sentBytes" to TrafficStats.getUidTxBytes(uid),
+        "receivedPackets" to TrafficStats.getUidRxPackets(uid),
+        "sentPackets" to TrafficStats.getUidTxPackets(uid)
+      )
+      if (values.values.any { it == TrafficStats.UNSUPPORTED.toLong() }) null
+      else values.mapValues { it.value.toDouble() }
+    }
 
     Function("is24HourFormat") {
       val context = appContext.reactContext ?: error("The app is not active.")

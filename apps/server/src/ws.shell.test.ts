@@ -20,6 +20,7 @@ import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import { subscribeOrchestrationV2Shell } from "./AuthenticatedRpcSession.ts";
+import { projectSnapshotRevision } from "@t3tools/shared/reconnectSnapshots";
 
 const project = {
   id: ProjectId.make("project-a"),
@@ -42,15 +43,26 @@ const modes = [
   "cold-idle",
   "cold-replay",
 ] as const;
-const cases = modes.flatMap((mode) =>
-  [true, false, undefined].flatMap((requestCompletionMarker) =>
-    [true, false, undefined].map((legacyCatchUpPacing) => ({
+const cases = [
+  ...modes.flatMap((mode) =>
+    [true, false, undefined].flatMap((requestCompletionMarker) =>
+      [true, false, undefined].map((legacyCatchUpPacing) => ({
+        mode,
+        requestCompletionMarker,
+        legacyCatchUpPacing,
+        projectsRevision: undefined as "match" | "stale" | undefined,
+      })),
+    ),
+  ),
+  ...(["idle", "snapshot", "fallback"] as const).flatMap((mode) =>
+    (["match", "stale"] as const).map((projectsRevision) => ({
       mode,
-      requestCompletionMarker,
-      legacyCatchUpPacing,
+      requestCompletionMarker: true,
+      legacyCatchUpPacing: undefined,
+      projectsRevision,
     })),
   ),
-);
+];
 
 describe("shell subscription initial RPC chunks", () => {
   it.effect("replaces expanded projected replay with an authoritative snapshot", () =>
@@ -147,8 +159,8 @@ describe("shell subscription initial RPC chunks", () => {
     }),
   );
   it.effect.each(cases)(
-    "$mode, completion marker $requestCompletionMarker, legacy pacing $legacyCatchUpPacing",
-    ({ mode, requestCompletionMarker, legacyCatchUpPacing }) =>
+    "$mode, completion marker $requestCompletionMarker, legacy pacing $legacyCatchUpPacing, projects $projectsRevision",
+    ({ mode, requestCompletionMarker, legacyCatchUpPacing, projectsRevision }) =>
       Effect.gen(function* () {
         const changes = yield* Effect.acquireRelease(
           PubSub.unbounded<ProjectEnrichmentService.ProjectEnrichmentChange>(),
@@ -232,7 +244,7 @@ describe("shell subscription initial RPC chunks", () => {
         };
         const prefix = [
           ...(snapshot ? [snapshotItem] : []),
-          ...(resolved
+          ...(resolved && (snapshot || projectsRevision !== "match")
             ? [{ ...snapshotItem, resolvedRepositoryIdentityRoots: [project.workspaceRoot] }]
             : []),
         ];
@@ -242,6 +254,12 @@ describe("shell subscription initial RPC chunks", () => {
             ...(mode === "snapshot" || mode === "cold-snapshot" ? {} : { afterSequence: 0 }),
             ...(requestCompletionMarker === undefined ? {} : { requestCompletionMarker }),
             ...(legacyCatchUpPacing === undefined ? {} : { legacyCatchUpPacing }),
+            ...(projectsRevision === undefined
+              ? {}
+              : {
+                  projectsRevision:
+                    projectsRevision === "match" ? projectSnapshotRevision([project]) : "stale",
+                }),
           }),
         ).pipe(
           Stream.take(prefix.length + replayCount + (requestCompletionMarker ? 1 : 0) + 2),

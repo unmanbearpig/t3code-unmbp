@@ -26,3 +26,4 @@ export { OutdatedHostUpdateError } from "./outdatedHostUpdate.ts";
 export * as ConnectionDiagnostics from "./diagnostics.ts";
 
 export * as ReconnectExperiment from "./reconnectExperiment.ts";
+export * as SnapshotExperiment from "./snapshotExperiment.ts";
