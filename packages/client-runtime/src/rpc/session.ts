@@ -51,6 +51,7 @@ import { NETWORK_BLOCKING_HINT, UNRESPONSIVE_HOST_HINT } from "../errors/network
 import { makeWebSocketLayer } from "./webSocket.ts";
 import { issueRemoteWebSocketTicket } from "../authorization/remote.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
+import * as Persistence from "../platform/persistence.ts";
 import type {
   ConnectionAttemptError,
   ConnectionTransientError,
@@ -206,6 +207,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
   const cooldown = yield* makeRpcWebTransportCooldown;
   const httpClient = yield* HttpClient.HttpClient;
   const lastConfigs = new Map<PreparedConnection["environmentId"], ServerConfig>();
+  const configStore = yield* Effect.serviceOption(Persistence.EnvironmentCacheStore);
   const constructorWithHeaders = yield* Effect.serviceOption(
     ClientCapabilities.WebSocketConstructorWithHeaders,
   );
@@ -227,6 +229,18 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     const experiment = yield* ReconnectExperiment;
     const reconnectMeasurement = yield* makeReconnectMeasurement(connection.environmentId);
     const snapshotCacheArm = reconnectMeasurement.arm;
+    const diskConfig =
+      !lastConfigs.has(connection.environmentId) && Option.isSome(configStore)
+        ? yield* configStore.value.loadServerConfig(connection.environmentId).pipe(
+            Effect.map(
+              Option.filter(
+                (config) => config.environment.environmentId === connection.environmentId,
+              ),
+            ),
+            Effect.orElseSucceed(() => Option.none<ServerConfig>()),
+            Effect.forkScoped,
+          )
+        : undefined;
     const mapRpcError = (error: Parameters<typeof mapSessionRpcError>[0]) =>
       mapSessionRpcError(error, networkHint, via);
     yield* Effect.annotateCurrentSpan({
@@ -508,7 +522,11 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       Effect.forkScoped,
     );
     const protocolClient = yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));
-    const cachedConfig = Option.fromUndefinedOr(lastConfigs.get(connection.environmentId));
+    const memoryConfig = Option.fromUndefinedOr(lastConfigs.get(connection.environmentId));
+    const cachedConfig =
+      Option.isSome(memoryConfig) || diskConfig === undefined
+        ? memoryConfig
+        : yield* Fiber.join(diskConfig);
     const cachedProjection = Option.map(cachedConfig, (config): ServerConfigProjection => ({
       config,
       latestEvent: { version: 1, type: "snapshot", config },

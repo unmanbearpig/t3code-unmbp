@@ -124,7 +124,7 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
     );
   attachProjectFaviconDatabase(database);
   const encodeStoredShellSnapshot = makeStoredShellSnapshotEncoder();
-  return Persistence.EnvironmentCacheStore.of({
+  return yield* Persistence.shareServerConfigReads({
     loadShell: Effect.fn("MobileEnvironmentCache.loadShell")((environmentId) =>
       loadDecodedCache({
         database,

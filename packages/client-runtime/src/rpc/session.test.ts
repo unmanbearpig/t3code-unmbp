@@ -249,6 +249,7 @@ const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* (
   options: RpcSession.RpcSessionOptions = {},
   connectorOrFetch?: ReliableConnector | typeof fetch,
   native?: { readonly fetch: typeof fetch },
+  cache?: Persistence.EnvironmentCacheStore["Service"],
 ) {
   const sentChanges = yield* Queue.unbounded<void>();
   const sockets = Object.assign([] as TestWebSocket[], { changes: yield* Queue.unbounded<void>() });
@@ -285,6 +286,7 @@ const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* (
               return socket as unknown as globalThis.WebSocket;
             }),
         connector === undefined ? Layer.empty : Layer.succeed(RpcWebTransportConnector, connector),
+        cache === undefined ? Layer.empty : Layer.succeed(Persistence.EnvironmentCacheStore, cache),
       ),
     ),
   );
@@ -440,25 +442,90 @@ const completeQuicConfig = Effect.fnUntraced(function* (
 });
 
 describe("RpcSessionFactory", () => {
-  it.effect.each(["old", "new"] as const)(
-    "hydrates cached catalogs on the %s snapshot-cache arm",
-    (arm) =>
-      Effect.gen(function* () {
-        const provider = {
-          instanceId: ProviderInstanceId.make("codex"),
-          driver: ProviderDriverKind.make("codex"),
-          enabled: true,
-          installed: true,
-          version: "1",
-          status: "ready" as const,
-          auth: { status: "authenticated" as const },
-          checkedAt: "2026-11-07T00:00:00Z",
-          models: [{ slug: "luna", name: "Luna", isCustom: false, capabilities: null }],
-          skills: [],
-          slashCommands: [{ name: "help" }],
-        };
-        const cached = { ...SERVER_CONFIG, providers: [provider] };
-        const { factory, sockets } = yield* makeFactory();
+  it.effect.each([
+    { arm: "old", source: "memory" },
+    { arm: "new", source: "memory" },
+    { arm: "old", source: "disk" },
+    { arm: "new", source: "disk" },
+    { arm: "new", source: "missing" },
+    { arm: "new", source: "failed" },
+    { arm: "new", source: "mismatched" },
+  ] as const)("hydrates $source catalogs on the $arm snapshot-cache arm", ({ arm, source }) =>
+    Effect.gen(function* () {
+      const provider = {
+        instanceId: ProviderInstanceId.make("codex"),
+        driver: ProviderDriverKind.make("codex"),
+        enabled: true,
+        installed: true,
+        version: "1",
+        status: "ready" as const,
+        auth: { status: "authenticated" as const },
+        checkedAt: "2026-11-07T00:00:00Z",
+        models: [{ slug: "luna", name: "Luna", isCustom: false, capabilities: null }],
+        skills: [],
+        slashCommands: [{ name: "help" }],
+      };
+      const cached = { ...SERVER_CONFIG, providers: [provider] };
+      let stored =
+        source === "missing"
+          ? Option.none<ServerConfigType>()
+          : Option.some(
+              source === "mismatched"
+                ? {
+                    ...cached,
+                    environment: {
+                      ...cached.environment,
+                      environmentId: EnvironmentId.make("other"),
+                    },
+                  }
+                : cached,
+            );
+      let reads = 0;
+      const readStarted = yield* Deferred.make<void>();
+      const readAllowed = yield* Deferred.make<void>();
+      const cache = yield* Persistence.shareServerConfigReads({
+        loadShell: () => Effect.succeedNone,
+        saveShell: () => Effect.void,
+        loadThread: () => Effect.succeedNone,
+        saveThread: () => Effect.void,
+        removeThread: () => Effect.void,
+        loadServerConfig: () =>
+          Effect.gen(function* () {
+            reads++;
+            yield* Deferred.succeed(readStarted, undefined);
+            yield* Deferred.await(readAllowed);
+            if (source === "failed")
+              return yield* new Persistence.ConnectionPersistenceError({
+                operation: "load-server-config",
+                message: "Unavailable cache",
+              });
+            return stored;
+          }),
+        saveServerConfig: (_, config) =>
+          Effect.sync(() => {
+            stored = Option.some(config);
+          }),
+        loadVcsRefs: () => Effect.succeedNone,
+        saveVcsRefs: () => Effect.void,
+        removeVcsRefs: () => Effect.void,
+        clearVcsRefs: () => Effect.void,
+        clear: () =>
+          Effect.sync(() => {
+            stored = Option.none();
+          }),
+      });
+      const uiLoad =
+        source === "disk"
+          ? yield* cache.loadServerConfig(PREPARED.environmentId).pipe(Effect.forkScoped)
+          : undefined;
+      if (uiLoad !== undefined) yield* Deferred.await(readStarted);
+      const { factory, sockets } = yield* makeFactory(
+        {},
+        undefined,
+        undefined,
+        source !== "memory" ? cache : undefined,
+      );
+      if (source === "memory") {
         const warmScope = yield* Scope.make();
         const warm = yield* factory
           .connect(PREPARED)
@@ -478,59 +545,72 @@ describe("RpcSessionFactory", () => {
         );
         yield* warm.initialConfig;
         yield* Scope.close(warmScope, Exit.void);
-        const session = yield* factory.connect(PREPARED);
-        const socket = yield* awaitSocket(sockets, 1);
-        socket.open();
-        const request = yield* awaitRequest(socket, 0);
-        expect(request.payload).toMatchObject(
-          arm === "new"
-            ? { providerCatalogRevisions: { codex: providerCatalogRevision(provider) } }
-            : {},
-        );
-        if (arm === "old") expect(request.payload).not.toHaveProperty("providerCatalogRevisions");
-        socket.serverMessage(
-          encodeJson({
-            _tag: "Chunk",
-            requestId: request.id,
-            values: [
-              encodeServerConfigStreamEvent({
-                version: 1,
-                type: "snapshot",
-                config: {
-                  ...cached,
-                  providers: [
-                    {
-                      ...provider,
-                      models: arm === "new" ? [] : provider.models,
-                      slashCommands: arm === "new" ? [] : provider.slashCommands,
-                    },
-                  ],
-                },
-                ...(arm === "new"
-                  ? { cachedProviderCatalogs: { codex: providerCatalogRevision(provider) } }
-                  : {}),
-              }),
-            ],
-          }),
-        );
-        const config = yield* session.initialConfig;
-        expect(config.providers[0]?.models).toEqual(provider.models);
-        expect(config.providers[0]?.slashCommands).toEqual(provider.slashCommands);
-      }).pipe(
-        Effect.provideService(SnapshotExperiment, {
-          begin: () => ({
-            id: "trial",
-            arm,
-            platform: "android",
-            appVersion: "test",
-            networkType: "cellular",
-            readTraffic: () => null,
-          }),
-          save: () => Effect.void,
-          pending: () => Effect.succeed([]),
-          acknowledge: () => Effect.void,
+      }
+      const connecting = yield* factory.connect(PREPARED).pipe(Effect.forkScoped);
+      const socket = yield* awaitSocket(sockets, source === "memory" ? 1 : 0);
+      socket.open();
+      yield* Deferred.succeed(readAllowed, undefined);
+      const session = yield* Fiber.join(connecting);
+      if (uiLoad !== undefined) {
+        expect(yield* Fiber.join(uiLoad)).toEqual(Option.some(cached));
+        expect(reads).toBe(1);
+      }
+      const request = yield* awaitRequest(socket, 0);
+      const hashes = arm === "new" && (source === "memory" || source === "disk");
+      expect(request.payload).toMatchObject(
+        hashes ? { providerCatalogRevisions: { codex: providerCatalogRevision(provider) } } : {},
+      );
+      if (!hashes) expect(request.payload).not.toHaveProperty("providerCatalogRevisions");
+      socket.serverMessage(
+        encodeJson({
+          _tag: "Chunk",
+          requestId: request.id,
+          values: [
+            encodeServerConfigStreamEvent({
+              version: 1,
+              type: "snapshot",
+              config: {
+                ...cached,
+                providers: [
+                  {
+                    ...provider,
+                    models: hashes ? [] : provider.models,
+                    slashCommands: hashes ? [] : provider.slashCommands,
+                  },
+                ],
+              },
+              ...(hashes
+                ? { cachedProviderCatalogs: { codex: providerCatalogRevision(provider) } }
+                : {}),
+            }),
+          ],
         }),
-      ),
+      );
+      const config = yield* session.initialConfig;
+      expect(config.providers[0]?.models).toEqual(provider.models);
+      expect(config.providers[0]?.slashCommands).toEqual(provider.slashCommands);
+      if (source === "disk") {
+        const updated = { ...cached, providers: [] };
+        yield* cache.saveServerConfig(PREPARED.environmentId, updated);
+        expect(yield* cache.loadServerConfig(PREPARED.environmentId)).toEqual(Option.some(updated));
+        yield* cache.clear(PREPARED.environmentId);
+        expect(yield* cache.loadServerConfig(PREPARED.environmentId)).toEqual(Option.none());
+      }
+    }).pipe(
+      Effect.provideService(SnapshotExperiment, {
+        begin: () => ({
+          id: "trial",
+          arm,
+          platform: "android",
+          appVersion: "test",
+          networkType: "cellular",
+          readTraffic: () => null,
+        }),
+        save: () => Effect.void,
+        pending: () => Effect.succeed([]),
+        acknowledge: () => Effect.void,
+      }),
+    ),
   );
   it.effect("blocks a revoked bearer with the ticket path's error and stops retrying", () =>
     Effect.gen(function* () {
