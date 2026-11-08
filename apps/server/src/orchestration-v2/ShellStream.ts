@@ -740,6 +740,8 @@ export function shellStreamItemsFromInitialSnapshot(input: {
   ];
 }
 
+const encodeProjects = Schema.encodeSync(Schema.Array(ProjectShellSchema));
+
 export function shellStreamItemsFromResumeSnapshot(input: {
   readonly snapshot: OrchestrationV2ShellSnapshot;
   readonly resolvedRepositoryIdentityRoots: ReadonlyArray<string>;
@@ -748,7 +750,8 @@ export function shellStreamItemsFromResumeSnapshot(input: {
 }): ReadonlyArray<Extract<OrchestrationV2ShellStreamItem, { readonly kind: "snapshot" }>> {
   if (
     input.projectsRevision !== undefined &&
-    input.projectsRevision === projectSnapshotRevision(input.snapshot.projects)
+    // Hash the projects as the client received them; encoding trims text fields.
+    input.projectsRevision === projectSnapshotRevision(encodeProjects(input.snapshot.projects))
   ) {
     return [];
   }
