@@ -978,6 +978,7 @@ function ThreadRouteContent(
           detailDeleted: selectedThreadDetailState.status === "deleted",
           connectionState: routeConnectionState,
           resolve: m,
+          connectionError: routeConnectionError,
         });
   const connectionRetrying =
     routeConnectionState === "connecting" || routeConnectionState === "reconnecting";

@@ -618,6 +618,14 @@
     "./provider-instance-ids": {
       "types": "./src/providerInstanceIds.ts",
       "default": "./src/providerInstanceIds.ts"
+    },
+    "./prompt-cache": {
+      "types": "./src/promptCache.ts",
+      "default": "./src/promptCache.ts"
+    },
+    "./scheduled-task-base-ref": {
+      "types": "./src/scheduledTaskBaseRef.ts",
+      "default": "./src/scheduledTaskBaseRef.ts"
     }
   },
   "scripts": {

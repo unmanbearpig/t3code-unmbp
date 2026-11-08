@@ -588,6 +588,14 @@ it.effect("a launch into a new worktree creates nothing when its base ref has no
       checkWorktreeBase: ({ projectId, workspaceStrategy }) =>
         workspaceStrategy.type !== "worktree"
           ? Effect.void
+          : workspaceStrategy.baseRef === "plain"
+            ? Effect.fail(
+                new ThreadLaunch.ThreadLaunchNotRepositoryError({
+                  projectId,
+                  projectTitle: "Client target",
+                  workspaceRoot: "/projects/client-target",
+                }),
+              )
           : workspaceStrategy.baseRef === "t3/renamed"
             ? Effect.fail(
                 new ThreadLaunch.ThreadLaunchBaseRefError({
@@ -636,6 +644,13 @@ it.effect("a launch into a new worktree creates nothing when its base ref has no
       message:
         'Branch "feature/taken" already exists in project "Client target". No thread was created. Pass a branch name that does not exist yet, or omit branch to get a generated name.',
     });
+    expect(launched).toHaveLength(0);
+
+    const plain = (yield* launchFrom("plain")).at(-1)?.result;
+    expect(plain).toMatchObject({ code: "invalid_request" });
+    expect((plain as { message: string }).message).toContain(
+      "is not a Git repository, so it cannot get a worktree. No thread was created.",
+    );
     expect(launched).toHaveLength(0);
 
     expect((yield* launchFrom("main")).at(-1)?.result).toMatchObject({ projectId });

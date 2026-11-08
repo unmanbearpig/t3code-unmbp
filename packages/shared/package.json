@@ -630,6 +630,10 @@
     "./paletteSearchCopy": {
       "types": "./src/paletteSearchCopy.ts",
       "import": "./src/paletteSearchCopy.ts"
+    },
+    "./leaderKey": {
+      "types": "./src/leaderKey.ts",
+      "import": "./src/leaderKey.ts"
     }
   },
   "scripts": {

@@ -1,6 +1,7 @@
 import { msg, useGT, useMessages } from "gt-react";
 import { errorDisplayMessage, thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m } from "~/i18n/messages";
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { Dispatch } from "react";
@@ -236,12 +237,11 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   );
   const activeThreadWokeVisible = isThreadWokeUnseen({
     wokeAt: activeThreadWokeAt,
-    settled: activeThreadShell?.settledOverride === "settled",
+    settled: isFiledAsSettled(activeThreadShell),
     lastVisitedAt: activeThreadLastVisitedAt,
     latestRunCompletedAt: activeLatestRun?.completedAt ?? null,
   });
-  const activeThreadSettled =
-    serverConfigLoaded && activeThreadShell?.settledOverride === "settled";
+  const activeThreadSettled = serverConfigLoaded && isFiledAsSettled(activeThreadShell);
   const unsettleThreadMutation = useOrchestrationCommand(threadEnvironment.unsettle, {
     reportFailure: false,
   });
@@ -659,9 +659,13 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     <ThreadStatusLine
       icon={<CheckCircle2Icon />}
       label={
-        settledAt
-          ? gt("Settled {time}", { time: formatRelativeTimeLabel(settledAt, undefined, messages) })
-          : gt("Settled", { $context: "thread status" })
+        activeThreadShell?.settleWhenIdleAt != null
+          ? gt("Settles when work finishes")
+          : settledAt
+            ? gt("Settled {time}", {
+                time: formatRelativeTimeLabel(settledAt, undefined, messages),
+              })
+            : gt("Settled", { $context: "thread status" })
       }
       clockMinute={nowMinute}
       actionLabel={isUnsettling ? gt("Un-settling...") : gt("Un-settle")}
@@ -689,7 +693,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       );
     };
   const shortcuts = {
-    "thread.settle": () => {
+    "thread.settle": ({ event }) => {
+      if (event.repeat) return;
       if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
       if (!activeThreadShell || !activeThreadRef || !serverConfigLoaded) return;
       if (activeThreadSettled) {

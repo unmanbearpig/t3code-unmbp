@@ -1,6 +1,7 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { useAtomValue } from "@effect/atom-react";
 import { uuidv4 } from "../../lib/uuid";
+import { useNativeLeaderConfig } from "./leaderKeyboardShortcuts";
 import { useNavigation } from "@react-navigation/native";
 import {
   claimThreadOpen,
@@ -228,6 +229,7 @@ export function CommandPalette(props: {
   const navigation = useNavigation();
   const gt = useGT();
   const selectTab = useSelectWorkspaceTab();
+  const leaderConfig = useNativeLeaderConfig(props.pathname, PALETTE_COMMANDS);
   const { themeVariables } = useAppearancePreferences();
   const selectDetail = useSelectWorkspaceDetail();
   const runCommand = props.onCommand;
@@ -631,7 +633,11 @@ export function CommandPalette(props: {
       onDismiss={handleDismissed}
     >
       <GestureHandlerRootView className="flex-1">
-        <T3KeyboardCommands enabledCommands={PALETTE_COMMANDS} onCommand={onCommand}>
+        <T3KeyboardCommands
+          leaderConfig={leaderConfig}
+          enabledCommands={PALETTE_COMMANDS}
+          onCommand={onCommand}
+        >
           <KeyboardAvoidingView
             behavior="padding"
             className="flex-1 items-center justify-center py-4"

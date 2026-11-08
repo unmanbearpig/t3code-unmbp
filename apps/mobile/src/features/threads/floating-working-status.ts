@@ -54,6 +54,7 @@ export function connectionRetryLabel(
 
 export function connectionFloatingStatus(
   input: {
+    readonly hideReconnectStatus?: boolean;
     readonly connectionError: string | null;
     readonly connectionState: EnvironmentConnectionPhase;
     readonly environmentLabel: string | null;
@@ -61,6 +62,7 @@ export function connectionFloatingStatus(
   },
   resolve: MessageResolver = m,
 ): FloatingWorkingStatus | null {
+  if (input.hideReconnectStatus) return null;
   const environmentLabel = input.environmentLabel ?? resolve(msg("Environment"));
   const unavailable = (label: string): FloatingWorkingStatus => ({
     kind: "connection",

@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/animationPreference";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import {
   ClipboardApiUnavailableError,
@@ -482,7 +483,7 @@ function animateLabelWidths(
 ) {
   for (const animation of animations.values()) animation.cancel();
   animations.clear();
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (prefersReducedMotion()) return;
 
   for (const [label, previousRect] of previousRects) {
     if (!label.isConnected) continue;

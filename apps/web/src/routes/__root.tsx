@@ -1,3 +1,5 @@
+import { AppGlobalShortcuts } from "../components/AppGlobalShortcuts";
+import { LeaderKeyCoordinator } from "../components/LeaderKeyCoordinator";
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
@@ -60,6 +62,8 @@ import { readProject } from "../state/entities";
 
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { isChunkLoadError } from "../lib/chunkReloadGuard";
+import { installDesktopPasteAsText } from "../lib/desktopPasteAsText";
+import { installTextareaNewlineShortcut } from "../lib/textboxNewline";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
 
 export const Route = createRootRoute({
@@ -149,6 +153,10 @@ function RootRouteView() {
 }
 
 function RootRouteBranch() {
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- installs the desktop paste event handler until unmount
+  useEffect(() => installDesktopPasteAsText(window.desktopBridge, window), []);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- installs the window multiline editing shortcut until unmount
+  useEffect(() => installTextareaNewlineShortcut(window), []);
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();
   const primaryEnvironmentAuthenticated = authGateState.status === "authenticated";
@@ -210,6 +218,8 @@ function RootRouteBranch() {
     <CommandPalette>
       {/* Setup starts with an empty workspace, so the Welcome page has no thread list. */}
       <AppSidebarLayout showSidebar={!isWelcome}>
+        <LeaderKeyCoordinator />
+        <AppGlobalShortcuts />
         <Outlet />
       </AppSidebarLayout>
     </CommandPalette>

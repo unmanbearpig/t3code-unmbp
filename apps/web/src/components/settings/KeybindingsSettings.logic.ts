@@ -1,7 +1,7 @@
 import {
   STATIC_KEYBINDING_COMMANDS,
   type KeybindingCommand,
-  type KeybindingShortcut,
+  type AppKeybindingShortcut,
   type KeybindingWhenNode,
   type ResolvedKeybindingRule,
   type ResolvedKeybindingsConfig,
@@ -9,6 +9,7 @@ import {
 import {
   DEFAULT_RESOLVED_KEYBINDINGS,
   parseKeybindingShortcut,
+  keybindingShortcutInput,
   parseKeybindingWhenExpression,
   US_SHIFTED_TO_UNSHIFTED_KEYS,
 } from "@t3tools/shared/keybindings";
@@ -16,6 +17,7 @@ import { msg } from "gt-react";
 
 import { m, type MessageResolver } from "../../i18n/messages";
 import { shortcutConflictKey, shortcutKeyFromEvent } from "../../keybindings";
+import { leaderStrokeKey } from "@t3tools/shared/leaderKey";
 import { isMacPlatform } from "../../lib/utils";
 import { METRIC_OPTIONS, WINDOW_OPTIONS } from "../usage/usageShortcuts";
 
@@ -64,6 +66,7 @@ const CORE_WHEN_VARIABLES = [
   "terminalFocus",
   "terminalOpen",
   "previewOpen",
+  "externalTerminalAvailable",
   "isWeb",
   "isDesktop",
   "true",
@@ -81,15 +84,8 @@ export const DEFAULT_WHEN_VARIABLE =
   ) ?? "terminalFocus";
 const KNOWN_WHEN_VARIABLES = new Set(DEFAULT_WHEN_VARIABLES);
 
-export function shortcutToKeybindingInput(shortcut: KeybindingShortcut): string {
-  const parts: string[] = [];
-  if (shortcut.modKey) parts.push("mod");
-  if (shortcut.metaKey) parts.push("meta");
-  if (shortcut.ctrlKey) parts.push("ctrl");
-  if (shortcut.altKey) parts.push("alt");
-  if (shortcut.shiftKey) parts.push("shift");
-  parts.push(shortcut.key === " " ? "space" : shortcut.key === "escape" ? "esc" : shortcut.key);
-  return parts.join("+");
+export function shortcutToKeybindingInput(shortcut: AppKeybindingShortcut): string {
+  return keybindingShortcutInput(shortcut);
 }
 
 export function whenAstToExpression(node: KeybindingWhenNode | undefined): string {
@@ -407,6 +403,7 @@ export function buildKeybindingCommandOptions(
 const COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
   "workspace.focusNext": msg("Focus Next Workspace Area"),
   "workspace.focusPrevious": msg("Focus Previous Workspace Area"),
+  "terminal.openExternal": msg("Terminal: Open External Window"),
   "composer.sendAlternate": msg("Composer: Opposite Queue or Steer Action"),
   "composer.sendBackground": msg("Composer: Start in Background"),
   "composer.sendAndNewThread": msg("Composer: Send and Start New Thread"),
@@ -569,10 +566,15 @@ export function keybindingFromKeyboardEvent(
   platform: string,
   options?: {
     readonly layoutCharacter?: boolean;
+    readonly leaderKey?: boolean;
   },
 ): string | null {
   const keyToken = normalizeShortcutKeyToken(
-    options?.layoutCharacter ? recordedLayoutShortcutKey(event) : shortcutKeyFromEvent(event),
+    options?.leaderKey
+      ? leaderStrokeKey(event)
+      : options?.layoutCharacter
+        ? recordedLayoutShortcutKey(event)
+        : shortcutKeyFromEvent(event),
   );
   if (!keyToken) return null;
 

@@ -5,6 +5,7 @@ import {
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
 import { msg } from "gt-react";
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import { useEffect } from "react";
 
 import { usePreferredEditor } from "../../editorPreferences";
@@ -99,8 +100,7 @@ export function useOpenFavoriteEditorShortcut({
         if (result._tag === "Success") announce(m(msg("Opened in {editor}", { editor: label })));
       });
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    return addAppShortcutListener(window, handler);
   }, [
     enabled,
     environmentId,

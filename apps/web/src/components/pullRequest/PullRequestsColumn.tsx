@@ -1,3 +1,4 @@
+import { addAppShortcutListener } from "~/appShortcutEvents";
 import type { PullRequestInvolvement, PullRequestListState } from "@t3tools/contracts";
 import { T, useGT, useMessages } from "gt-react";
 import { Plug2Icon, SearchIcon } from "lucide-react";
@@ -149,8 +150,7 @@ export function PullRequestsColumn({
       input?.focus();
       input?.select();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return addAppShortcutListener(window, onKeyDown);
   }, [condensed]);
   if (!condensed && searchOpen) setSearchOpen(false);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- moves DOM focus to the in-flow search when the topbar search it was typed in unmounts

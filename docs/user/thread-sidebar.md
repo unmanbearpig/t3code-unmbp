@@ -137,7 +137,7 @@ Threads that are working or waiting on work they will resume from move into a co
 **Working** section below the active list.
 That includes subagents, watched pull requests with checks still running, Claude monitors,
 and background commands or other monitors the agent says it is waiting on. A dev server or other process an agent leaves running does not keep a thread
-there. A thread returns to the top of the active list when it finishes, fails, or needs an approval or
+there. A thread returns to the active list when it finishes, fails, or needs an approval or
 answer. The Working section lists the thread you last sent work to first. Pinned threads stay in
 the pinned section.
 
@@ -145,8 +145,8 @@ This is on by default. Turn it off with **Settings → General → Working secti
 or **Settings → General → Working section** on iOS and Android. Each device keeps its own
 choice.
 
-While this is on, the active list is ordered by when each thread last came back to you, so you
-cannot drag or move threads within it. Your saved order returns when you turn it off.
+You can drag or move threads within the active list while this is on. Threads you have not
+arranged are ordered by when they last came back to you, above your saved order.
 
 ### Group threads by project (beta)
 
@@ -165,6 +165,14 @@ section is off. Each device keeps its own choice.
 Choose **Settle thread** from its menu to move finished work out of the active list
 without deleting the conversation. **Un-settle thread** restores it to active work
 and prevents automatic settlement until new activity resumes the usual rules.
+
+You can also settle a thread while the agent or its subagents are still working, or
+ask an agent to settle its own thread as its last step. The thread moves to Settled
+as **Working** and settles quietly when that work finishes. A dev server it left
+running does not hold it back. Sending a message, un-settling, pinning, snoozing, or
+dragging it back to Active cancels this. A question, approval request, failure, or
+stopped turn brings it back to Active.
+
 Manually settling an idle thread dismisses unanswered async questions without
 sending an answer or restarting the agent. Settling also closes the thread's
 terminals that wait at an idle prompt, and keeps their output. A terminal that

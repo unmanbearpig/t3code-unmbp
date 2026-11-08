@@ -48,6 +48,17 @@ import {
   threadHasUnseenCompletion,
   type ThreadListV2ListItem,
 } from "./threadListV2";
+function runningRuntime() {
+  return {
+    status: "running" as const,
+    providerName: "Codex",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    runtimeMode: "full-access" as const,
+    activeRunId: null,
+    lastError: null,
+    updatedAt: NOW,
+  };
+}
 
 const environmentId = EnvironmentId.make("environment-1");
 const decodeThreadShell = Schema.decodeUnknownSync(OrchestrationV2ThreadShell);
@@ -62,6 +73,59 @@ function makeThread(
 }
 
 const NOW = "2026-06-02T00:00:00.000Z";
+
+describe("resolveThreadListV2SwipeActions", () => {
+  it.each([
+    { variant: "card", settlementSupported: true, snoozed: false, primary: "settle" },
+    { variant: "slim", settlementSupported: true, snoozed: false, primary: "unsettle" },
+    { variant: "card", settlementSupported: false, snoozed: false, primary: "archive" },
+    { variant: "card", settlementSupported: true, snoozed: true, primary: "unsnooze" },
+  ] as const)("offers reconnect while $primary is unavailable offline", (row) => {
+    const input = { ...row, snoozeSupported: true, snoozable: true };
+    expect(
+      resolveThreadListV2SwipeActions({
+        ...input,
+        canOperate: false,
+        environmentConnected: false,
+      }),
+    ).toEqual({ primary: "reconnect", secondary: null });
+    expect(
+      resolveThreadListV2SwipeActions({
+        ...input,
+        canOperate: true,
+        environmentConnected: true,
+      }),
+    ).toEqual({ primary: row.primary, secondary: row.snoozed ? null : "snooze" });
+  });
+
+  it("does not expose mutations for a connected read-only environment", () => {
+    expect(
+      resolveThreadListV2SwipeActions({
+        variant: "card",
+        canOperate: true,
+        settlementSupported: true,
+        snoozeSupported: true,
+        snoozable: true,
+        canOperate: false,
+        environmentConnected: true,
+      }),
+    ).toEqual({ primary: null, secondary: null });
+  });
+
+  it("offers reconnect even when a previous permission grant is still available", () => {
+    expect(
+      resolveThreadListV2SwipeActions({
+        variant: "card",
+        canOperate: true,
+        settlementSupported: true,
+        snoozeSupported: true,
+        snoozable: true,
+        canOperate: true,
+        environmentConnected: false,
+      }),
+    ).toEqual({ primary: "reconnect", secondary: null });
+  });
+});
 
 describe("resolveThreadListV2SnoozeMenuSelection", () => {
   it("recomputes the environment's presets instead of using old timestamps", () => {
@@ -152,6 +216,49 @@ describe("layoutThreadListV2RowMenuActions", () => {
 });
 
 describe("resolveThreadListV2Status", () => {
+  it.each(["preparing", "queued", "starting", "running", "waiting", "idle"] as const)(
+    "shows disconnected for cached %s work and returns it to Working on reconnect",
+    (status) => {
+      const thread = makeThread({
+        id: ThreadId.make("offline-work"),
+        title: "Offline work",
+        environmentConnected: false,
+        runtime: {
+          status,
+          activeRunId: RunId.make("cached-run"),
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          providerName: "Codex",
+          lastError: null,
+          updatedAt: NOW,
+        },
+      });
+      const layout = (thread: EnvironmentThreadShell) =>
+        buildThreadListV2Items({
+          threads: [thread],
+          environmentId: null,
+          searchQuery: "",
+          now: NOW,
+          workingShelfEnabled: true,
+        });
+      expect(resolveThreadListV2Status(thread)).toBe("disconnected");
+      expect(layout(thread)).toMatchObject({
+        workingCount: 0,
+        items: [{ thread, variant: "card" }],
+      });
+      const connected = { ...thread, environmentConnected: true };
+      expect(resolveThreadListV2Status(connected)).toBe(status === "idle" ? "waiting" : "working");
+      expect(layout(connected)).toMatchObject({ workingCount: 1, items: [] });
+    },
+  );
+
+  it("preserves confirmed completion while the environment is disconnected", () => {
+    const thread = presentThreadShell(
+      environmentId,
+      makeRawThreadShell({ latestRunId: RunId.make("finished"), status: "completed" }),
+    );
+    expect(resolveThreadListV2Status({ ...thread, environmentConnected: false })).toBe("ready");
+  });
+
   it("presents decoded thread waits as Waiting while preserving requests and older servers", () => {
     const raw = makeRawThreadShell({
       status: "running",
@@ -291,6 +398,7 @@ describe("resolveThreadListV2SwipeActions", () => {
     expect(
       resolveThreadListV2SwipeActions({
         variant: "card",
+        canOperate: true,
         settlementSupported: true,
         snoozeSupported: true,
         snoozable: canSnooze(thread, { now: NOW }),
@@ -337,6 +445,23 @@ describe("search lists ranked matches", () => {
 });
 
 describe("getThreadListV2OrderedSection", () => {
+  it("files a working thread on the settled shelf, labelled Working", () => {
+    const thread = makeThread({
+      id: ThreadId.make("filed"),
+      title: "Filed",
+      settleWhenIdleAt: NOW,
+      runtime: runningRuntime(),
+    });
+    expect(
+      getThreadListV2OrderedSection({ threads: [thread], section: "active", now: NOW }),
+    ).toEqual([]);
+    const row = buildTickList([thread], BASE_MS, []).find((item) => item.type === "v2-thread");
+    expect(row?.type === "v2-thread" && row.timeLabel).toBe("Working");
+    const offline = buildTickList([{ ...thread, environmentConnected: false }], BASE_MS, []).find(
+      (item) => item.type === "v2-thread",
+    );
+    expect(offline?.type === "v2-thread" && offline.timeLabel).toBe("Disconnected");
+  });
   it("uses each saved order and excludes settled, snoozed, and archived rows", () => {
     const threads = [
       makeThread({ id: ThreadId.make("active-later"), title: "Later", activeOrderKey: "t" }),
@@ -982,6 +1107,7 @@ describe("pending mobile thread moves", () => {
     rows: EnvironmentThreadShell[],
     pendingOrder: PendingThreadOrder | null,
     searchQuery = "",
+    workingShelfEnabled = false,
   ) {
     return buildThreadListV2Items({
       threads: rows,
@@ -989,17 +1115,23 @@ describe("pending mobile thread moves", () => {
       environmentId: null,
       searchQuery,
       now: NOW,
+      workingShelfEnabled,
     }).items.map((item) => item.thread.id);
   }
 
-  it.each(["active", "pinned"] as const)(
-    "holds %s order through every intermediate key upsert",
-    (section) => {
+  it.each([
+    { section: "active", working: false },
+    { section: "active", working: true },
+    { section: "pinned", working: false },
+    { section: "pinned", working: true },
+  ] as const)(
+    "holds $section order through key upserts with Working grouping $working",
+    ({ section, working }) => {
       const { rows, assignments, pending, update } = fixture(section);
       let current = rows;
       let hold: PendingThreadOrder | null = pending;
       const desired = pending.orderedIds.map((id) => id.split(":")[1]);
-      expect(layout(current, hold)).toEqual(desired);
+      expect(layout(current, hold, "", working)).toEqual(desired);
       for (const assignment of assignments) {
         current = update(current, assignment);
         hold = reconcilePendingThreadOrder(
@@ -1007,10 +1139,10 @@ describe("pending mobile thread moves", () => {
           getThreadListV2OrderedSection({ threads: current, section, now: NOW }),
         );
         expect(hold).not.toBeNull();
-        expect(layout(current, hold)).toEqual(desired);
+        expect(layout(current, hold, "", working)).toEqual(desired);
       }
       expect(reconcilePendingThreadOrder({ ...hold!, commandsComplete: true }, current)).toBeNull();
-      expect(layout(current, null)).toEqual(desired);
+      expect(layout(current, null, "", working)).toEqual(desired);
     },
   );
 

@@ -1,3 +1,5 @@
+import { PerformanceTelemetry } from "@t3tools/client-runtime/platform";
+import { performanceObserver } from "../features/diagnostics/performance-telemetry";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
@@ -21,11 +23,17 @@ function configuredRelayUrl(): string {
 
 const layerHttpClient = layerRemoteHttpClient(fetch);
 
+const layerPerformance = Layer.succeed(
+  PerformanceTelemetry.PerformanceTelemetry,
+  performanceObserver,
+);
+
 type RuntimeLayerSource =
   | ReturnType<typeof ManagedRelayLayer.layer>
   | typeof NativeWebSocket.layer
   | typeof Dpop.layer
   | typeof layerHttpClient
+  | typeof layerPerformance
   | typeof Persistence.layer
   | typeof Tracing.layer;
 
@@ -36,7 +44,8 @@ const layerRuntime = Layer.merge(
   Layer.provideMerge(Dpop.layer),
   Layer.provideMerge(layerHttpClient),
   Layer.provideMerge(Tracing.layer.pipe(Layer.provide(layerHttpClient))),
-  Layer.provideMerge(Persistence.layer),
+  Layer.provideMerge(Persistence.layer.pipe(Layer.provide(layerPerformance))),
+  Layer.provideMerge(layerPerformance),
   // These layers read the keychain and the database while they build, and a
   // failed build is kept for the life of the process.
   Layer.provide(Layer.effectDiscard(Effect.promise(whenProtectedDataAvailable))),

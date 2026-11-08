@@ -1,6 +1,7 @@
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m as resolveMessage } from "~/i18n/messages";
 import { useAtomValue } from "@effect/atom-react";
+import { EXTERNAL_TERMINALS } from "@t3tools/contracts";
 import { NotificationSettings } from "./NotificationSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
 import { CheckIcon } from "lucide-react";
@@ -487,6 +488,13 @@ export function useSettingsRestore(onRestored?: () => void) {
   const isBackgroundActivityDirty = hasChangedBackgroundActivitySettings(settings);
 
   const changedSettingLabels = [
+    ...(settings.disableAnimations !== DEFAULT_UNIFIED_SETTINGS.disableAnimations
+      ? ["Animations"]
+      : []),
+    ...(settings.composerEmacsEditingEnabled !==
+    DEFAULT_UNIFIED_SETTINGS.composerEmacsEditingEnabled
+      ? ["Emacs / readline editing"]
+      : []),
     ...(theme !== "system" ? [gt("Theme")] : []),
     ...(!followSystem ? [gt("Follow system")] : []),
     ...(themeHalves !== null ? [gt("Theme mix")] : []),
@@ -708,6 +716,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
       showSkillsInSlashMenu: DEFAULT_UNIFIED_SETTINGS.showSkillsInSlashMenu,
       composerRichTextEnabled: DEFAULT_UNIFIED_SETTINGS.composerRichTextEnabled,
+      composerEmacsEditingEnabled: DEFAULT_UNIFIED_SETTINGS.composerEmacsEditingEnabled,
       sendShortcut: DEFAULT_UNIFIED_SETTINGS.sendShortcut,
       followUpBehavior: DEFAULT_UNIFIED_SETTINGS.followUpBehavior,
       toolCallVisibility: DEFAULT_UNIFIED_SETTINGS.toolCallVisibility,
@@ -715,6 +724,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       screenReaderWindowTitle: DEFAULT_UNIFIED_SETTINGS.screenReaderWindowTitle,
       environmentIdentificationMode: DEFAULT_UNIFIED_SETTINGS.environmentIdentificationMode,
       glassOpacity: DEFAULT_UNIFIED_SETTINGS.glassOpacity,
+      disableAnimations: DEFAULT_UNIFIED_SETTINGS.disableAnimations,
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
@@ -1332,6 +1342,34 @@ export function ChatSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection id="follow-ups" title={gt("Follow-ups")}>
+        <SettingsRow
+          {...setting("composer-emacs-editing")}
+          description="Use Ctrl and Alt to move, select, delete, and kill/yank text in the composer. Editing keys take priority over app shortcuts while you type."
+          resetAction={
+            settings.composerEmacsEditingEnabled !==
+            DEFAULT_UNIFIED_SETTINGS.composerEmacsEditingEnabled ? (
+              <SettingResetButton
+                label="Emacs / readline editing"
+                onClick={() =>
+                  updateSettings({
+                    composerEmacsEditingEnabled:
+                      DEFAULT_UNIFIED_SETTINGS.composerEmacsEditingEnabled,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.composerEmacsEditingEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ composerEmacsEditingEnabled: Boolean(checked) })
+              }
+              aria-label="Emacs / readline editing"
+            />
+          }
+        />
+
         <SettingsRow
           {...setting("follow-up-behavior")}
           description={
@@ -2343,6 +2381,39 @@ export function MaintenanceSettingsPanel() {
             />
           }
         />
+        {isElectron ? (
+          <SettingsRow
+            {...searchableSetting("external-terminal")}
+            description="Open a separate terminal window in the current project or worktree on this computer."
+            control={
+              <Select
+                value={settings.externalTerminal}
+                onValueChange={(value) => {
+                  const terminal = EXTERNAL_TERMINALS.find((terminal) => terminal.id === value);
+                  if (terminal) updateSettings({ externalTerminal: terminal.id });
+                }}
+              >
+                <SelectTrigger size="sm" aria-label="External terminal">
+                  <SelectValue>
+                    {
+                      EXTERNAL_TERMINALS.find(
+                        (terminal) => terminal.id === settings.externalTerminal,
+                      )?.label
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {EXTERNAL_TERMINALS.map((terminal) => (
+                    <SelectItem key={terminal.id} value={terminal.id}>
+                      {terminal.label}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            }
+          />
+        ) : null}
+
         <SettingsRow
           {...setting("continue-threads-after-server-update")}
           serverScoped

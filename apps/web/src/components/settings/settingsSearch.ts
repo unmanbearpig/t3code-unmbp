@@ -317,6 +317,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     environmentOnly: true,
   },
   {
+    id: "external-terminal",
+    desktopOnly: true,
+    title: "External terminal",
+    to: "/settings/general",
+    searchTerms: ["foot kitty alacritty shell window project worktree"],
+  },
+  {
     id: "default-permissions",
     title: msg("Permissions"),
     to: "/settings/threads",
@@ -418,6 +425,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: msg("Code font"),
     to: "/settings/appearance",
     searchTerms: [msg("typography family size monospace code blocks diffs file previews")],
+  },
+  {
+    id: "animations",
+    title: "Animations",
+    to: "/settings/appearance",
+    searchTerms: ["disable motion instant performance resources transitions reduce"],
   },
   {
     id: "terminal-font",
@@ -794,6 +807,18 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: [msg("composer rich text tiptap bold italic markdown styled wysiwyg")],
   },
   {
+    id: "composer-collapse",
+    title: "Collapse composer on scroll",
+    to: "/settings/chat",
+    searchTerms: ["composer rest resting scroll wheel conversation timeline shrink minimize"],
+  },
+  {
+    id: "composer-emacs-editing",
+    title: "Emacs / readline editing",
+    to: "/settings/general",
+    searchTerms: ["keyboard shortcuts ctrl control alt option movement kill yank composer"],
+  },
+  {
     id: "send-shortcut",
     title: msg("Send shortcut"),
     to: "/settings/chat",
@@ -986,6 +1011,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: msg("Keybindings"),
     to: "/settings/keybindings",
     searchTerms: [msg("keyboard shortcuts hotkeys commands bindings json")],
+  },
+  {
+    id: "leader-trigger",
+    title: "Leader trigger",
+    to: "/settings/keybindings",
+    searchTerms: ["leader prefix keyboard ctrl period sequence"],
   },
   ...KEYBINDING_SEARCH_ITEMS,
   {

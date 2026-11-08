@@ -1,4 +1,5 @@
 import { useGT } from "gt-react";
+import { prefersReducedMotion } from "~/lib/animationPreference";
 import { useEffect, useRef } from "react";
 import type { PhoneViewer } from "@t3tools/client-runtime/device/phone-viewer";
 import type {
@@ -63,6 +64,7 @@ export function DevicePhoneViewport(props: {
           ({ createPhoneViewer }) =>
             () =>
               createPhoneViewer({
+                reducedMotion: prefersReducedMotion,
                 canvas,
                 source,
                 onUnavailable,

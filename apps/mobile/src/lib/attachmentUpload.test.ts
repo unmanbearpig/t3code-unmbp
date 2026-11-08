@@ -5,6 +5,7 @@ import { beforeEach, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
   canOperate: true,
+  platformOS: "ios",
   documentUri: "file:///documents",
   createAssetUrl: vi.fn(),
   createUploadUrl: Symbol("create-upload-url"),
@@ -14,6 +15,9 @@ const mocks = vi.hoisted(() => ({
   runAtomCommand: vi.fn(),
   readAtom: vi.fn(),
   upload: vi.fn(),
+  modernUpload: vi.fn(),
+  createLegacyUploadTask: vi.fn(),
+  cancelUpload: vi.fn(),
   writeFile: vi.fn(),
   deleteFile: vi.fn(),
   readBase64: vi.fn(),
@@ -58,6 +62,19 @@ vi.mock("./uuid", () => ({
   randomHex: () => "0000",
 }));
 
+vi.mock("react-native", () => ({
+  Platform: {
+    get OS() {
+      return mocks.platformOS;
+    },
+  },
+}));
+
+vi.mock("expo-file-system/legacy", () => ({
+  createUploadTask: mocks.createLegacyUploadTask,
+  FileSystemUploadType: { BINARY_CONTENT: 0 },
+}));
+
 vi.mock("expo-file-system", () => ({
   File: class {
     readonly uri: string;
@@ -78,6 +95,7 @@ vi.mock("expo-file-system", () => ({
     }
 
     upload(url: string, options: unknown) {
+      mocks.modernUpload(this.uri, url, options);
       return mocks.upload(this.uri, url, options);
     }
   },
@@ -172,6 +190,7 @@ function removeCallsFor(attachmentId: string): number {
 describe("prepareTurnAttachments", () => {
   beforeEach(() => {
     mocks.canOperate = true;
+    mocks.platformOS = "ios";
     mocks.documentUri = "file:///documents";
     mocks.createAssetUrl.mockReset();
     mocks.createAssetUrl.mockImplementation((target: unknown) => target);
@@ -180,6 +199,16 @@ describe("prepareTurnAttachments", () => {
     mocks.runAtomCommand.mockReset();
     mocks.readAtom.mockReset();
     mocks.upload.mockReset();
+    mocks.modernUpload.mockReset();
+    mocks.createLegacyUploadTask.mockReset();
+    mocks.cancelUpload.mockReset();
+    mocks.cancelUpload.mockResolvedValue(undefined);
+    mocks.createLegacyUploadTask.mockImplementation(
+      (url: string, uri: string, options: unknown) => ({
+        uploadAsync: () => mocks.upload(uri, url, options),
+        cancelAsync: mocks.cancelUpload,
+      }),
+    );
     mocks.writeFile.mockReset();
     mocks.deleteFile.mockReset();
     mocks.readBase64.mockReset();
@@ -214,6 +243,86 @@ describe("prepareTurnAttachments", () => {
       ).toContain("cannot upload attachments");
       expect(mocks.runAtomCommand).not.toHaveBeenCalled();
       expect(mocks.upload).not.toHaveBeenCalled();
+    }),
+  );
+
+  it.effect.each([image, fileBackedImage, file])(
+    "uploads $name on Android when the new native file uploader is unavailable",
+    (attachment) =>
+      Effect.gen(function* () {
+        mocks.platformOS = "android";
+        mocks.modernUpload.mockImplementation(() => {
+          throw new Error("FileSystemUploadTask is unavailable");
+        });
+        const prepared = yield* prepare({
+          environmentId,
+          attachments: [attachment],
+          supportsImageUploads: true,
+        });
+
+        expect(prepared.attachments[0]).toMatchObject({ id: MINTED_ID, name: attachment.name });
+        expect(mocks.modernUpload).not.toHaveBeenCalled();
+        expect(mocks.createLegacyUploadTask).toHaveBeenCalledExactlyOnceWith(
+          "https://environment.example/api/attachments/upload/signed",
+          "fileUri" in attachment ? attachment.fileUri : "file:///cache/t3-upload-uuid",
+          {
+            httpMethod: "POST",
+            uploadType: 0,
+            headers: { "Content-Type": attachment.mimeType },
+          },
+          undefined,
+        );
+      }),
+  );
+
+  it.effect("reports native Android upload progress", () =>
+    Effect.gen(function* () {
+      mocks.platformOS = "android";
+      mocks.createLegacyUploadTask.mockImplementation(
+        (
+          url: string,
+          uri: string,
+          options: unknown,
+          progress: (data: { totalBytesSent: number; totalBytesExpectedToSend: number }) => void,
+        ) => ({
+          uploadAsync: async () => {
+            progress({ totalBytesSent: 0, totalBytesExpectedToSend: 0 });
+            progress({ totalBytesSent: 3, totalBytesExpectedToSend: 6 });
+            return mocks.upload(uri, url, options);
+          },
+          cancelAsync: mocks.cancelUpload,
+        }),
+      );
+      const progress = vi.fn();
+      yield* prepare({
+        environmentId,
+        attachments: [image],
+        supportsImageUploads: true,
+        onUploadProgress: progress,
+      });
+      expect(progress).toHaveBeenCalledExactlyOnceWith(image.id, 0.5);
+      expect(mocks.cancelUpload).not.toHaveBeenCalled();
+    }),
+  );
+
+  it.effect("cancels an interrupted Android upload", () =>
+    Effect.gen(function* () {
+      mocks.platformOS = "android";
+      const started = Promise.withResolvers<void>();
+      const upload = Promise.withResolvers<null>();
+      mocks.upload.mockImplementation(() => {
+        started.resolve();
+        return upload.promise;
+      });
+      mocks.cancelUpload.mockImplementation(async () => upload.resolve(null));
+      const preparing = yield* Effect.forkChild(
+        prepare({ environmentId, attachments: [image], supportsImageUploads: true }),
+      );
+      yield* Effect.promise(() => started.promise);
+      yield* Fiber.interrupt(preparing);
+      expect(Exit.hasInterrupts(yield* Fiber.await(preparing))).toBe(true);
+      expect(mocks.cancelUpload).toHaveBeenCalledOnce();
+      expect(removeCallsFor(MINTED_ID)).toBe(1);
     }),
   );
 

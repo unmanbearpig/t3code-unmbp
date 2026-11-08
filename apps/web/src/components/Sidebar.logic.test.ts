@@ -1,3 +1,4 @@
+import { applySidebarThreadDrop } from "./Sidebar.logic";
 import { presentThreadShell } from "@t3tools/client-runtime/state/models";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
 import { isThreadWorking as isSidebarThreadWorking } from "@t3tools/client-runtime/state/thread-inbox";
@@ -269,6 +270,44 @@ describe("resolveSidebarThreadStatus", () => {
         runtime: { ...runtime, status: "idle" as const, lastError: "persisted" },
       }),
     ).toBe("waiting");
+  });
+
+  it.each(["preparing", "queued", "starting", "running", "waiting", "idle"] as const)(
+    "shows disconnected instead of cached %s activity until reconnecting",
+    (status) => {
+      const cached = { ...idle, runtime: { ...runtime, status }, environmentConnected: false };
+      expect(resolveSidebarThreadStatus(cached)).toBe("disconnected");
+      expect(
+        isSidebarThreadWorking({
+          ...cached,
+          interactionMode: "default",
+          hasActionableProposedPlan: false,
+          latestRun: null,
+        }),
+      ).toBe(false);
+      expect(resolveSidebarThreadStatus({ ...cached, environmentConnected: true })).toBe(
+        status === "idle" ? "waiting" : "working",
+      );
+    },
+  );
+
+  it("keeps disconnected activity visible without a running timer", () => {
+    expect(
+      shouldRecedeSidebarThread({
+        status: "disconnected",
+        isUnread: false,
+        isWoke: false,
+        isActive: false,
+        isSelected: false,
+      }),
+    ).toBe(false);
+    expect(
+      resolveSidebarThreadStatus({
+        ...idle,
+        runtime: { ...runtime, status: "completed" },
+        environmentConnected: false,
+      }),
+    ).toBe("ready");
   });
 
   it("titles the window with live work and requests only", () => {
@@ -570,6 +609,15 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toBeNull();
+  });
+
+  it("replaces stale active status with a static disconnected indicator", () => {
+    expect(
+      resolveThreadStatusPill({ thread: { ...baseThread, environmentConnected: false } }),
+    ).toMatchObject({ label: "Disconnected", pulse: false });
+    expect(
+      resolveThreadStatusPill({ thread: { ...baseThread, environmentConnected: true } }),
+    ).toMatchObject({ label: "Working" });
   });
 });
 
@@ -1158,7 +1206,6 @@ describe("Working shelf (beta)", () => {
               ["a1", "f"],
               ["a2", "t"],
             ]),
-            activeTimeOrdered: true,
           }),
         ).toEqual({ kind: "none" });
       },
@@ -1439,7 +1486,7 @@ describe("Working shelf (beta)", () => {
       );
     });
 
-    it("only changes lifecycle when the inbox is time-ordered", () => {
+    it("saves the requested position within Active and when unpinning", () => {
       const base = {
         pinnedOrder: ["p1"],
         pinnedKeysById: new Map([["p1", "m"]]),
@@ -1448,7 +1495,6 @@ describe("Working shelf (beta)", () => {
           ["a1", "f"],
           ["a2", "t"],
         ]),
-        activeTimeOrdered: true,
       };
       expect(
         planSidebarThreadDrop({
@@ -1457,7 +1503,14 @@ describe("Working shelf (beta)", () => {
           activeSection: "active",
           target: { section: "active", pinnedOrder: ["p1"], activeOrder: ["a2", "a1"] },
         }),
-      ).toEqual({ kind: "none" });
+      ).toEqual({
+        kind: "move-active",
+        order: ["a2", "a1"],
+        assignments: [{ id: "a1", orderKey: "x" }],
+        unpin: false,
+        unsettle: false,
+        unsnooze: false,
+      });
       expect(
         planSidebarThreadDrop({
           ...base,
@@ -1467,8 +1520,8 @@ describe("Working shelf (beta)", () => {
         }),
       ).toEqual({
         kind: "move-active",
-        order: null,
-        assignments: [],
+        order: ["a1", "p1", "a2"],
+        assignments: [{ id: "p1", orderKey: "m" }],
         unpin: true,
         unsettle: false,
         unsnooze: false,
@@ -1680,5 +1733,27 @@ describe("shouldCreateNewThreadInCurrentProject", () => {
     expect(shouldCreateNewThreadInCurrentProject(false, 1, 3)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(false, 0, 0)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(true, 2, 2)).toBe(true);
+  });
+});
+
+it("dragging working threads to Settled files them, and dragging back cancels it", () => {
+  const now = "2026-10-04T12:00:00.000Z";
+  const thread = {
+    pinnedAt: null,
+    pinOrderKey: null,
+    activeOrderKey: null,
+    snoozedAt: null,
+    snoozedUntil: null,
+    settledAt: null,
+    settledOverride: null,
+    unsettledAt: null,
+    settleWhenIdleAt: null,
+    pendingBackgroundTasks: [{ taskId: "background", kind: "subagent" as const }],
+  };
+  const filed = applySidebarThreadDrop(thread, "settled", now);
+  expect(filed).toMatchObject({ settleWhenIdleAt: now, settledOverride: null, settledAt: null });
+  expect(applySidebarThreadDrop(filed, "active", now)).toMatchObject({
+    settleWhenIdleAt: null,
+    settledOverride: "active",
   });
 });

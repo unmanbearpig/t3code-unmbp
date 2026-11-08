@@ -1,4 +1,5 @@
 import { msg } from "gt-react-native";
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import {
   canSnooze,
   effectiveSnoozed,
@@ -14,7 +15,10 @@ import {
   type SnoozePreset,
 } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { resolveThreadProviderStack } from "@t3tools/client-runtime/state/models";
+import {
+  resolveThreadProviderStack,
+  threadActivityIsDisconnected,
+} from "@t3tools/client-runtime/state/models";
 import {
   threadSearchMatchKey,
   threadSearchSubject,
@@ -69,6 +73,7 @@ export function resolveThreadListV2ProviderDrivers(
 }
 
 export type ThreadListV2Status =
+  | "disconnected"
   | "approval"
   | "input"
   | "request"
@@ -77,7 +82,13 @@ export type ThreadListV2Status =
   | "failed"
   | "limited"
   | "ready";
-export type ThreadListV2SwipeAction = "archive" | "settle" | "unsettle" | "snooze" | "unsnooze";
+export type ThreadListV2SwipeAction =
+  | "archive"
+  | "settle"
+  | "unsettle"
+  | "snooze"
+  | "unsnooze"
+  | "reconnect";
 
 /**
  * Presets for a row's snooze menu, read at the list's minute instead of the
@@ -123,14 +134,20 @@ export function resolveThreadListV2SnoozeMenuSelection(input: {
 
 export function resolveThreadListV2SwipeActions(input: {
   readonly variant: "card" | "slim";
+  readonly environmentConnected?: boolean;
+  readonly canOperate: boolean;
   readonly settlementSupported: boolean;
   readonly snoozeSupported: boolean;
   readonly snoozable: boolean;
   readonly snoozed?: boolean;
 }): {
-  readonly primary: Exclude<ThreadListV2SwipeAction, "snooze">;
+  readonly primary: Exclude<ThreadListV2SwipeAction, "snooze"> | null;
   readonly secondary: "snooze" | null;
 } {
+  if (input.environmentConnected === false) {
+    return { primary: "reconnect", secondary: null };
+  }
+  if (!input.canOperate) return { primary: null, secondary: null };
   if (input.snoozed === true) {
     return { primary: "unsnooze", secondary: null };
   }
@@ -280,8 +297,10 @@ export function resolveThreadListV2Status(
     | "pendingGuestMessageCount"
     | "runtime"
     | "blockedOnThreadWait"
+    | "environmentConnected"
   >,
 ): ThreadListV2Status {
+  if (threadActivityIsDisconnected(thread)) return "disconnected";
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
     return "approval";
   }
@@ -384,7 +403,7 @@ export function getThreadListV2OrderedSection(input: {
     if (thread.archivedAt !== null || !isListedThreadLineage(thread.lineage)) return false;
     if (
       (input.settlementEnvironmentIds?.has(thread.environmentId) ?? true) &&
-      thread.settledOverride === "settled" &&
+      isFiledAsSettled(thread) &&
       queuedThreadKeys?.has(`${thread.environmentId}:${thread.id}`) !== true
     ) {
       return false;
@@ -555,6 +574,7 @@ export function threadListV2ListItemsAreEqual(
   }
 }
 
+// Rows with a status or wake countdown draw no timestamp, so minute ticks must not invalidate them.
 function resolveThreadListV2ItemTimeLabel(
   item: ThreadListV2Item,
   showSnoozeWakeLabel: boolean,
@@ -562,6 +582,8 @@ function resolveThreadListV2ItemTimeLabel(
 ): string {
   const { thread, variant, snoozed } = item;
   if (showSnoozeWakeLabel) return "";
+  if (variant === "slim" && threadActivityIsDisconnected(thread)) return "Disconnected";
+  if (thread.settleWhenIdleAt != null) return "Working";
   if (
     variant === "card" &&
     (resolveThreadListV2RowStatus(thread) !== "ready" ||
@@ -810,7 +832,7 @@ export function buildThreadListV2Items(input: {
     }
     const hasQueuedMessages =
       queuedThreadKeys?.has(`${thread.environmentId}:${thread.id}`) === true;
-    if (supportsSettlement && thread.settledOverride === "settled" && !hasQueuedMessages) {
+    if (supportsSettlement && isFiledAsSettled(thread) && !hasQueuedMessages) {
       settled.push(thread);
     } else if (thread.pinnedAt != null) {
       pinned.push(thread);
@@ -861,9 +883,13 @@ export function buildThreadListV2Items(input: {
     };
   }
 
-  const orderedActive = workingShelfEnabled
-    ? sortInboxThreadsByReturn(active, input.inboxReturnAt)
-    : applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
+  const orderedActive = applyPendingThreadOrder(
+    workingShelfEnabled
+      ? sortInboxThreadsByReturn(active, input.inboxReturnAt)
+      : sortThreadsForListV2(active),
+    "active",
+    pending,
+  );
   const orderedWorking = sortWorkingThreadsBySend(working);
   const orderedSnoozed = [...snoozed].sort(
     (left, right) =>

@@ -3,6 +3,10 @@ import { msg, T, useGT, useMessages } from "gt-react";
 import { m } from "../i18n/messages";
 import { attachSidebarTree } from "../lib/sidebarTree";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
+import { updateThreadShortcutTargets } from "~/threadShortcutTargets";
+import { addAppShortcutListener } from "~/appShortcutEvents";
+import { useExternalTerminal } from "../hooks/useExternalTerminal";
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import {
   dropThreadContext,
@@ -379,35 +383,18 @@ function threadShellKey(thread: Pick<SidebarThreadSummary, "environmentId" | "id
 }
 
 const NO_DRAGGED_ORDER: readonly string[] = [];
-const NO_DRAGGED_ORDERS: {
-  readonly settledOrder: readonly string[];
-  readonly activeOrder: readonly string[] | undefined;
-} = { settledOrder: NO_DRAGGED_ORDER, activeOrder: undefined };
-
-function resolveDraggedOrders(input: {
+function resolveDraggedSettledOrder(input: {
   readonly drag: { readonly activeKey: string; readonly occurredAt: string };
   readonly threadByKey: ReadonlyMap<string, EnvironmentThreadShell>;
   readonly settledThreads: readonly EnvironmentThreadShell[];
-  readonly activeThreads: readonly EnvironmentThreadShell[];
-  readonly workingShelfEnabled: boolean;
-}): typeof NO_DRAGGED_ORDERS {
-  const { drag, threadByKey, settledThreads, activeThreads, workingShelfEnabled } = input;
+}): readonly string[] {
+  const { drag, threadByKey, settledThreads } = input;
   const thread = threadByKey.get(drag.activeKey);
-  if (thread === undefined) return NO_DRAGGED_ORDERS;
-  const others = (list: readonly EnvironmentThreadShell[]) =>
-    list.filter((candidate) => threadShellKey(candidate) !== drag.activeKey);
-  return {
-    settledOrder: sortSettledThreads([
-      ...others(settledThreads),
-      applySidebarThreadDrop(thread, "settled", drag.occurredAt),
-    ]).map(threadShellKey),
-    activeOrder: workingShelfEnabled
-      ? sortInboxThreadsByReturn(
-          [...others(activeThreads), applySidebarThreadDrop(thread, "active", drag.occurredAt)],
-          inboxReturns.returnedAt,
-        ).map(threadShellKey)
-      : undefined,
-  };
+  if (thread === undefined) return NO_DRAGGED_ORDER;
+  return sortSettledThreads([
+    ...settledThreads.filter((candidate) => threadShellKey(candidate) !== drag.activeKey),
+    applySidebarThreadDrop(thread, "settled", drag.occurredAt),
+  ]).map(threadShellKey);
 }
 
 function routeThreadOnly(
@@ -670,7 +657,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     } else {
       const section = resolveSidebarThreadSection({
         snoozed: configLoaded && effectiveSnoozed(thread, { now: preciseNow }),
-        settled: configLoaded && thread.settledOverride === "settled",
+        settled: configLoaded && isFiledAsSettled(thread),
         pinned: thread.pinnedAt != null,
       });
       (section === "snoozed"
@@ -758,7 +745,7 @@ function isOptimisticDropReleased(input: {
   }
   const canonicalSection = effectiveSnoozed(thread, { now })
     ? "snoozed"
-    : thread.settledOverride === "settled"
+    : isFiledAsSettled(thread)
       ? "settled"
       : thread.pinnedAt != null
         ? "pinned"
@@ -993,6 +980,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const newThreadContext = useHandleNewThread();
   // Row callbacks capture only the handler; the rest of the context changes with the route.
   const { handleNewThread } = newThreadContext;
+  const { available: externalTerminalAvailable } = useExternalTerminal();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
@@ -1308,7 +1296,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   );
 
   const {
-    workingShelfEnabled,
     pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
@@ -1628,8 +1615,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const threadKey = scopedThreadKey(threadRef);
       if (settlingThreadKeysRef.current.has(threadKey)) return;
       settlingThreadKeysRef.current.add(threadKey);
-      const navigateAfterSettle = planForwardNavigation(threadKey, opts.coSettlingKeys);
-      const result = await settleThread(threadRef);
+      const result = await settleThread(threadRef, { excludedThreadKeys: opts.coSettlingKeys });
       settlingThreadKeysRef.current.delete(threadKey);
       if (result._tag === "Failure") {
         if (!isAtomCommandInterrupted(result)) {
@@ -1644,17 +1630,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         }
         return;
       }
-      if (
-        shouldNavigateAfterThreadPark({
-          threadKey,
-          currentThreadKey: readRouteThreadKey(router),
-          action: "settle",
-          now: new Date().toISOString(),
-          thread: readThreadShell(threadRef),
-        })
-      ) {
-        navigateAfterSettle?.();
-      }
     })();
   };
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers this sidebar's settle handler in the module-level settleAndAdvance registry
@@ -1663,7 +1638,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const coSettlingKeys = new Set(threadKeys);
     for (const threadKey of threadKeys) {
       const thread = threadByKeyRef.current.get(threadKey);
-      if (!thread || thread.settledOverride === "settled") continue;
+      if (!thread || isFiledAsSettled(thread)) continue;
       attemptSettle(scopeThreadRef(thread.environmentId, thread.id), { coSettlingKeys });
     }
   };
@@ -1712,9 +1687,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const shiftGuard = createSidebarShiftGuard(node);
     shiftGuardRef.current = shiftGuard;
     return () => {
-      // Search replaces this list while the Sidebar stays mounted, and a drag
-      // whose rows are gone can never drop. The compiler memoizes this callback
-      // with no deps (it reads only refs), so the cleanup runs only on unmount.
       dragSensorRef.current?.cancel();
       motion.dispose();
       shiftGuard.dispose();
@@ -1724,14 +1696,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     };
   };
 
-  const attachTreeRef = (node: HTMLUListElement) => {
+  // Detaching this ref cancels pending and active drags, so its identity must survive renders.
+  const attachTreeRef = useStableCallback((node: HTMLUListElement) => {
     const detachMotion = attachListMotionRef(node);
     const detachTree = attachSidebarTree(node);
     return () => {
       detachTree?.();
       detachMotion();
     };
-  };
+  });
 
   // Folder rows only drag out to the composer; folders own their order, so nothing drops in the list.
   const isContextDrag =
@@ -2033,7 +2006,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const shelvesUnchanged = previousShelfExpansionKeyRef.current === shelfExpansionKey;
     previousShelfExpansionKeyRef.current = shelfExpansionKey;
     listMotionRef.current?.update(listMotionPass.animate && shelvesUnchanged);
-  }, [listMotionPass, shelfExpansionKey]);
+  }, [listMotionPass, shelfExpansionKey, listMotionRef]);
   const handleThreadDragOver = (event: DragOverEvent) => {
     const target = event.over
       ? resolveSidebarDropTarget(sidebarListItems, String(event.active.id), String(event.over.id))
@@ -2046,22 +2019,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   };
   const sortableIds = sidebarListItems.map(sidebarListItemId);
   // Keep non-drag orders constant to preserve sorting strategy and row identity during streaming.
-  const { settledOrder: draggedSettledOrder, activeOrder: draggedActiveOrder } =
+  const draggedSettledOrder =
     dragState === null
-      ? NO_DRAGGED_ORDERS
-      : resolveDraggedOrders({
+      ? NO_DRAGGED_ORDER
+      : resolveDraggedSettledOrder({
           drag: dragState,
           threadByKey,
           settledThreads,
-          activeThreads,
-          workingShelfEnabled,
         });
   const sidebarSortingStrategy = createSidebarSortingStrategy({
     items: sidebarListItems,
     enabled: !isContextDrag,
     boundaryLabelHeight: SIDEBAR_DRAG_LABEL_HEIGHT,
     settledOrder: draggedSettledOrder,
-    ...(draggedActiveOrder === undefined ? {} : { activeOrder: draggedActiveOrder }),
     settledExpanded: settledShelfExpanded,
     settledVisibleCount,
     routeThreadKey: routeRowThreadKey,
@@ -2084,7 +2054,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             activeKey: draggedThreadKey,
             activeSection: draggedFromSection,
             activePinned: source.pinnedAt != null,
-            activeSettled: source.settledOverride === "settled",
+            activeSettled: isFiledAsSettled(source),
             supportsSettlement: serverConfigs.has(source.environmentId),
             target,
             pinnedOrder: pinnedKeys,
@@ -2093,7 +2063,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             activeOrder: activeKeys,
             activeKeysById,
             activeReorderableKeys: activeReorderableThreadKeys,
-            activeTimeOrdered: workingShelfEnabled,
           }).kind !== "none"
         );
       },
@@ -2118,7 +2087,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       activeKey,
       activeSection,
       activePinned: activeThread.pinnedAt != null,
-      activeSettled: activeThread.settledOverride === "settled",
+      activeSettled: isFiledAsSettled(activeThread),
       supportsSettlement: serverConfigs.has(activeThread.environmentId),
       target,
       pinnedOrder: pinnedKeys,
@@ -2127,7 +2096,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       activeOrder: activeKeys,
       activeKeysById,
       activeReorderableKeys: activeReorderableThreadKeys,
-      activeTimeOrdered: workingShelfEnabled,
     });
     if (plan.kind === "none") return;
     if (plan.kind === "settle" && settlingThreadKeysRef.current.has(activeKey)) return;
@@ -2186,21 +2154,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       switch (plan.kind) {
         case "settle": {
           settlingThreadKeysRef.current.add(activeKey);
-          const navigateAfterSettle = planForwardNavigation(activeKey);
-          const settled = await run(settleThread(threadRef), gt("Failed to settle thread")).finally(
-            () => settlingThreadKeysRef.current.delete(activeKey),
+          await run(settleThread(threadRef), gt("Failed to settle thread")).finally(() =>
+            settlingThreadKeysRef.current.delete(activeKey),
           );
-          if (
-            settled &&
-            shouldNavigateAfterThreadPark({
-              threadKey: activeKey,
-              currentThreadKey: readRouteThreadKey(router),
-              action: "settle",
-              now: new Date().toISOString(),
-              thread: readThreadShell(threadRef),
-            })
-          )
-            navigateAfterSettle?.();
           return;
         }
         case "move-active":
@@ -2313,9 +2269,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const thread = threadByKeyRef.current.get(threadKey);
         return thread ? [thread] : [];
       });
-      const settlingThreads = selectedThreads.filter(
-        (thread) => thread.settledOverride !== "settled",
-      );
+      const settlingThreads = selectedThreads.filter((thread) => !isFiledAsSettled(thread));
       const canSnoozeSelection = selectedThreads.every(
         (thread) =>
           serverConfigs.has(thread.environmentId) &&
@@ -2411,7 +2365,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   const current = threadByKeyRef.current.get(
                     scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
                   );
-                  return current && current.settledOverride !== "settled" ? [current] : [];
+                  return current && !isFiledAsSettled(current) ? [current] : [];
                 })
               : selectedThreads;
       if (clicked.value === "settle" && actionTargets.length === 0) return;
@@ -2900,6 +2854,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to window keydown for thread navigation shortcuts using the current thread list
   useEffect(() => {
+    updateThreadShortcutTargets(
+      orderedThreadKeys.flatMap((key) => {
+        const thread = threadByKey.get(key);
+        return thread ? [scopeThreadRef(thread.environmentId, thread.id)] : [];
+      }),
+      routeThreadRef,
+    );
+  }, [orderedThreadKeys, threadByKey, routeThreadRef]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the sidebar window keyboard listener until unmount
+  useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || isCommandPaletteOpen() || isModelPickerOpen()) {
         return;
@@ -2932,8 +2897,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       if (jumpIndex === null) return;
       navigateToThreadKey(orderedThreadKeys[jumpIndex] ?? null);
     };
-    window.addEventListener("keydown", onWindowKeyDown);
-    return () => window.removeEventListener("keydown", onWindowKeyDown);
+    return addAppShortcutListener(window, onWindowKeyDown);
   }, [
     keybindings,
     navigateToThread,
@@ -2972,9 +2936,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
     (shouldCreateNewThreadInCurrentProject(false, scopeGroups.length, projectGroups.length)
-      ? shortcutLabelForCommand(keybindings, "chat.newLocal")
+      ? shortcutLabelForCommand(keybindings, "chat.newLocal", {
+          context: { externalTerminalAvailable },
+        })
       : undefined);
-  const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
+  const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal", {
+    context: { externalTerminalAvailable },
+  });
   return (
     <SidebarFolderDrop>
       <SidebarChromeHeader isElectron={isElectron} />

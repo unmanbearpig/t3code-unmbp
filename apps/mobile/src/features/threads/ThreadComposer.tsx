@@ -1,3 +1,4 @@
+import { PromptCacheElapsed } from "./PromptCacheElapsed";
 import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
@@ -1067,6 +1068,14 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                   presentation={voicePresentation}
                 />
                 <View className="shrink-0 flex-row items-center">
+                  {!isVoiceInputPresented && isToolbarVisible ? (
+                    <PromptCacheElapsed
+                      threadRef={{
+                        environmentId: props.environmentId,
+                        threadId: props.selectedThread.id,
+                      }}
+                    />
+                  ) : null}
                   <ComposerDictationPrimaryAction
                     size={usesLargeControls ? "large" : "regular"}
                     state={voiceInput.state}
