@@ -20,6 +20,7 @@ import * as Schema from "effect/Schema";
 import * as Result from "effect/Result";
 import * as Stream from "effect/Stream";
 import { rpcInitialItems } from "./rpcInitialItems.ts";
+import { omitCachedProviderCatalogs } from "./reconnectSnapshots.ts";
 import { subscribeChatGptHandoff } from "./provider/CodexChatGptHandoff.ts";
 import {
   AcpRegistryOperationError,
@@ -1115,6 +1116,7 @@ export const subscribeOrchestrationV2Thread = Effect.fn("ws.orchestrationV2.subs
 export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subscribeShell")(
   function* (input: {
     readonly afterSequence?: number;
+    readonly projectsRevision?: string;
     readonly requestCompletionMarker?: boolean;
     readonly omitIdleSubagents?: boolean;
     readonly omitOlderSettled?: boolean;
@@ -1301,14 +1303,18 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
           resolvedRepositoryIdentityRoots: loaded.resolvedRepositoryIdentityRoots,
         }),
       );
-    const initialEnrichmentItems = (loaded: {
-      readonly snapshot: OrchestrationV2ShellSnapshot;
-      readonly resolvedRepositoryIdentityRoots: ReadonlyArray<string>;
-    }) =>
+    const initialEnrichmentItems = (
+      loaded: {
+        readonly snapshot: OrchestrationV2ShellSnapshot;
+        readonly resolvedRepositoryIdentityRoots: ReadonlyArray<string>;
+      },
+      projectsRevision: string | undefined,
+    ) =>
       rpcInitialItems(
         shellStreamItemsFromResumeSnapshot({
           snapshot: loaded.snapshot,
           resolvedRepositoryIdentityRoots: loaded.resolvedRepositoryIdentityRoots,
+          projectsRevision,
         }),
       );
     // Drain initial frames before merging enrichment with live events so marked refreshes cannot precede the initial frame.
@@ -1358,7 +1364,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
       }
       const replay = toShellStream(Stream.fromIterable(replayed));
       return composeShellStreamWithEnrichment({
-        initial: initialEnrichmentItems(loaded),
+        initial: initialEnrichmentItems(loaded, input.projectsRevision),
         tail: Stream.concat(Stream.concat(replay, completionMarker), liveFrom(highWater)),
         enrichment: enrichmentRefreshes,
       });
@@ -3404,7 +3410,10 @@ export const layerWsRpc = (
                   : config;
               return Stream.concat(
                 rpcInitialItems([
-                  { version: 1 as const, type: "snapshot" as const, config: initialConfig },
+                  omitCachedProviderCatalogs(
+                    { version: 1, type: "snapshot", config: initialConfig },
+                    input.providerCatalogRevisions,
+                  ),
                 ]),
                 withLateConfigDiscovery(
                   initialConfig,

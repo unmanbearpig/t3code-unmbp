@@ -1906,6 +1906,7 @@ export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerCon
     workspaceSnapshotsOnDemand: Schema.optional(Schema.Boolean),
     /** With on-demand snapshots, also omit machine slash commands and skills a cwd snapshot replaces. */
     providerCatalogsOnDemand: Schema.optional(Schema.Boolean),
+    providerCatalogRevisions: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   }),
   success: ServerConfigStreamEvent,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),

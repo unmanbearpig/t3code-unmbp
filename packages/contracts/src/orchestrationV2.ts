@@ -3705,6 +3705,7 @@ export type OrchestrationV2GetThreadProjectionInput =
 
 export const OrchestrationV2SubscribeShellInput = Schema.Struct({
   afterSequence: Schema.optionalKey(NonNegativeInt),
+  projectsRevision: Schema.optionalKey(Schema.String),
   requestCompletionMarker: Schema.optionalKey(Schema.Boolean),
   /**
    * Snapshots leave out idle subagent children; read them with `getThreadFamily`. Send only to

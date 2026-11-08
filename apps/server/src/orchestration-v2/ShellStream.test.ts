@@ -15,6 +15,7 @@ import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import { projectSnapshotRevision } from "@t3tools/shared/reconnectSnapshots";
 
 import {
   activeShellRowsForSubscriber,
@@ -25,6 +26,7 @@ import {
   omitOlderSettledShells,
   shellStreamItemFromEnrichmentRefresh,
   shellStreamItemsFromInitialSnapshot,
+  shellStreamItemsFromResumeSnapshot,
   shouldPublishShellApplicationEvent,
   skipUnchangedThreadShells,
 } from "./ShellStream.ts";
@@ -347,6 +349,34 @@ describe("shellStreamItemsFromInitialSnapshot", () => {
     });
     expect(JSON.stringify(items[1]).length).toBeLessThan(JSON.stringify(items[0]).length);
   });
+
+  it.each(["absent", "match", "stale"] as const)(
+    "resumes with the enrichment frame unless the client's %s project hash matches",
+    (mode) => {
+      const snapshot = {
+        ...emptyShellSnapshot,
+        projects: [
+          { id: "project-b", workspaceRoot: "/workspace/b" },
+          { id: "project-a", workspaceRoot: "/workspace/a" },
+        ],
+      } as unknown as OrchestrationV2ShellSnapshot;
+      const items = shellStreamItemsFromResumeSnapshot({
+        snapshot,
+        resolvedRepositoryIdentityRoots: ["/workspace/a"],
+        ...(mode === "absent"
+          ? {}
+          : {
+              projectsRevision:
+                mode === "match"
+                  ? projectSnapshotRevision([...snapshot.projects].toReversed())
+                  : "stale",
+            }),
+      });
+      expect(items.map((item) => item.resolvedRepositoryIdentityRoots)).toEqual(
+        mode === "match" ? [] : [["/workspace/a"]],
+      );
+    },
+  );
 });
 
 describe("composeShellStreamWithEnrichment", () => {

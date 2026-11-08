@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./reconnectSnapshots": {
+      "types": "./src/reconnectSnapshots.ts",
+      "import": "./src/reconnectSnapshots.ts"
+    },
     "./changedFileKind": {
       "types": "./src/changedFileKind.ts",
       "import": "./src/changedFileKind.ts"

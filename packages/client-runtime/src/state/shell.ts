@@ -1,3 +1,4 @@
+import { projectSnapshotRevision } from "@t3tools/shared/reconnectSnapshots";
 import {
   ORCHESTRATION_V2_WS_METHODS,
   type EnvironmentId,
@@ -473,6 +474,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         }
         return {
           afterSequence: current.snapshot.value.snapshotSequence,
+          projectsRevision: projectSnapshotRevision(current.snapshot.value.projects),
           ...omission,
           requestCompletionMarker: true as const,
         };
