@@ -18,6 +18,12 @@ export interface SessionObservation {
 
 export class ReconnectComparison extends Context.Reference<{
   readonly beginSession?: (environmentId: EnvironmentId) => void;
+  readonly beginAttempt?: (environmentId: EnvironmentId) => Effect.Effect<void>;
+  readonly finishAttempt?: (
+    environmentId: EnvironmentId,
+    outcome: "failed" | "interrupted",
+  ) => Effect.Effect<void>;
+  readonly reset?: (environmentId: EnvironmentId) => void;
   readonly mode: (environmentId: EnvironmentId) => ReconnectComparisonMode;
   readonly observe: (
     environmentId: EnvironmentId,
