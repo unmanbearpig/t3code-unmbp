@@ -2235,6 +2235,7 @@ export const layerWithOptions = (
           providerSessionId,
           reason: "idle_timeout",
           detail: "Linked environments changed; reopening the provider session.",
+          openLockHeld: true,
           onlyIfIdleGeneration: generation,
           keepIf: hasUnfinishedRecords,
         }).pipe(logReleaseFailure(providerSessionId));

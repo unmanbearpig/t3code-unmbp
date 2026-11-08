@@ -69,20 +69,22 @@ export function useExternalTerminal() {
     locality?.key === targetKey &&
     locality?.available === true;
 
+  const reportError = (error: unknown) => {
+    toastManager.add(
+      stackedThreadToast({
+        type: "error",
+        title: "Unable to open terminal",
+        description: error instanceof Error ? error.message : "The desktop terminal launch failed.",
+      }),
+    );
+  };
   const open = async () => {
     if (!available || target === null || cwd === null || launch === undefined) return;
     try {
       const result = await launch({ ...target, cwd, terminal });
-      if (result.error) throw new Error(result.error);
+      if (result.error) reportError(new Error(result.error));
     } catch (error) {
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Unable to open terminal",
-          description:
-            error instanceof Error ? error.message : "The desktop terminal launch failed.",
-        }),
-      );
+      reportError(error);
     }
   };
 
