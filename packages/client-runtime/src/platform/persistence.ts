@@ -7,7 +7,9 @@ import {
   type VcsListRefsResult,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Cache from "effect/Cache";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
@@ -147,6 +149,30 @@ export class EnvironmentCacheStore extends Context.Service<
     ) => Effect.Effect<void, ConnectionPersistenceError>;
   }
 >()("@t3tools/client-runtime/platform/persistence/EnvironmentCacheStore") {}
+
+export const shareServerConfigReads = Effect.fn("EnvironmentCacheStore.shareServerConfigReads")(
+  function* (store: EnvironmentCacheStore["Service"]) {
+    const configs = yield* Cache.makeWith(store.loadServerConfig, {
+      capacity: 64,
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? "Infinity" : 0),
+    });
+    return EnvironmentCacheStore.of({
+      ...store,
+      loadServerConfig: Effect.fn("EnvironmentCacheStore.loadSharedServerConfig")((environmentId) =>
+        Cache.get(configs, environmentId),
+      ),
+      saveServerConfig: Effect.fn("EnvironmentCacheStore.saveSharedServerConfig")(
+        (environmentId, config) =>
+          store
+            .saveServerConfig(environmentId, config)
+            .pipe(Effect.ensuring(Cache.invalidate(configs, environmentId))),
+      ),
+      clear: Effect.fn("EnvironmentCacheStore.clearSharedConfig")((environmentId) =>
+        store.clear(environmentId).pipe(Effect.ensuring(Cache.invalidate(configs, environmentId))),
+      ),
+    });
+  },
+);
 
 export class EnvironmentOwnedDataCleanup extends Context.Reference<{
   readonly clear: (environmentId: EnvironmentId) => Effect.Effect<void>;

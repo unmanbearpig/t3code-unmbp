@@ -99,7 +99,7 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
   const encodeStoredShellSnapshot = makeStoredShellSnapshotEncoder();
   const encodeStoredThreadSnapshot = makeStoredThreadSnapshotEncoder({ format: "compact" });
   const threadWriteOrder = makeThreadCacheWriteOrder();
-  return Persistence.EnvironmentCacheStore.of({
+  return yield* Persistence.shareServerConfigReads({
     loadShell: Effect.fn("MobileEnvironmentCache.loadShell")((environmentId) =>
       loadDecodedCache({
         database,

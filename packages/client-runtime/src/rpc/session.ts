@@ -15,6 +15,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
@@ -46,6 +47,8 @@ import {
   withoutEnvironmentThemes,
 } from "../state/serverConfigProjection.ts";
 import { environmentMismatchError } from "../connection/errors.ts";
+import * as Persistence from "../platform/persistence.ts";
+import { providerCatalogRevision } from "@t3tools/shared/reconnectSnapshots";
 
 const SOCKET_OPEN_TIMEOUT = "15 seconds";
 
@@ -184,11 +187,27 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     workspaceSnapshotsOnDemand: true,
   });
 
+  // Catalogs the server last sent each environment, so a reconnect can ask it to skip them.
+  const lastConfigs = new Map<PreparedConnection["environmentId"], ServerConfig>();
+  const configStore = yield* Effect.serviceOption(Persistence.EnvironmentCacheStore);
+
   const connect = Effect.fnUntraced(function* (connection: PreparedConnection) {
     const via = connection.target._tag === "RelayConnectionTarget" ? "relay" : "direct";
     const networkHint = via === "relay" ? ` ${NETWORK_BLOCKING_HINT}` : "";
     const mapRpcError = (error: Parameters<typeof mapSessionRpcError>[0]) =>
       mapSessionRpcError(error, networkHint, via);
+    const diskConfig =
+      !lastConfigs.has(connection.environmentId) && Option.isSome(configStore)
+        ? yield* configStore.value.loadServerConfig(connection.environmentId).pipe(
+            Effect.map(
+              Option.filter(
+                (config) => config.environment.environmentId === connection.environmentId,
+              ),
+            ),
+            Effect.orElseSucceed(() => Option.none<ServerConfig>()),
+            Effect.forkScoped,
+          )
+        : undefined;
     yield* Effect.annotateCurrentSpan({
       "connection.environment.id": connection.environmentId,
     });
@@ -282,6 +301,12 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       Effect.forkScoped,
     );
     const protocolClient = yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));
+    const memoryConfig = Option.fromUndefinedOr(lastConfigs.get(connection.environmentId));
+    const cachedProviders = Option.getOrUndefined(
+      Option.isSome(memoryConfig) || diskConfig === undefined
+        ? memoryConfig
+        : yield* Fiber.join(diskConfig),
+    )?.providers;
     const initialConfigDeferred = yield* Deferred.make<ServerConfig>();
     const serverConfigExit = yield* Deferred.make<void, ServerConfigSubscriptionError>();
     const configSubscriptionClosed = yield* Deferred.make<never, ConnectionAttemptError>();
@@ -291,15 +316,26 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       reason: "remote-unavailable",
       detail: `${connection.label} config subscription ended.`,
     });
-    const serverConfigSource = protocolClient[WS_METHODS.subscribeServerConfig](
-      onDemandSnapshots(serverConfigInput),
-    ).pipe(
+    const serverConfigSource = protocolClient[WS_METHODS.subscribeServerConfig]({
+      ...onDemandSnapshots(serverConfigInput),
+      ...(cachedProviders === undefined
+        ? {}
+        : {
+            providerCatalogRevisions: Object.fromEntries(
+              cachedProviders.map((provider) => [
+                provider.instanceId,
+                providerCatalogRevision(provider),
+              ]),
+            ),
+          }),
+    }).pipe(
       Stream.runForEach((event) =>
         Effect.gen(function* () {
           const buffered = yield* Ref.modify(serverConfigState, (current) => {
             const projection = applyServerConfigProjection(
               Option.map(current, (state) => state.projection),
               event,
+              cachedProviders,
             );
             if (Option.isNone(projection)) {
               return [Option.none<BufferedServerConfigEvent>(), current] as const;
@@ -320,15 +356,43 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
                   : Option.getOrUndefined(current)?.sourcesEvent,
             } satisfies ServerConfigReplayState;
             return [
-              Option.some({ event, replay: next, revision: next.revision }),
+              Option.some({
+                // Subscribers see the catalogs this session restored, never the omission.
+                event:
+                  event.type === "snapshot" && event.cachedProviderCatalogs !== undefined
+                    ? {
+                        version: 1 as const,
+                        type: "snapshot" as const,
+                        config: { ...event.config, providers: projection.value.config.providers },
+                      }
+                    : event,
+                replay: next,
+                revision: next.revision,
+              }),
               Option.some(next),
             ] as const;
           });
           if (Option.isSome(buffered)) {
+            const config = buffered.value.replay.projection.config;
+            if (config.environment.environmentId === connection.environmentId) {
+              lastConfigs.set(connection.environmentId, config);
+            }
             yield* PubSub.publish(serverConfigUpdates, buffered.value);
           }
           if (event.type === "snapshot") {
-            yield* Deferred.succeed(initialConfigDeferred, event.config);
+            if (Option.isNone(buffered)) {
+              return yield* new RpcClientError.RpcClientError({
+                reason: new RpcClientError.RpcClientDefect({
+                  message:
+                    "The server configuration could not restore its cached provider catalogs.",
+                  cause: undefined,
+                }),
+              });
+            }
+            yield* Deferred.succeed(initialConfigDeferred, {
+              ...event.config,
+              providers: buffered.value.replay.projection.config.providers,
+            });
           }
         }),
       ),

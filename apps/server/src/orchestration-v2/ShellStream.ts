@@ -33,6 +33,7 @@ import * as Stream from "effect/Stream";
 
 import { bufferLatestLiveStream } from "./LiveStreamBudget.ts";
 import type { ActiveShellIndexEntry } from "./ProjectionStore.ts";
+import { projectSnapshotRevision } from "@t3tools/shared/reconnectSnapshots";
 
 type ShellDelta = Extract<OrchestrationV2ShellStreamItem, { readonly sequence: number }>;
 
@@ -619,7 +620,15 @@ export function shellStreamItemsFromInitialSnapshot(input: {
 export function shellStreamItemsFromResumeSnapshot(input: {
   readonly snapshot: OrchestrationV2ShellSnapshot;
   readonly resolvedRepositoryIdentityRoots: ReadonlyArray<string>;
+  /** The client's hash of its projects; a match means the enrichment frame would change nothing. */
+  readonly projectsRevision?: string | undefined;
 }): ReadonlyArray<Extract<OrchestrationV2ShellStreamItem, { readonly kind: "snapshot" }>> {
+  if (
+    input.projectsRevision !== undefined &&
+    input.projectsRevision === projectSnapshotRevision(input.snapshot.projects)
+  ) {
+    return [];
+  }
   return shellStreamItemsFromInitialSnapshot(input).filter(
     (item) => item.resolvedRepositoryIdentityRoots !== undefined,
   );

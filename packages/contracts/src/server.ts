@@ -730,6 +730,8 @@ export const ServerConfigStreamSnapshotEvent = Schema.Struct({
   version: Schema.Literal(1),
   type: Schema.Literal("snapshot"),
   config: ServerConfig,
+  /** Clients restore these catalogs from their matching local revisions. */
+  cachedProviderCatalogs: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
 });
 export type ServerConfigStreamSnapshotEvent = typeof ServerConfigStreamSnapshotEvent.Type;
 
