@@ -90,14 +90,9 @@ const fingerprintShell = (snapshot: OrchestrationV2ShellSnapshot) =>
 export const make = Effect.gen(function* () {
   const database = yield* MobileDatabase.MobileDatabase;
   const uploadLock = yield* Semaphore.make(1);
-  const savedMode = yield* database.loadCache(storageEnvironment, "reconnect-comparison", "mode");
-  const storedInstall = yield* database.loadCache(
-    storageEnvironment,
-    "reconnect-comparison",
-    "install",
-  );
-  const installId = Option.getOrElse(storedInstall, randomUUID);
-  yield* database.saveCache(storageEnvironment, "reconnect-comparison", "install", 2, installId);
+  const savedMode = yield* database
+    .loadCache(storageEnvironment, "reconnect-comparison", "mode")
+    .pipe(Effect.orElseSucceed(() => Option.none<string>()));
   let preferred: ReconnectComparisonMode =
     Option.getOrNull(savedMode) === "proposed" ? "proposed" : "baseline";
   let status: Status = {
@@ -187,16 +182,17 @@ export const make = Effect.gen(function* () {
         const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
         yield* supervisor.disconnect;
         yield* waitDisconnected(supervisor);
-        yield* database.saveCache(
-          storageEnvironment,
-          "reconnect-comparison",
-          "mode",
-          2,
-          input.mode,
-        );
-        preferred = input.mode;
-        update({ mode: preferred });
-        yield* supervisor.connect;
+        yield* Effect.gen(function* () {
+          yield* database.saveCache(
+            storageEnvironment,
+            "reconnect-comparison",
+            "mode",
+            2,
+            input.mode,
+          );
+          preferred = input.mode;
+          update({ mode: preferred });
+        }).pipe(Effect.ensuring(supervisor.connect));
       }),
     );
   });
@@ -205,6 +201,13 @@ export const make = Effect.gen(function* () {
     registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
   ) {
     if (status.running) return;
+    const storedInstall = yield* database.loadCache(
+      storageEnvironment,
+      "reconnect-comparison",
+      "install",
+    );
+    const installId = Option.getOrElse(storedInstall, randomUUID);
+    yield* database.saveCache(storageEnvironment, "reconnect-comparison", "install", 2, installId);
     const plan: ReconnectComparisonPlan = {
       kind: "plan",
       version: 2,
