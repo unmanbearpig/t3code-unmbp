@@ -31,6 +31,88 @@ import { make, ROUNDS } from "./reconnect-comparison";
 
 const decoder = Schema.decodeUnknownSync(Schema.fromJsonString(ReconnectComparisonRecord));
 
+it.effect("starts in baseline when diagnostics storage is unavailable", () =>
+  Effect.gen(function* () {
+    let writes = 0;
+    const service = yield* make.pipe(
+      Effect.provide(
+        Layer.mock(Database.MobileDatabase)({
+          loadCache: () =>
+            Effect.fail(
+              new Database.MobileDatabaseError({ operation: "load-cache", cause: "offline" }),
+            ),
+          saveCache: () =>
+            Effect.sync(() => {
+              writes++;
+            }),
+        }),
+      ),
+    );
+    expect(service.read().mode).toBe("baseline");
+    expect(writes).toBe(0);
+  }),
+);
+
+it.effect("reconnects in the previous mode when saving a mode fails", () =>
+  Effect.gen(function* () {
+    const service = yield* make.pipe(
+      Effect.provide(
+        Layer.mock(Database.MobileDatabase)({
+          loadCache: () => Effect.succeedNone,
+          saveCache: (_env, _kind, key) =>
+            key === "mode"
+              ? Effect.fail(
+                  new Database.MobileDatabaseError({ operation: "save-cache", cause: "full" }),
+                )
+              : Effect.void,
+        }),
+      ),
+    );
+    const id = EnvironmentId.make("fixture");
+    const state = yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE);
+    let reconnects = 0;
+    const supervisor = yield* Effect.service(EnvironmentSupervisor.EnvironmentSupervisor).pipe(
+      Effect.provide(
+        Layer.mock(EnvironmentSupervisor.EnvironmentSupervisor)({
+          target: new PrimaryConnectionTarget({
+            environmentId: id,
+            label: "Fixture",
+            httpBaseUrl: "https://fixture.invalid",
+            wsBaseUrl: "wss://fixture.invalid",
+          }),
+          state,
+          session: yield* SubscriptionRef.make(Option.none<RpcSession>()),
+          prepared: yield* SubscriptionRef.make(Option.none<PreparedConnection>()),
+          disconnect: SubscriptionRef.set(state, AVAILABLE_CONNECTION_STATE),
+          connect: Effect.sync(() => {
+            reconnects++;
+          }),
+        }),
+      ),
+    );
+    const registry = yield* Effect.service(EnvironmentRegistry.EnvironmentRegistry).pipe(
+      Effect.provide(
+        Layer.mock(EnvironmentRegistry.EnvironmentRegistry)({
+          entries: yield* SubscriptionRef.make<ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>>(
+            new Map(),
+          ),
+          networkStatus: yield* SubscriptionRef.make<"online" | "offline" | "unknown">("online"),
+          run: (_id, effect) =>
+            effect.pipe(
+              Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+            ),
+        }),
+      ),
+    );
+    const result = yield* service
+      .choose({ environmentId: id, mode: "proposed" }, registry)
+      .pipe(Effect.exit);
+    expect(result._tag).toBe("Failure");
+    expect(service.control.mode(id)).toBe("baseline");
+    expect(reconnects).toBe(1);
+  }),
+);
+
 vi.mock("react-native", () => ({
   AppState: { currentState: "active", addEventListener: () => ({ remove() {} }) },
 }));
