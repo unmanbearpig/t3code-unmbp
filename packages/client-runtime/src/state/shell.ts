@@ -688,8 +688,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           ...(omitOlderSettled ? { omitOlderSettled: true as const } : {}),
         };
         if (Option.isNone(current.snapshot) || !(resumingHeldRows || loaded?.kind === "snapshot")) {
+          session.comparison?.shellRequest(false);
           return { ...omission, requestCompletionMarker: true as const };
         }
+        session.comparison?.shellRequest(session.snapshotReuse !== false);
         return {
           afterSequence: current.snapshot.value.snapshotSequence,
           // Only rows the client already held may be refused; a cursor from the snapshot just
