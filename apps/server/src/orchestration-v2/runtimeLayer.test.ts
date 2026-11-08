@@ -1,3 +1,5 @@
+import * as SecretResolver from "@t3tools/secret-provider-core/server/SecretResolver";
+import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import { PullRequestProviderError } from "@t3tools/source-control-core/server/PullRequestProvider";
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import { limitRecoveryCommand } from "./UsageLimitRecoveryWorker.ts";
@@ -9088,6 +9090,12 @@ const layerProductionBrowserAccessTest = RuntimeLayer.layerProduction.pipe(
   Layer.provide(layerGitWorkflowTest),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
   Layer.provide(ManagedPolicy.layerTest()),
+  Layer.provide(Layer.mock(SecretResolver.SecretResolver)({})),
+  Layer.provide(
+    Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({
+      refreshStatus: () => Effect.die("unused"),
+    }),
+  ),
   Layer.provide(layerPlatformTest),
 );
 

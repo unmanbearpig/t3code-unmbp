@@ -741,61 +741,55 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             icon: "working" as const,
             className: "text-info-foreground",
           }
-        : status === "working"
+        : status === "waiting"
           ? {
-              label: thread.goal?.status === "active" ? "Goal" : "Working",
-              icon: "working" as const,
-              className: "text-info",
+              label: "Waiting",
+              icon: "waiting" as const,
+              className: "text-muted-foreground",
             }
-          : status === "waiting"
+          : status === "approval"
             ? {
-                label: "Waiting",
-                icon: "waiting" as const,
-                className: "text-muted-foreground",
+                label: "Approval",
+                icon: "approval" as const,
+                className: "text-warning-foreground",
               }
-            : status === "approval"
+            : status === "request"
               ? {
-                  label: "Approval",
-                  icon: "approval" as const,
-                  className: "text-warning-foreground",
+                  label: "Request",
+                  icon: "request" as const,
+                  className: "text-guest-foreground",
                 }
-              : status === "request"
+              : status === "input"
                 ? {
-                    label: "Request",
-                    icon: "request" as const,
-                    className: "text-guest-foreground",
+                    label: "Input",
+                    icon: "input" as const,
+                    className: "text-indigo-600 dark:text-indigo-300",
                   }
-                : status === "input"
+                : status === "limited"
                   ? {
-                      label: "Input",
-                      icon: "input" as const,
-                      className: "text-indigo-600 dark:text-indigo-300",
+                      label: "Limited",
+                      icon: "failed" as const,
+                      className: "text-warning-foreground",
                     }
-                  : status === "limited"
+                  : status === "failed"
                     ? {
-                        label: "Limited",
+                        label: "Failed",
                         icon: "failed" as const,
-                        className: "text-warning-foreground",
+                        className: "text-error-foreground",
                       }
-                    : status === "failed"
+                    : isWoke
                       ? {
-                          label: "Failed",
-                          icon: "failed" as const,
-                          className: "text-error-foreground",
+                          label: "Woke",
+                          icon: "woke" as const,
+                          className: "text-warning-foreground",
                         }
-                      : isWoke
+                      : isUnread
                         ? {
-                            label: "Woke",
-                            icon: "woke" as const,
-                            className: "text-warning-foreground",
+                            label: "Done",
+                            icon: "done" as const,
+                            className: "text-success-foreground",
                           }
-                        : isUnread
-                          ? {
-                              label: "Done",
-                              icon: "done" as const,
-                              className: "text-success-foreground",
-                            }
-                          : null;
+                        : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({

@@ -1,3 +1,4 @@
+import { projectSnapshotRevision } from "@t3tools/shared/reconnectSnapshots";
 import {
   EnvironmentId,
   ORCHESTRATION_V2_WS_METHODS,
@@ -817,127 +818,145 @@ describe("environment shell synchronization", () => {
     }),
   );
 
-  it.effect("opts in to shell omissions and counts authoritative snapshots and removals", () =>
-    Effect.gen(function* () {
-      const events = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
-      const subscribeInputs = yield* Queue.unbounded<unknown>();
-      const loadOptions = yield* Ref.make<ReadonlyArray<unknown>>([]);
-      const client = {
-        [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input: unknown) =>
-          Stream.unwrap(
-            Queue.offer(subscribeInputs, input).pipe(Effect.as(Stream.fromQueue(events))),
-          ),
-      } as unknown as WsRpcProtocolClient;
-      const familySession: RpcSession.RpcSession = {
-        ...session(client),
-        initialConfig: Effect.succeed({
-          shellResumeCompletionMarker: true,
-          shellThreadFamilies: true,
-          shellOlderSettled: true,
-          environment: { serverVersion: "1.0.0", databaseMigration: 70 },
-        } as never),
-      };
-      const activeSession = yield* SubscriptionRef.make(Option.some(familySession));
-      const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
-        target: TARGET,
-        state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
-        session: activeSession,
-        prepared: yield* SubscriptionRef.make(Option.some(PREPARED)),
-        connect: Effect.void,
-        disconnect: Effect.void,
-        retryNow: Effect.void,
-      } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
-      const cache = Persistence.EnvironmentCacheStore.of({
-        loadShell: () => Effect.succeedNone,
-        saveShell: () => Effect.void,
-        loadThread: () => Effect.succeedNone,
-        saveThread: () => Effect.void,
-        removeThread: () => Effect.void,
-        loadServerConfig: () => Effect.succeedNone,
-        saveServerConfig: () => Effect.void,
-        loadVcsRefs: () => Effect.succeedNone,
-        saveVcsRefs: () => Effect.void,
-        removeVcsRefs: () => Effect.void,
-        clearVcsRefs: () => Effect.void,
-        clear: () => Effect.void,
-      });
-      const snapshotLoader = ShellSnapshotLoader.ShellSnapshotLoader.of({
-        load: (_prepared, options) =>
-          Ref.update(loadOptions, (all) => [...all, options]).pipe(
-            Effect.as(Option.some(LIVE_SHELL_SNAPSHOT)),
-          ),
-      });
-      const shellState = yield* makeEnvironmentShellState().pipe(
-        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
-        Effect.provideService(Persistence.EnvironmentCacheStore, cache),
-        Effect.provideService(ShellSnapshotLoader.ShellSnapshotLoader, snapshotLoader),
-      );
-      const stateWhere = (predicate: (state: EnvironmentShellState) => boolean) =>
-        SubscriptionRef.changes(shellState).pipe(Stream.filter(predicate), Stream.runHead);
+  it.effect.each([false, true])(
+    "keeps shell omissions and completion behavior with snapshot reuse %s",
+    (snapshotReuse) =>
+      Effect.gen(function* () {
+        const events = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
+        const completed = yield* Queue.unbounded<OrchestrationV2ShellSnapshot>();
+        const subscribeInputs = yield* Queue.unbounded<unknown>();
+        const loadOptions = yield* Ref.make<ReadonlyArray<unknown>>([]);
+        const client = {
+          [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input: unknown) =>
+            Stream.unwrap(
+              Queue.offer(subscribeInputs, input).pipe(Effect.as(Stream.fromQueue(events))),
+            ),
+        } as unknown as WsRpcProtocolClient;
+        const familySession: RpcSession.RpcSession = {
+          ...session(client),
+          snapshotReuse,
+          comparison: {
+            sent: () => {},
+            received: () => {},
+            config: () => {},
+            synchronized: (snapshot) => Queue.offer(completed, snapshot).pipe(Effect.asVoid),
+          },
+          initialConfig: Effect.succeed({
+            shellResumeCompletionMarker: true,
+            shellThreadFamilies: true,
+            shellOlderSettled: true,
+            environment: { serverVersion: "1.0.0", databaseMigration: 70 },
+          } as never),
+        };
+        const activeSession = yield* SubscriptionRef.make(Option.some(familySession));
+        const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+          target: TARGET,
+          state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
+          session: activeSession,
+          prepared: yield* SubscriptionRef.make(Option.some(PREPARED)),
+          connect: Effect.void,
+          disconnect: Effect.void,
+          retryNow: Effect.void,
+        } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
+        const cache = Persistence.EnvironmentCacheStore.of({
+          loadShell: () => Effect.succeedNone,
+          saveShell: () => Effect.void,
+          loadThread: () => Effect.succeedNone,
+          saveThread: () => Effect.void,
+          removeThread: () => Effect.void,
+          loadServerConfig: () => Effect.succeedNone,
+          saveServerConfig: () => Effect.void,
+          loadVcsRefs: () => Effect.succeedNone,
+          saveVcsRefs: () => Effect.void,
+          removeVcsRefs: () => Effect.void,
+          clearVcsRefs: () => Effect.void,
+          clear: () => Effect.void,
+        });
+        const snapshotLoader = ShellSnapshotLoader.ShellSnapshotLoader.of({
+          load: (_prepared, options) =>
+            Ref.update(loadOptions, (all) => [...all, options]).pipe(
+              Effect.as(Option.some(LIVE_SHELL_SNAPSHOT)),
+            ),
+        });
+        const shellState = yield* makeEnvironmentShellState().pipe(
+          Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+          Effect.provideService(Persistence.EnvironmentCacheStore, cache),
+          Effect.provideService(ShellSnapshotLoader.ShellSnapshotLoader, snapshotLoader),
+        );
+        const stateWhere = (predicate: (state: EnvironmentShellState) => boolean) =>
+          SubscriptionRef.changes(shellState).pipe(Stream.filter(predicate), Stream.runHead);
 
-      // Both transports must omit, or omitted children would come back through the socket.
-      expect(yield* Queue.take(subscribeInputs)).toMatchObject({
-        afterSequence: 1,
-        omitIdleSubagents: true,
-        omitOlderSettled: true,
-      });
-      expect(yield* Ref.get(loadOptions)).toEqual([
-        { omitIdleSubagents: true, omitOlderSettled: true },
-      ]);
-      const loaded = Option.getOrThrow(yield* stateWhere((state) => state.generation > 0));
-      expect(loaded.removedAt.size).toBe(0);
+        // Both transports must omit, or omitted children would come back through the socket.
+        expect(yield* Queue.take(subscribeInputs)).toEqual({
+          requestCompletionMarker: true,
+          ...(snapshotReuse
+            ? { projectsRevision: projectSnapshotRevision(LIVE_SHELL_SNAPSHOT.projects) }
+            : {}),
+          afterSequence: 1,
+          omitIdleSubagents: true,
+          omitOlderSettled: true,
+        });
+        expect(yield* Ref.get(loadOptions)).toEqual([
+          { omitIdleSubagents: true, omitOlderSettled: true },
+        ]);
+        const loaded = Option.getOrThrow(yield* stateWhere((state) => state.generation > 0));
+        expect(loaded.removedAt.size).toBe(0);
 
-      const gone = ThreadId.make("thread-gone");
-      yield* Queue.offer(events, {
-        kind: "snapshot",
-        snapshot: { ...LIVE_SHELL_SNAPSHOT, threads: [] },
-        resolvedRepositoryIdentityRoots: [],
-      });
-      yield* Queue.offer(events, {
-        kind: "thread.removed",
-        sequence: 2,
-        location: "active",
-        threadId: gone,
-      });
-      const removed = Option.getOrThrow(yield* stateWhere((state) => state.removedAt.size > 0));
-      // An enrichment refresh is not authoritative.
-      expect(removed.generation).toBe(loaded.generation);
-      expect(removed.removedAt.get(gone)).toBe(2);
+        const gone = ThreadId.make("thread-gone");
+        yield* Queue.offer(events, {
+          kind: "snapshot",
+          snapshot: { ...LIVE_SHELL_SNAPSHOT, threads: [] },
+          resolvedRepositoryIdentityRoots: [],
+        });
+        yield* Queue.offer(events, {
+          kind: "thread.removed",
+          sequence: 2,
+          location: "active",
+          threadId: gone,
+        });
+        const removed = Option.getOrThrow(yield* stateWhere((state) => state.removedAt.size > 0));
+        // An enrichment refresh is not authoritative.
+        expect(removed.generation).toBe(loaded.generation);
+        expect(removed.removedAt.get(gone)).toBe(2);
 
-      yield* Queue.offer(events, {
-        kind: "snapshot",
-        snapshot: { ...LIVE_SHELL_SNAPSHOT, snapshotSequence: 5 },
-      });
-      const reset = Option.getOrThrow(
-        yield* stateWhere((state) => state.generation > loaded.generation),
-      );
-      expect(reset.removedAt.size).toBe(0);
+        yield* Queue.offer(events, {
+          kind: "snapshot",
+          snapshot: { ...LIVE_SHELL_SNAPSHOT, snapshotSequence: 5 },
+        });
+        const reset = Option.getOrThrow(
+          yield* stateWhere((state) => state.generation > loaded.generation),
+        );
+        expect(reset.removedAt.size).toBe(0);
+        expect(yield* Queue.size(completed)).toBe(0);
+        yield* Queue.offer(events, { kind: "synchronized" });
+        expect((yield* Queue.take(completed)).snapshotSequence).toBe(5);
+        expect((yield* SubscriptionRef.get(shellState)).status).toBe("live");
 
-      // A reconnect resumes the server-loaded shell from its cursor, with no second HTTP load.
-      yield* SubscriptionRef.set(activeSession, Option.some({ ...familySession }));
-      expect(yield* Queue.take(subscribeInputs)).toMatchObject({
-        afterSequence: 5,
-        omitIdleSubagents: true,
-        omitOlderSettled: true,
-      });
-      expect(yield* Ref.get(loadOptions)).toHaveLength(1);
+        // A reconnect resumes the server-loaded shell from its cursor, with no second HTTP load.
+        yield* SubscriptionRef.set(activeSession, Option.some({ ...familySession }));
+        expect(yield* Queue.take(subscribeInputs)).toMatchObject({
+          afterSequence: 5,
+          omitIdleSubagents: true,
+          omitOlderSettled: true,
+        });
+        expect(yield* Ref.get(loadOptions)).toHaveLength(1);
 
-      // A migrated server may have rewritten rows without events, so it reloads.
-      yield* SubscriptionRef.set(
-        activeSession,
-        Option.some({
-          ...familySession,
-          initialConfig: familySession.initialConfig.pipe(
-            Effect.map((config) => ({
-              ...config,
-              environment: { ...config.environment, databaseMigration: 71 },
-            })),
-          ),
-        }),
-      );
-      yield* Queue.take(subscribeInputs);
-      expect(yield* Ref.get(loadOptions)).toHaveLength(2);
-    }),
+        // A migrated server may have rewritten rows without events, so it reloads.
+        yield* SubscriptionRef.set(
+          activeSession,
+          Option.some({
+            ...familySession,
+            initialConfig: familySession.initialConfig.pipe(
+              Effect.map((config) => ({
+                ...config,
+                environment: { ...config.environment, databaseMigration: 71 },
+              })),
+            ),
+          }),
+        );
+        yield* Queue.take(subscribeInputs);
+        expect(yield* Ref.get(loadOptions)).toHaveLength(2);
+      }),
   );
 
   it.effect("fills deferred cached pull request links without overwriting newer rows", () =>

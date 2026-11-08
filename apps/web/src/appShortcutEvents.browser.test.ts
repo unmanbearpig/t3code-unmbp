@@ -1,5 +1,4 @@
-// @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 import { compileResolvedKeybindingsConfig } from "@t3tools/shared/keybindings";
 import {
   addAppShortcutListener,
@@ -9,14 +8,22 @@ import {
 } from "./appShortcutEvents";
 import { resolveShortcutCommand } from "./keybindings";
 
-const cleanups: Array<() => void> = [];
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0)) cleanup();
-});
+function setup() {
+  const cleanups: Array<() => void> = [];
+  return {
+    cleanups,
+    [Symbol.dispose]() {
+      for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+    },
+  };
+}
 const stroke = () => new KeyboardEvent("keydown", { key: "1", code: "Digit1", cancelable: true });
 
 describe("app command routing", () => {
   it("gives a contextual picker priority and stops before thread navigation", () => {
+    using fixture = setup();
+    const { cleanups } = fixture;
+
     const bindings = compileResolvedKeybindingsConfig([
       { key: "leader+1", command: "thread.jump.1" },
     ]);
@@ -55,6 +62,9 @@ describe("app command routing", () => {
     expect(isLeaderShortcutEvent(event)).toBe(false);
   });
   it("lets Settings record a shortcut before global commands claim it", () => {
+    using fixture = setup();
+    const { cleanups } = fixture;
+
     const input = document.createElement("input");
     input.dataset.keybindingCapture = "";
     document.body.append(input);
@@ -77,6 +87,9 @@ describe("app command routing", () => {
     expect(actions).toEqual(["recorder"]);
   });
   it("does not turn ordinary typing into a leader or physical shortcut", () => {
+    using fixture = setup();
+    const { cleanups } = fixture;
+
     const bindings = compileResolvedKeybindingsConfig([
       { key: "leader+1", command: "thread.jump.1" },
       { key: "ctrl+1", command: "thread.jump.2" },

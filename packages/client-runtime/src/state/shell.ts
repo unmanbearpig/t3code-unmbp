@@ -474,7 +474,9 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         }
         return {
           afterSequence: current.snapshot.value.snapshotSequence,
-          projectsRevision: projectSnapshotRevision(current.snapshot.value.projects),
+          ...(session.snapshotReuse === false
+            ? {}
+            : { projectsRevision: projectSnapshotRevision(current.snapshot.value.projects) }),
           ...omission,
           requestCompletionMarker: true as const,
         };
@@ -488,7 +490,25 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       Stream.runForEachArray((entries) =>
         Effect.forEach(
           groupBySession(entries),
-          ([session, items]) => applyItems(items, sessionOmissions.get(session) ?? null),
+          ([session, items]) =>
+            applyItems(items, sessionOmissions.get(session) ?? null).pipe(
+              Effect.andThen(
+                Effect.gen(function* () {
+                  if (!session.comparison || !items.some((item) => item.kind === "synchronized"))
+                    return;
+                  const current = yield* SubscriptionRef.get(state);
+                  const active = yield* SubscriptionRef.get(supervisor.session);
+                  if (
+                    Option.isSome(active) &&
+                    active.value === session &&
+                    current.status === "live" &&
+                    Option.isSome(current.snapshot)
+                  ) {
+                    yield* session.comparison.synchronized(current.snapshot.value);
+                  }
+                }),
+              ),
+            ),
           { discard: true },
         ),
       ),

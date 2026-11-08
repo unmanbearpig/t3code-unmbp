@@ -1,3 +1,4 @@
+// @effect-diagnostics processEnvInEffect:off - This locale fixture mutates the child-process environment and restores it after the test.
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";

@@ -776,12 +776,12 @@ describe("ClaudeAdapterV2 context usage", () => {
     const writtenAt = "2026-08-29T00:00:00.000Z";
     const write = ClaudeAdapterV2.claudeProviderTurnTokenUsage(
       { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 100 },
-      CLAUDE_TEST_MODEL_SELECTION,
+      200_000,
       writtenAt,
     );
     const read = ClaudeAdapterV2.claudeProviderTurnTokenUsage(
       { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 100 },
-      CLAUDE_TEST_MODEL_SELECTION,
+      200_000,
       "2026-08-29T00:01:00.000Z",
       "",
       undefined,
@@ -791,7 +791,7 @@ describe("ClaudeAdapterV2 context usage", () => {
     assert.strictEqual(
       ClaudeAdapterV2.claudeProviderTurnTokenUsage(
         { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 100 },
-        CLAUDE_TEST_MODEL_SELECTION,
+        200_000,
         writtenAt,
       ).lastCacheWriteAt,
       undefined,

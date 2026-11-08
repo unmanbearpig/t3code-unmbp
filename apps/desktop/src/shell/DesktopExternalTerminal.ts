@@ -1,3 +1,4 @@
+import * as Schema from "effect/Schema";
 import {
   EXTERNAL_TERMINALS,
   ExternalTerminalLaunchError,
@@ -28,6 +29,11 @@ export class DesktopExternalTerminal extends Context.Service<
   }
 >()("@t3tools/desktop/shell/DesktopExternalTerminal") {}
 
+class TerminalAddressError extends Schema.TaggedError<TerminalAddressError>()(
+  "TerminalAddressError",
+  { cause: Schema.Defect() },
+) {}
+
 const normalizeAddress = (address: string) => address.replace(/^::ffff:/, "");
 
 /** @public */
@@ -47,7 +53,10 @@ export const make = Effect.gen(function* () {
       return yield* Effect.raceAll(
         [...new Set(target.candidateUrls)].map((candidateUrl) =>
           Effect.gen(function* () {
-            const url = yield* Effect.try({ try: () => new URL(candidateUrl), catch: (cause) => cause });
+            const url = yield* Effect.try({
+              try: () => new URL(candidateUrl),
+              catch: (cause) => new TerminalAddressError({ cause }),
+            });
             if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
               return false;
             }
@@ -56,7 +65,7 @@ export const make = Effect.gen(function* () {
               ? [hostname]
               : yield* Effect.tryPromise({
                   try: () => NodeDns.promises.lookup(hostname, { all: true }),
-                  catch: (cause) => cause,
+                  catch: (cause) => new TerminalAddressError({ cause }),
                 }).pipe(Effect.map((entries) => entries.map((entry) => entry.address)));
             if (
               resolved.length === 0 ||

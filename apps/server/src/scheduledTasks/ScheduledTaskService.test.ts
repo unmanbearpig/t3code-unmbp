@@ -1,4 +1,4 @@
-import { RunId } from "@t3tools/contracts";
+import { RunId, ScheduledTaskUpsertInput } from "@t3tools/contracts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as NodeUtil from "node:util";
 
@@ -9,7 +9,6 @@ import {
   ProviderInstanceId,
   ScheduledTaskError,
   ScheduledTaskId,
-  type ScheduledTaskUpsertInput,
   SecretRef,
   ThreadId,
 } from "@t3tools/contracts";
