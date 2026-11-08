@@ -101,7 +101,6 @@ describe("resolveThreadListV2SwipeActions", () => {
     expect(
       resolveThreadListV2SwipeActions({
         variant: "card",
-        canOperate: true,
         settlementSupported: true,
         snoozeSupported: true,
         snoozable: true,
@@ -119,7 +118,6 @@ describe("resolveThreadListV2SwipeActions", () => {
         settlementSupported: true,
         snoozeSupported: true,
         snoozable: true,
-        canOperate: true,
         environmentConnected: false,
       }),
     ).toEqual({ primary: "reconnect", secondary: null });

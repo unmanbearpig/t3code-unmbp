@@ -1551,6 +1551,7 @@ NodeReadline.createInterface({ input: process.stdin }).on("line", (line) => {
             .pipe(Effect.tap((handle) => Effect.sync(() => handles.push(handle)))),
         );
         const layerFactory = CodexAdapterV2.layerAppServerClientFactory.pipe(
+          Layer.provide(Layer.mock(PortScanner.PortDiscovery)({ trackAgent: () => () => {} })),
           Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, testSpawner)),
           Layer.provide(
             Layer.succeed(
@@ -1577,6 +1578,7 @@ NodeReadline.createInterface({ input: process.stdin }).on("line", (line) => {
           Layer.provide(
             Layer.mergeAll(
               layerFactory,
+              Layer.mock(PortScanner.PortDiscovery)({ trackAgent: () => () => {} }),
               IdAllocator.layer,
               ServerConfig.layerTest(cwd, { prefix: "t3-codex-session-recovery-config-" }),
             ).pipe(Layer.provideMerge(Layer.merge(NodeServices.layer, NodeCrypto.layer))),

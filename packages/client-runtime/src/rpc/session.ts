@@ -1,3 +1,4 @@
+import { ReconnectComparison, type SessionObservation } from "../connection/reconnectComparison.ts";
 import {
   type ServerConfig,
   type ServerConfigStreamEvent,
@@ -55,6 +56,8 @@ import { providerCatalogRevision } from "@t3tools/shared/reconnectSnapshots";
 const SOCKET_OPEN_TIMEOUT = "15 seconds";
 
 export interface RpcSession {
+  readonly snapshotReuse?: boolean;
+  readonly comparison?: SessionObservation;
   readonly client: WsRpcProtocolClient;
   readonly initialConfig: Effect.Effect<ServerConfig, ConnectionAttemptError>;
   readonly subscribeServerConfig: (
@@ -179,6 +182,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
   options: RpcSessionOptions = {},
 ) {
   const webSocketConstructor = yield* Socket.WebSocketConstructor;
+  const comparison = yield* ReconnectComparison;
   const serverConfigInput: ServerConfigSubscriptionInput = {
     ...(options.environmentThemes === true ? { environmentThemes: true } : {}),
     ...(options.usageLimitSources === true ? { usageLimitSources: true } : {}),
@@ -198,12 +202,17 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
   const configStore = yield* Effect.serviceOption(Persistence.EnvironmentCacheStore);
 
   const connect = Effect.fnUntraced(function* (connection: PreparedConnection) {
+    const snapshotReuse = comparison?.mode(connection.environmentId) !== "baseline";
+    const observation = comparison?.observe(
+      connection.environmentId,
+      new URL(connection.httpBaseUrl).origin,
+    );
     const via = connection.target._tag === "RelayConnectionTarget" ? "relay" : "direct";
     const networkHint = via === "relay" ? ` ${NETWORK_BLOCKING_HINT}` : "";
     const mapRpcError = (error: Parameters<typeof mapSessionRpcError>[0]) =>
       mapSessionRpcError(error, networkHint, via);
     const diskConfig =
-      !lastConfigs.has(connection.environmentId) && Option.isSome(configStore)
+      snapshotReuse && !lastConfigs.has(connection.environmentId) && Option.isSome(configStore)
         ? yield* configStore.value.loadServerConfig(connection.environmentId).pipe(
             Effect.map(
               Option.filter(
@@ -249,8 +258,15 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     let inboundFrames = 0;
     const countingWebSocketConstructor: typeof webSocketConstructor = (url, options) => {
       const socket = webSocketConstructor(url, options);
-      socket.addEventListener("message", () => {
+      const send = socket.send.bind(socket);
+      if (observation)
+        socket.send = (data) => {
+          observation.sent(data);
+          return send(data);
+        };
+      socket.addEventListener("message", (event) => {
         inboundFrames += 1;
+        observation?.received(event.data);
       });
       return socket;
     };
@@ -308,11 +324,13 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     );
     const protocolClient = yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));
     const memoryConfig = Option.fromUndefinedOr(lastConfigs.get(connection.environmentId));
-    const cachedProviders = Option.getOrUndefined(
-      Option.isSome(memoryConfig) || diskConfig === undefined
-        ? memoryConfig
-        : yield* Fiber.join(diskConfig),
-    )?.providers;
+    const cachedProviders = !snapshotReuse
+      ? undefined
+      : Option.getOrUndefined(
+          Option.isSome(memoryConfig) || diskConfig === undefined
+            ? memoryConfig
+            : yield* Fiber.join(diskConfig),
+        )?.providers;
     const initialConfigDeferred = yield* Deferred.make<ServerConfig>();
     const serverConfigExit = yield* Deferred.make<void, ServerConfigSubscriptionError>();
     const configSubscriptionClosed = yield* Deferred.make<never, ConnectionAttemptError>();
@@ -406,6 +424,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
                 }),
               });
             }
+            observation?.config(buffered.value.replay.projection.config);
             yield* Deferred.succeed(initialConfigDeferred, {
               ...event.config,
               providers: buffered.value.replay.projection.config.providers,
@@ -519,6 +538,8 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     );
 
     return {
+      snapshotReuse,
+      ...(observation ? { comparison: observation } : {}),
       client: protocolClient,
       initialConfig,
       subscribeServerConfig,

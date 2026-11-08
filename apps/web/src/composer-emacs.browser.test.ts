@@ -1,10 +1,9 @@
-// @vitest-environment jsdom
 import { getSchema, Node } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { history, undo } from "@tiptap/pm/history";
 import { EditorState, TextSelection, type Transaction } from "@tiptap/pm/state";
 import { EditorView } from "@tiptap/pm/view";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 import {
   DEFAULT_RESOLVED_KEYBINDINGS,
   compileResolvedKeybindingsConfig,
@@ -27,70 +26,82 @@ const schema = getSchema([
     renderHTML: ({ HTMLAttributes }) => ["span", HTMLAttributes, "@file.ts"],
   }),
 ]);
-const views: EditorView[] = [];
-const cleanups: (() => void)[] = [];
-
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0)) cleanup();
-  for (const view of views.splice(0)) view.destroy();
-  document.body.replaceChildren();
-});
-
-function composer(lines: string[] = ["hello world"], enabled = true) {
-  const host = document.body.appendChild(document.createElement("div"));
-  const handle = createComposerEmacsHandler();
-  let previous: ComposerChangeKind | null = null;
-  const view = new EditorView(host, {
-    state: EditorState.create({
-      schema,
-      doc: schema.node(
-        "doc",
-        null,
-        lines.map((text) => schema.node("paragraph", null, text ? schema.text(text) : [])),
-      ),
-      plugins: [history()],
-    }),
-    attributes: (state) => ({
-      "data-composer-emacs": String(enabled),
-      "data-composer-empty": String(isComposerEmacsDocumentEmpty(state.doc)),
-      "aria-multiline": "true",
-    }),
-    handleKeyDown: (view, event) =>
-      (enabled || isCtrlNewlineShortcut(event)) && handle(view, event),
-    handleScrollToSelection: () => true,
-    dispatchTransaction: (tr: Transaction) => {
-      previous = groupUndoByChangeKind(tr, previous);
-      view.updateState(view.state.apply(tr));
-    },
-  });
-  views.push(view);
-  const at = (position: number, anchor = position) => {
-    view.dispatch(
-      view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor, position)),
-    );
-    view.focus();
-  };
-  const press = (key: string, modifiers: KeyboardEventInit = { ctrlKey: true }) => {
-    const event = new KeyboardEvent("keydown", {
-      key,
-      bubbles: true,
-      cancelable: true,
-      ...modifiers,
+function setup() {
+  const views: EditorView[] = [];
+  const cleanups: Array<() => void> = [];
+  function composer(lines: string[] = ["hello world"], enabled = true) {
+    const host = document.body.appendChild(document.createElement("div"));
+    host.style.fontFamily = "monospace";
+    const handle = createComposerEmacsHandler();
+    let previous: ComposerChangeKind | null = null;
+    const view = new EditorView(host, {
+      state: EditorState.create({
+        schema,
+        doc: schema.node(
+          "doc",
+          null,
+          lines.map((text) => schema.node("paragraph", null, text ? schema.text(text) : [])),
+        ),
+        plugins: [history()],
+      }),
+      attributes: (state) => ({
+        "data-composer-emacs": String(enabled),
+        "data-composer-empty": String(isComposerEmacsDocumentEmpty(state.doc)),
+        "aria-multiline": "true",
+      }),
+      handleKeyDown: (view, event) =>
+        (enabled || isCtrlNewlineShortcut(event)) && handle(view, event),
+      handleScrollToSelection: () => true,
+      dispatchTransaction: (tr: Transaction) => {
+        previous = groupUndoByChangeKind(tr, previous);
+        view.updateState(view.state.apply(tr));
+      },
     });
-    view.dom.dispatchEvent(event);
-    return event;
-  };
-  at(1);
+    views.push(view);
+    const at = (position: number, anchor = position) => {
+      view.dispatch(
+        view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor, position)),
+      );
+      view.focus();
+    };
+    const press = (key: string, modifiers: KeyboardEventInit = { ctrlKey: true }) => {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+        ...modifiers,
+      });
+      view.dom.dispatchEvent(event);
+      return event;
+    };
+    at(1);
+    return {
+      view,
+      at,
+      press,
+      text: () => view.state.doc.textBetween(0, view.state.doc.content.size, "\n", "@file.ts"),
+    };
+  }
+
   return {
-    view,
-    at,
-    press,
-    text: () => view.state.doc.textBetween(0, view.state.doc.content.size, "\n", "@file.ts"),
+    composer,
+    cleanups,
+    [Symbol.dispose]() {
+      for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+      for (const view of views) {
+        const host = view.dom.parentElement;
+        view.destroy();
+        host?.remove();
+      }
+    },
   };
 }
 
 describe("Emacs composer editing", () => {
   it("moves Ctrl-A and Ctrl-E to hard-line boundaries instead of selecting all", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["first", "second"]);
     editor.at(10);
     editor.press("a");
@@ -101,6 +112,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("moves and deletes whole Unicode graphemes", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["a👩‍💻éz"]);
     editor.at(2);
     editor.press("f");
@@ -115,6 +129,9 @@ describe("Emacs composer editing", () => {
   });
 
   it.each(["b", "ArrowLeft"])("moves backward by word with Alt-%s", (key) => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     editor.at(12);
     editor.press(key, { altKey: true });
@@ -124,6 +141,9 @@ describe("Emacs composer editing", () => {
   });
 
   it.each(["f", "ArrowRight"])("moves forward by word with Alt-%s", (key) => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     editor.press(key, { altKey: true });
     expect(editor.view.state.selection.head).toBe(6);
@@ -132,6 +152,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("extends selections with shifted Control and Option movement", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     editor.press("f", { ctrlKey: true, shiftKey: true });
     editor.press("f", { ctrlKey: true, shiftKey: true });
@@ -149,6 +172,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("moves between lines retaining the column and consumes boundary no-ops", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["first", "second"]);
     editor.at(3);
     editor.press("n");
@@ -166,6 +192,9 @@ describe("Emacs composer editing", () => {
   ])(
     "leaves Ctrl-Shift-N to the terminal shortcut with Emacs editing $enabled and terminal availability $available",
     ({ enabled, available }) => {
+      using fixture = setup();
+      const { composer } = fixture;
+
       const editor = composer(["first", "second"], enabled);
       editor.at(3);
       const commands: string[] = [];
@@ -181,7 +210,7 @@ describe("Emacs composer editing", () => {
         }
       };
       window.addEventListener("keydown", listener);
-      cleanups.push(() => window.removeEventListener("keydown", listener));
+      fixture.cleanups.push(() => window.removeEventListener("keydown", listener));
 
       const event = editor.press("N", { ctrlKey: true, shiftKey: true });
       expect(commands).toEqual(available ? ["terminal.openExternal"] : []);
@@ -193,6 +222,9 @@ describe("Emacs composer editing", () => {
   );
 
   it("moves to document boundaries with Alt-< and Alt->", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["first", "second"]);
     editor.press(">", { altKey: true, shiftKey: true });
     expect(editor.view.state.selection.head).toBe(14);
@@ -202,6 +234,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("kills text and the newline on repeated Ctrl-K, then yanks both back", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["hello world", "second"]);
     editor.at(7);
     editor.press("k");
@@ -213,6 +248,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("kills to line start and restores it", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     editor.at(7);
     editor.press("u");
@@ -222,6 +260,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("combines consecutive backward word kills in their original order", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["one two three"]);
     editor.at(14);
     editor.press("w");
@@ -232,6 +273,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("handles Option-produced symbols and vertical Option arrows", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     editor.press("ƒ", { altKey: true, code: "KeyF" });
     expect(editor.view.state.selection.head).toBe(6);
@@ -242,6 +286,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("joins hard lines with Control-D and Control-H", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["first", "second"]);
     editor.at(6);
     editor.press("d");
@@ -256,6 +303,9 @@ describe("Emacs composer editing", () => {
     ["Backspace", { altKey: true }],
     ["Backspace", { ctrlKey: true }],
   ])("kills the preceding word with %s", (key, modifiers) => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     editor.at(12);
     editor.press(key, modifiers);
@@ -265,6 +315,9 @@ describe("Emacs composer editing", () => {
   });
 
   it.each(["d", "Delete"])("kills the following word with Alt-%s", (key) => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     editor.press(key, { altKey: true });
     expect(editor.text()).toBe(" world");
@@ -273,6 +326,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("preserves formatting, chip identity and independent undo steps through kill/yank", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     const paragraph = schema.node("paragraph", null, [
       schema.text("bold", [schema.mark("bold")]),
@@ -299,6 +355,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("does not append a later kill to stale content after typing", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["hello world"]);
     editor.at(7);
     editor.press("k");
@@ -310,6 +369,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("transposes characters at the cursor and at line end", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["ab👩‍💻"]);
     editor.at(2);
     editor.press("t");
@@ -320,6 +382,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("inserts a newline with Ctrl-J and keeps the cursor before a Ctrl-O open line", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["hello"]);
     editor.at(3);
     editor.press("o");
@@ -331,6 +396,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("leaves ordinary, Meta and IME keys to their existing handlers", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     expect(editor.press("a", {}).defaultPrevented).toBe(false);
     expect(editor.press("a", { metaKey: true }).defaultPrevented).toBe(false);
@@ -339,6 +407,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("keeps the default editing behavior when the setting is off", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["hello"], false);
     editor.at(4);
     expect(editor.press("a").defaultPrevented).toBe(false);
@@ -346,6 +417,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("deletes forwards with Ctrl-D and leaves the deletion undoable", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     editor.at(4);
     expect(editor.press("d").defaultPrevented).toBe(true);
@@ -356,6 +430,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("leaves a fresh Ctrl-D on an empty prompt to app shortcuts", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer([""]);
     expect(editor.press("d").defaultPrevented).toBe(false);
     expect(editor.text()).toBe("");
@@ -371,6 +448,9 @@ describe("Emacs composer editing", () => {
   ])(
     "settles an empty composer with Ctrl-D on $platform with Emacs editing $enabled",
     ({ platform, enabled }) => {
+      using fixture = setup();
+      const { composer } = fixture;
+
       const editor = composer([""], enabled);
       const commands: string[] = [];
       const listener = (event: KeyboardEvent) => {
@@ -381,7 +461,7 @@ describe("Emacs composer editing", () => {
         }
       };
       window.addEventListener("keydown", listener, true);
-      cleanups.push(() => window.removeEventListener("keydown", listener, true));
+      fixture.cleanups.push(() => window.removeEventListener("keydown", listener, true));
       editor.press("d");
       expect(commands).toEqual(["thread.settle"]);
       commands.length = 0;
@@ -398,6 +478,9 @@ describe("Emacs composer editing", () => {
   );
 
   it("claims Ctrl-D at the end of a nonempty prompt without deleting or exiting", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     editor.at(12);
     expect(editor.press("d").defaultPrevented).toBe(true);
@@ -408,6 +491,9 @@ describe("Emacs composer editing", () => {
   it.each([{ lines: [" "] }, { lines: ["", ""] }])(
     "deletes whitespace and newlines before treating the prompt as empty: $lines",
     ({ lines }) => {
+      using fixture = setup();
+      const { composer } = fixture;
+
       const editor = composer(lines);
       expect(editor.press("d").defaultPrevented).toBe(true);
       expect(editor.text()).toBe("");
@@ -416,6 +502,9 @@ describe("Emacs composer editing", () => {
   );
 
   it("deletes an inline chip before treating the prompt as empty", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer([""]);
     editor.view.dispatch(editor.view.state.tr.insert(1, schema.node("composer-mention")));
     editor.at(1);
@@ -429,6 +518,9 @@ describe("Emacs composer editing", () => {
     { platform: "Win32", key: "ctrl+d" },
     { platform: "MacIntel", key: "ctrl+d" },
   ])("lets $key settle an empty composer after deleting on $platform", ({ platform, key }) => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     editor.at(4);
     const keybindings = mergeWithDefaultKeybindings(
@@ -444,7 +536,7 @@ describe("Emacs composer editing", () => {
       }
     };
     window.addEventListener("keydown", listener, true);
-    cleanups.push(() => window.removeEventListener("keydown", listener, true));
+    fixture.cleanups.push(() => window.removeEventListener("keydown", listener, true));
 
     expect(editor.press("d").defaultPrevented).toBe(true);
     expect(commands).toEqual([]);
@@ -475,6 +567,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("inserts and undoes Ctrl-J with Emacs editing off without toggling the terminal", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["hello"], false);
     editor.at(3);
     const commands: string[] = [];
@@ -485,7 +580,7 @@ describe("Emacs composer editing", () => {
       if (command) commands.push(command);
     };
     window.addEventListener("keydown", listener, true);
-    cleanups.push(() => window.removeEventListener("keydown", listener, true));
+    fixture.cleanups.push(() => window.removeEventListener("keydown", listener, true));
     expect(editor.press("j").defaultPrevented).toBe(true);
     expect(editor.text()).toBe("he\nllo");
     expect(commands).toEqual([]);
@@ -494,6 +589,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("lets editing win over capture-phase app shortcuts only in an enabled composer", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer();
     const commands: string[] = [];
     const listener = (event: KeyboardEvent) => {
@@ -506,7 +604,7 @@ describe("Emacs composer editing", () => {
       }
     };
     window.addEventListener("keydown", listener, true);
-    cleanups.push(() => window.removeEventListener("keydown", listener, true));
+    fixture.cleanups.push(() => window.removeEventListener("keydown", listener, true));
     for (const key of ["d", "k", "b", "j", "n", "p", "u", "o", "w", "y"]) editor.press(key);
     expect(commands).toEqual([]);
     editor.view.dom.setAttribute("data-composer-emacs", "false");
@@ -515,6 +613,9 @@ describe("Emacs composer editing", () => {
   });
 
   it("evaluates editableFocus from the event target when a handler omits it", () => {
+    using fixture = setup();
+    const { composer } = fixture;
+
     const editor = composer(["hello"], false);
     const scoped = mergeWithDefaultKeybindings(
       compileResolvedKeybindingsConfig([
@@ -529,7 +630,7 @@ describe("Emacs composer editing", () => {
     const listener = (event: KeyboardEvent) =>
       commands.push(resolveShortcutCommand(event, scoped, { platform: "Linux" }));
     window.addEventListener("keydown", listener, true);
-    cleanups.push(() => window.removeEventListener("keydown", listener, true));
+    fixture.cleanups.push(() => window.removeEventListener("keydown", listener, true));
     editor.press("k");
     expect(commands).toEqual([null]);
     expect(
