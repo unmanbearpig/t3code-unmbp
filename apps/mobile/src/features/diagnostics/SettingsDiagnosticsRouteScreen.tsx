@@ -1,3 +1,5 @@
+import { readPerformanceReport } from "./performance-telemetry";
+import { ReconnectComparisonSection } from "./ReconnectComparisonSection";
 import { PerformanceLogSection } from "./PerformanceLogSection";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
@@ -103,7 +105,8 @@ export function SettingsDiagnosticsRouteScreen() {
         contentContainerClassName="gap-6 px-5 pt-4 pb-[18px]"
       >
         {crashReportingAvailable ? <CrashReportsSetting /> : null}
-        <PerformanceLogSection />
+        <ReconnectComparisonSection />
+        <PerformanceLogSection summary={readPerformanceReport().summary} />
 
         <SettingsSection title="Startup crashes">
           {state.status === "loading" ? (

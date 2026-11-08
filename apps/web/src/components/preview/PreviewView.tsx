@@ -812,7 +812,7 @@ export function PreviewView({
       sessionId: randomUUID(),
       shortcuts: effectiveShortcutsForCommand(keybindings, "composer.dictation", {
         context: { previewFocus: true, previewOpen: true, editableFocus: true },
-      }),
+      }).filter((shortcut) => !("leader" in shortcut)),
     };
     setAnnotationVoice(voice);
     const finishPick = () => {
