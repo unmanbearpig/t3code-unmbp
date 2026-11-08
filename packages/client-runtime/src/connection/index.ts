@@ -27,3 +27,5 @@ export * as ConnectionDiagnostics from "./diagnostics.ts";
 
 export * as ReconnectExperiment from "./reconnectExperiment.ts";
 export * as SnapshotExperiment from "./snapshotExperiment.ts";
+
+export * as ReconnectLoop from "./reconnectLoop.ts";

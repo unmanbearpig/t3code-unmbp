@@ -22,6 +22,7 @@ import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActi
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { SettingsSection } from "../settings/components/SettingsSection";
 import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
+import { ReconnectLoopSection } from "./ReconnectLoopSection";
 import {
   formatStartupCrashReport,
   parseStartupCrashRecords,
@@ -143,6 +144,8 @@ export function SettingsDiagnosticsRouteScreen() {
         className="flex-1"
         contentContainerClassName="gap-6 px-5 pt-4 pb-[18px]"
       >
+        <ReconnectLoopSection />
+
         {crashReportingAvailable ? <CrashReportsSetting /> : null}
 
         <SettingsSection title="Activity log">
