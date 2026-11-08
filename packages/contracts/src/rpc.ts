@@ -1,3 +1,4 @@
+import { ReconnectComparisonInput, ReconnectComparisonError } from "./reconnectComparison.ts";
 import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
@@ -572,6 +573,7 @@ export const WS_METHODS = {
   serverListTextGeneratorModels: "server.listTextGeneratorModels",
   serverPrepareTriage: "server.prepareTriage",
   serverSignalProcess: "server.signalProcess",
+  serverRecordReconnectComparison: "server.recordReconnectComparison",
   serverReportClientActivity: "server.reportClientActivity",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
@@ -1090,6 +1092,11 @@ const WsCloudInstallRelayClientRpc = Rpc.make(WS_METHODS.cloudInstallRelayClient
   success: RelayClientInstallProgressEventSchema,
   error: Schema.Union([RelayClientInstallFailedError, EnvironmentAuthorizationError]),
   stream: true,
+});
+
+const WsServerRecordReconnectComparisonRpc = Rpc.make(WS_METHODS.serverRecordReconnectComparison, {
+  payload: ReconnectComparisonInput,
+  error: Schema.Union([EnvironmentAuthorizationError, ReconnectComparisonError]),
 });
 
 const WsServerReportClientActivityRpc = Rpc.make(WS_METHODS.serverReportClientActivity, {
@@ -2330,6 +2337,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSecretsAnswerRequestRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,
+  WsServerRecordReconnectComparisonRpc,
   WsServerReportClientActivityRpc,
   WsCloudGetRelayClientStatusRpc,
   WsCloudInstallRelayClientRpc,

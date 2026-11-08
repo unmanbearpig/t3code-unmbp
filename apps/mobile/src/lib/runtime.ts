@@ -1,3 +1,4 @@
+import * as ReconnectComparison from "../features/diagnostics/reconnect-comparison";
 import { PerformanceTelemetry } from "@t3tools/client-runtime/platform";
 import { performanceObserver } from "../features/diagnostics/performance-telemetry";
 import * as Effect from "effect/Effect";
@@ -34,6 +35,7 @@ type RuntimeLayerSource =
   | typeof Dpop.layer
   | typeof layerHttpClient
   | typeof layerPerformance
+  | typeof ReconnectComparison.layer
   | typeof Persistence.layer
   | typeof Tracing.layer;
 
@@ -44,7 +46,11 @@ const layerRuntime = Layer.merge(
   Layer.provideMerge(Dpop.layer),
   Layer.provideMerge(layerHttpClient),
   Layer.provideMerge(Tracing.layer.pipe(Layer.provide(layerHttpClient))),
-  Layer.provideMerge(Persistence.layer.pipe(Layer.provide(layerPerformance))),
+  Layer.provideMerge(
+    ReconnectComparison.layer.pipe(
+      Layer.provideMerge(Persistence.layer.pipe(Layer.provide(layerPerformance))),
+    ),
+  ),
   Layer.provideMerge(layerPerformance),
   // These layers read the keychain and the database while they build, and a
   // failed build is kept for the life of the process.
