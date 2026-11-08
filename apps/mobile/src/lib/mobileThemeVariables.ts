@@ -72,7 +72,7 @@ function platformThemeVariables(
       "--color-drawer-foreground-muted": variables["--color-foreground-muted"],
     };
   }
-  if (platform !== "android") return variables;
+  if (platform !== "android" || (themeId === "unmbp" && appearance === "dark")) return variables;
 
   // Android paints the drawer as the page inside a lighter frame, so dark cards lift off both.
   const screen = variables["--color-screen"];

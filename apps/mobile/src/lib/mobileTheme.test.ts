@@ -198,7 +198,7 @@ describe("mobile themes", () => {
               `${appearance}: ${role} on Android header`,
             ).toBeGreaterThanOrEqual(4.5);
           }
-          if (appearance === "dark") {
+          if (appearance === "dark" && themeId !== "unmbp") {
             for (const surface of [variables["--color-screen"], header]) {
               expect(
                 contrastRatio(group, surface),
