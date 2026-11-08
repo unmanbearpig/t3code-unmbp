@@ -5,18 +5,14 @@ import * as DateTime from "effect/DateTime";
 import {
   EnvironmentId,
   ReconnectComparisonRecord,
-  type ReconnectComparisonAttempt,
   type ReconnectComparisonMode,
   type ReconnectComparisonPlan,
-  OrchestrationV2ShellSnapshot,
-  type ServerConfig,
 } from "@t3tools/contracts";
 import {
   ReconnectComparison as Comparison,
   EnvironmentRegistry,
   EnvironmentSupervisor,
 } from "@t3tools/client-runtime/connection";
-import { providerCatalogRevision } from "@t3tools/shared/reconnectSnapshots";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -27,13 +23,14 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import * as Network from "expo-network";
-import { randomUUID, digestStringAsync, CryptoDigestAlgorithm } from "expo-crypto";
-import { AppState } from "react-native";
+import { randomUUID } from "expo-crypto";
+import * as Queue from "effect/Queue";
+import { makeObservation, network } from "./reconnect-observation";
 import * as MobileDatabase from "../../persistence/mobile-database";
 
-export const BUILD_ID = "upstream-ade473-snapshot-v2-r2";
-export const PROTOCOL_ID = "snapshot-reuse-v2-90-cellular-pairs";
+export const BUILD_ID = "upstream-ade473-snapshot-v3-r3";
+export const PROTOCOL_ID = "snapshot-reuse-v3-90-cellular-pairs";
+export const NATURAL_PROTOCOL_ID = "snapshot-reuse-v3-natural-reconnects";
 export const UPSTREAM_COMMIT = "ade473018d32003658b7d38693e083ee2e314bd8";
 const sourceCommit = process.env.EXPO_PUBLIC_RECONNECT_SOURCE ?? "development";
 const appPackage =
@@ -44,24 +41,6 @@ export const ROUNDS = 30;
 const TIMEOUT_MS = 60_000;
 const storageEnvironment = EnvironmentId.make("reconnect-comparison-device");
 const decodeRecord = Schema.decodeUnknownEffect(Schema.fromJsonString(ReconnectComparisonRecord));
-const networkName = (state: Network.NetworkState): ReconnectComparisonAttempt["networkStart"] =>
-  state.type === Network.NetworkStateType.CELLULAR
-    ? "cellular"
-    : state.type === Network.NetworkStateType.WIFI
-      ? "wifi"
-      : "other";
-const activity = (): ReconnectComparisonAttempt["activityStart"] =>
-  AppState.currentState === "active"
-    ? "active"
-    : AppState.currentState === "background"
-      ? "background"
-      : AppState.currentState === "inactive"
-        ? "inactive"
-        : "unknown";
-const network = Effect.promise(() => Network.getNetworkStateAsync()).pipe(
-  Effect.map(networkName),
-  Effect.orElseSucceed(() => "other" as const),
-);
 
 interface Status {
   readonly mode: ReconnectComparisonMode;
@@ -70,6 +49,7 @@ interface Status {
   readonly completed: number;
   readonly total: number;
   readonly pending: number;
+  readonly recordingError: string | null;
   readonly runId: string | null;
 }
 
@@ -77,16 +57,6 @@ class ComparisonUnavailable extends Schema.TaggedError<ComparisonUnavailable>()(
   "ComparisonUnavailable",
   { message: Schema.String },
 ) {}
-const fingerprintConfig = (config: ServerConfig) =>
-  digestStringAsync(
-    CryptoDigestAlgorithm.SHA256,
-    JSON.stringify(
-      config.providers.map((provider) => [provider.instanceId, providerCatalogRevision(provider)]),
-    ),
-  );
-const encodeShell = Schema.encodeSync(OrchestrationV2ShellSnapshot);
-const fingerprintShell = (snapshot: OrchestrationV2ShellSnapshot) =>
-  digestStringAsync(CryptoDigestAlgorithm.SHA256, JSON.stringify(encodeShell(snapshot)));
 
 export const make = Effect.gen(function* () {
   const database = yield* MobileDatabase.MobileDatabase;
@@ -98,7 +68,7 @@ export const make = Effect.gen(function* () {
     .loadCache(storageEnvironment, "reconnect-comparison", "randomized")
     .pipe(
       Effect.map((saved) => Option.getOrElse(saved, () => "true") === "true"),
-      Effect.orElseSucceed(() => false),
+      Effect.orElseSucceed(() => true),
     );
   let preferred: ReconnectComparisonMode =
     Option.getOrNull(savedMode) === "proposed" ? "proposed" : "baseline";
@@ -109,6 +79,7 @@ export const make = Effect.gen(function* () {
     completed: 0,
     total: 0,
     pending: 0,
+    recordingError: null,
     runId: null,
   };
   const listeners = new Set<() => void>();
@@ -116,28 +87,157 @@ export const make = Effect.gen(function* () {
     status = { ...status, ...patch };
     for (const listener of listeners) listener();
   };
+  let schedulingPaired = false;
   let active: {
     environmentId: EnvironmentId;
     mode: ReconnectComparisonMode;
     observe: (origin: string) => Comparison.SessionObservation;
+    start: () => void;
   } | null = null;
-  const assignedModes = new Map<EnvironmentId, ReconnectComparisonMode>();
+  const scope = yield* Effect.scope;
+  const recordsSaved = yield* Queue.unbounded<EnvironmentId>();
+  type Capture = Effect.Success<ReturnType<typeof makeObservation>>;
+  const events = new Map<
+    EnvironmentId,
+    {
+      id: string;
+      mode: ReconnectComparisonMode;
+      ready: boolean;
+      attempts: number;
+    }
+  >();
+  const ordinary = new Map<
+    EnvironmentId,
+    {
+      capture: Capture;
+      ended: Deferred.Deferred<"failed" | "interrupted">;
+      saved: Deferred.Deferred<void>;
+    }
+  >();
+  const beginSession = (environmentId: EnvironmentId) => {
+    if (!randomized || schedulingPaired || status.running) return;
+    if (events.get(environmentId)?.ready === false) return;
+    const id = randomUUID();
+    events.set(environmentId, {
+      id,
+      mode: Number.parseInt(id.slice(0, 2), 16) < 128 ? "proposed" : "baseline",
+      ready: false,
+      attempts: 0,
+    });
+  };
+  const recordingFailed = () =>
+    update({ recordingError: "Could not save reconnect measurements." });
   const control = {
-    beginSession: (environmentId: EnvironmentId) => {
-      if (!randomized || active?.environmentId === environmentId) return;
-      assignedModes.set(
-        environmentId,
-        Number.parseInt(randomUUID().slice(0, 2), 16) < 128 ? "proposed" : "baseline",
-      );
+    beginSession,
+    beginAttempt: Effect.fn("MobileReconnectComparison.beginAttempt")(
+      function* (environmentId: EnvironmentId) {
+        if (active?.environmentId === environmentId) {
+          active.start();
+          return;
+        }
+        if (!randomized || schedulingPaired || status.running) return;
+        const event = events.get(environmentId);
+        if (event === undefined) return;
+        const attempt = event.attempts++;
+        const runId = `${event.id}.${attempt}`;
+        const assignment = {
+          index: 0,
+          round: attempt,
+          position: 0 as const,
+          mode: event.mode,
+          warmup: false,
+        };
+        const plan: ReconnectComparisonPlan = {
+          version: 2,
+          kind: "plan",
+          id: `${runId}:plan`,
+          runId,
+          protocolId: NATURAL_PROTOCOL_ID,
+          installId: yield* getInstallId(),
+          buildId: BUILD_ID,
+          upstreamCommit: UPSTREAM_COMMIT,
+          sourceCommit,
+          appPackage,
+          environmentId,
+          at: DateTime.formatIso(yield* DateTime.now),
+          timeoutMs: TIMEOUT_MS,
+          network: yield* network,
+          assignments: [assignment],
+        };
+        yield* save(plan);
+        const capture = yield* makeObservation(plan, assignment);
+        const ended = yield* Deferred.make<"failed" | "interrupted">();
+        const saved = yield* Deferred.make<void>();
+        const current = { capture, ended, saved };
+        ordinary.set(environmentId, current);
+        capture.start();
+        yield* Effect.raceFirst(
+          capture.ready.pipe(Effect.as("ready" as const)),
+          Deferred.await(ended),
+        ).pipe(
+          Effect.timeoutOrElse({
+            duration: `${TIMEOUT_MS} millis`,
+            orElse: () => Effect.succeed("timeout" as const),
+          }),
+          Effect.flatMap((outcome) => capture.finish(outcome)),
+          Effect.flatMap(save),
+          Effect.catchCause(() => Effect.sync(recordingFailed)),
+          Effect.ensuring(
+            Effect.gen(function* () {
+              if (ordinary.get(environmentId) === current) ordinary.delete(environmentId);
+              yield* Deferred.succeed(saved, undefined);
+              yield* Queue.offer(recordsSaved, environmentId);
+            }),
+          ),
+          Effect.forkIn(scope),
+        );
+      },
+      Effect.catchCause(() => Effect.sync(recordingFailed)),
+      uploadLock.withPermit,
+    ),
+    finishAttempt: Effect.fn("MobileReconnectComparison.finishAttempt")(function* (
+      environmentId: EnvironmentId,
+      outcome: "failed" | "interrupted",
+    ) {
+      const current = ordinary.get(environmentId);
+      if (!current) return;
+      yield* Deferred.succeed(current.ended, outcome);
+      yield* Deferred.await(current.saved);
+    }),
+    reset: (environmentId: EnvironmentId) => {
+      events.delete(environmentId);
     },
     mode: (environmentId: EnvironmentId) =>
       active?.environmentId === environmentId
         ? active.mode
         : randomized
-          ? (assignedModes.get(environmentId) ?? "baseline")
+          ? (events.get(environmentId)?.mode ?? "baseline")
           : preferred,
-    observe: (environmentId: EnvironmentId, origin: string) =>
-      active?.environmentId === environmentId ? active.observe(origin) : undefined,
+    observe: (
+      environmentId: EnvironmentId,
+      origin: string,
+    ): Comparison.SessionObservation | undefined => {
+      if (active?.environmentId === environmentId) return active.observe(origin);
+      const event = events.get(environmentId);
+      if (!randomized || !event) return undefined;
+      const capture = ordinary.get(environmentId)?.capture;
+      const attempt = event.attempts;
+      const observer = capture?.observe(origin);
+      return {
+        socket: observer?.socket ?? (() => {}),
+        catalogRequest: observer?.catalogRequest ?? (() => {}),
+        shellRequest: observer?.shellRequest ?? (() => {}),
+        config: observer?.config ?? (() => {}),
+        synchronized: (snapshot) =>
+          Effect.suspend(() => {
+            if (events.get(environmentId) !== event || event.attempts !== attempt)
+              return Effect.void;
+            event.ready = true;
+            if (capture?.finished()) return Effect.void;
+            return observer?.synchronized(snapshot) ?? Effect.void;
+          }),
+      };
+    },
   };
   const save = (record: ReconnectComparisonRecord) =>
     database.saveCache(
@@ -147,6 +247,16 @@ export const make = Effect.gen(function* () {
       2,
       JSON.stringify(record),
     );
+  const installLock = yield* Semaphore.make(1);
+  let knownInstallId: string | null = null;
+  const getInstallId = Effect.fn("MobileReconnectComparison.installId")(function* () {
+    if (knownInstallId !== null) return knownInstallId;
+    const stored = yield* database.loadCache(storageEnvironment, "reconnect-comparison", "install");
+    const id = Option.getOrElse(stored, randomUUID);
+    yield* database.saveCache(storageEnvironment, "reconnect-comparison", "install", 2, id);
+    knownInstallId = id;
+    return id;
+  }, installLock.withPermit);
   const pending = Effect.fn("MobileReconnectComparison.pending")(function* (
     environmentId: EnvironmentId,
   ) {
@@ -164,14 +274,15 @@ export const make = Effect.gen(function* () {
     environmentId: EnvironmentId,
     registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
   ) {
+    if (active !== null || ordinary.size > 0) return;
+    const records = yield* pending(environmentId);
+    update({ pending: records.length });
     yield* registry.run(
       environmentId,
       Effect.gen(function* () {
         const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
         const session = yield* SubscriptionRef.get(supervisor.session);
         if (Option.isNone(session)) return;
-        const records = yield* pending(environmentId);
-        update({ pending: records.length });
         for (let i = 0; i < records.length; i += 20) {
           const batch = records.slice(i, i + 20);
           yield* recordReconnectComparison(session.value, batch);
@@ -219,7 +330,7 @@ export const make = Effect.gen(function* () {
     },
     registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
   ) {
-    if (status.running) return;
+    if (status.running || schedulingPaired) return;
     yield* registry.run(
       input.environmentId,
       Effect.gen(function* () {
@@ -237,7 +348,6 @@ export const make = Effect.gen(function* () {
           preferred = input.mode;
           update({ mode: preferred });
         }).pipe(Effect.ensuring(supervisor.connect));
-        yield* connectedSession(supervisor);
       }),
     );
   });
@@ -245,7 +355,7 @@ export const make = Effect.gen(function* () {
     input: { environmentId: EnvironmentId; enabled: boolean },
     registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
   ) {
-    if (status.running) return;
+    if (status.running || schedulingPaired) return;
     yield* registry.run(
       input.environmentId,
       Effect.gen(function* () {
@@ -269,7 +379,6 @@ export const make = Effect.gen(function* () {
             ),
             Effect.ensuring(supervisor.connect),
           );
-        yield* connectedSession(supervisor);
       }),
     );
   });
@@ -277,213 +386,124 @@ export const make = Effect.gen(function* () {
     environmentId: EnvironmentId,
     registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
   ) {
-    if (status.running) return;
-    yield* registry.run(
-      environmentId,
-      Effect.flatMap(EnvironmentSupervisor.EnvironmentSupervisor, connectedSession),
-    );
-    const storedInstall = yield* database.loadCache(
-      storageEnvironment,
-      "reconnect-comparison",
-      "install",
-    );
-    const installId = Option.getOrElse(storedInstall, randomUUID);
-    yield* database.saveCache(storageEnvironment, "reconnect-comparison", "install", 2, installId);
-    const plan: ReconnectComparisonPlan = {
-      kind: "plan",
-      version: 2,
-      protocolId: PROTOCOL_ID,
-      id: "",
-      runId: randomUUID(),
-      installId,
-      buildId: BUILD_ID,
-      upstreamCommit: UPSTREAM_COMMIT,
-      sourceCommit,
-      appPackage,
-      environmentId,
-      at: DateTime.formatIso(yield* DateTime.now),
-      timeoutMs: TIMEOUT_MS,
-      network: yield* network,
-      assignments: Comparison.makeComparisonAssignments(
-        ROUNDS,
-        () => Number.parseInt(randomUUID().slice(0, 2), 16) < 128,
-      ),
-    };
-    const savedPlan = { ...plan, id: `${plan.runId}:plan` };
-    update({ running: true, completed: 0, total: plan.assignments.length, runId: plan.runId });
+    if (status.running || schedulingPaired) return;
+    schedulingPaired = true;
     yield* Effect.gen(function* () {
-      yield* save(savedPlan);
-      // Require the destination to accept the plan before any timed attempts begin.
       yield* registry.run(
         environmentId,
-        Effect.gen(function* () {
-          const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
-          const session = yield* connectedSession(supervisor);
-          yield* recordReconnectComparison(session, [savedPlan]);
-        }),
+        Effect.flatMap(EnvironmentSupervisor.EnvironmentSupervisor, connectedSession),
       );
+      yield* Effect.forEach([...ordinary.values()], (current) => Deferred.await(current.saved), {
+        discard: true,
+      });
       yield* upload(environmentId, registry);
-      for (const assignment of plan.assignments) {
+      const installId = yield* getInstallId();
+      const plan: ReconnectComparisonPlan = {
+        kind: "plan",
+        version: 2,
+        protocolId: PROTOCOL_ID,
+        id: "",
+        runId: randomUUID(),
+        installId,
+        buildId: BUILD_ID,
+        upstreamCommit: UPSTREAM_COMMIT,
+        sourceCommit,
+        appPackage,
+        environmentId,
+        at: DateTime.formatIso(yield* DateTime.now),
+        timeoutMs: TIMEOUT_MS,
+        network: yield* network,
+        assignments: Comparison.makeComparisonAssignments(
+          ROUNDS,
+          () => Number.parseInt(randomUUID().slice(0, 2), 16) < 128,
+        ),
+      };
+      const savedPlan = { ...plan, id: `${plan.runId}:plan` };
+      update({ running: true, completed: 0, total: plan.assignments.length, runId: plan.runId });
+      yield* Effect.gen(function* () {
+        yield* save(savedPlan);
+        // Require the destination to accept the plan before any timed attempts begin.
         yield* registry.run(
           environmentId,
-          Effect.uninterruptibleMask((restore) =>
-            Effect.gen(function* () {
-              const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
-              yield* supervisor.disconnect;
-              yield* waitDisconnected(supervisor);
-              const networkStart = yield* network;
-              const activityStart = activity();
-              let backgrounded = activityStart !== "active";
-              let networkChanged = false;
-              const appListener = AppState.addEventListener("change", (state) => {
-                if (state !== "active") backgrounded = true;
-              });
-              const networkListener = Network.addNetworkStateListener((state) => {
-                if (networkName(state) !== networkStart) networkChanged = true;
-              });
-              const ready = yield* Deferred.make<{
-                readonly at: number;
-                readonly snapshot: OrchestrationV2ShellSnapshot;
-              }>();
-              const started = performance.now();
-              let valid = true;
-              let socketCount = 0;
-              let configMs: number | null = null;
-              let lastConfig: ServerConfig | null = null;
-              let catalogRevisionsRequested = 0,
-                catalogsReused = 0,
-                projectRevisionsRequested = 0;
-              const origins = new Set<string>(),
-                serverVersions = new Set<string>();
-              active = {
-                environmentId,
-                mode: assignment.mode,
-                observe: (origin) => {
-                  origins.add(origin);
-                  return {
-                    socket: () => {
-                      if (valid) socketCount++;
-                    },
-                    catalogRequest: (count) => {
-                      if (valid) catalogRevisionsRequested += count;
-                    },
-                    shellRequest: (hasRevision) => {
-                      if (valid && hasRevision) projectRevisionsRequested++;
-                    },
-                    config: (config, reused) => {
-                      if (!valid) return;
-                      configMs ??= performance.now() - started;
-                      lastConfig = config;
-                      catalogsReused += reused;
-                      serverVersions.add(config.environment.serverVersion);
-                    },
-                    synchronized: (snapshot) =>
-                      Deferred.succeed(ready, { at: performance.now(), snapshot }).pipe(
-                        Effect.asVoid,
-                      ),
-                  };
-                },
-              };
-              const result = yield* restore(
-                Effect.gen(function* () {
-                  yield* supervisor.connect;
-                  return yield* Deferred.await(ready).pipe(
-                    Effect.timeoutOption(`${TIMEOUT_MS} millis`),
-                  );
-                }),
-              ).pipe(Effect.exit);
-              const ended = performance.now();
-              valid = false;
-              active = null;
-              appListener.remove();
-              networkListener.remove();
-              const networkEnd = yield* network;
-              const activityEnd = activity();
-              const success =
-                Exit.isSuccess(result) && Option.isSome(result.value) ? result.value.value : null;
-              const config: ServerConfig | null = lastConfig;
-              const catalogState =
-                config === null ? null : yield* Effect.promise(() => fingerprintConfig(config));
-              const shellState =
-                success === null
-                  ? null
-                  : yield* Effect.promise(() => fingerprintShell(success.snapshot));
-              const row: ReconnectComparisonAttempt = {
-                version: 2,
-                kind: "attempt",
-                id: `${plan.runId}:${assignment.index}`,
-                runId: plan.runId,
-                protocolId: PROTOCOL_ID,
-                installId,
-                buildId: BUILD_ID,
-                upstreamCommit: UPSTREAM_COMMIT,
-                sourceCommit,
-                appPackage,
-                environmentId,
-                ...assignment,
-                at: DateTime.formatIso(yield* DateTime.now),
-                outcome:
-                  success !== null
-                    ? "ready"
-                    : Exit.isFailure(result)
-                      ? Cause.hasInterruptsOnly(result.cause)
-                        ? "interrupted"
-                        : "failed"
-                      : "timeout",
-                elapsedMs: success === null ? ended - started : success.at - started,
-                cappedReadyMs:
-                  success === null ? TIMEOUT_MS : Math.min(TIMEOUT_MS, success.at - started),
-                configMs,
-                jsonDown: null,
-                jsonUp: null,
-                instrumentationMs: null,
-                socketCount,
-                origins: [...origins],
-                serverVersions: [...serverVersions],
-                catalogRevisionsRequested,
-                catalogsReused,
-                projectRevisionsRequested,
-                catalogState,
-                shellState,
-                networkStart,
-                networkEnd,
-                networkChanged: networkChanged || networkStart !== networkEnd,
-                activityStart,
-                activityEnd,
-                backgrounded: backgrounded || activityEnd !== "active",
-              };
-              yield* save(row).pipe(Effect.uninterruptible);
-              update({ completed: assignment.index + 1 });
-              if (Exit.isFailure(result) && Cause.hasInterruptsOnly(result.cause))
-                return yield* Effect.interrupt;
-            }),
-          ),
+          Effect.gen(function* () {
+            const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+            const session = yield* connectedSession(supervisor);
+            yield* recordReconnectComparison(session, [savedPlan]);
+          }),
         );
-        if (assignment.position === 1) yield* upload(environmentId, registry).pipe(Effect.ignore);
-      }
-    }).pipe(
-      Effect.ensuring(
-        Effect.gen(function* () {
-          active = null;
-          update({ running: false, mode: preferred });
-          yield* registry
-            .run(
-              environmentId,
+        yield* upload(environmentId, registry);
+        for (const assignment of plan.assignments) {
+          yield* registry.run(
+            environmentId,
+            Effect.uninterruptibleMask((restore) =>
               Effect.gen(function* () {
                 const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
                 yield* supervisor.disconnect;
                 yield* waitDisconnected(supervisor);
-                yield* supervisor.connect;
+                const capture = yield* makeObservation(plan, assignment);
+                active = {
+                  environmentId,
+                  mode: assignment.mode,
+                  observe: capture.observe,
+                  start: capture.start,
+                };
+                const result = yield* restore(
+                  supervisor.connect.pipe(
+                    Effect.andThen(capture.ready),
+                    Effect.timeoutOption(`${TIMEOUT_MS} millis`),
+                  ),
+                ).pipe(Effect.exit);
+                active = null;
+                const outcome = Exit.isSuccess(result)
+                  ? Option.isSome(result.value)
+                    ? "ready"
+                    : "timeout"
+                  : Cause.hasInterruptsOnly(result.cause)
+                    ? "interrupted"
+                    : "failed";
+                const row = yield* capture.finish(outcome);
+                yield* save(row).pipe(Effect.uninterruptible);
+                update({ completed: assignment.index + 1 });
+                if (Exit.isFailure(result) && Cause.hasInterruptsOnly(result.cause))
+                  return yield* Effect.interrupt;
               }),
-            )
-            .pipe(Effect.ignore);
-          yield* upload(environmentId, registry).pipe(Effect.ignore);
+            ),
+          );
+          if (assignment.position === 1) yield* upload(environmentId, registry).pipe(Effect.ignore);
+        }
+      }).pipe(
+        Effect.ensuring(
+          Effect.gen(function* () {
+            active = null;
+            schedulingPaired = false;
+            update({ running: false, mode: preferred });
+            yield* registry
+              .run(
+                environmentId,
+                Effect.gen(function* () {
+                  const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+                  yield* supervisor.disconnect;
+                  yield* waitDisconnected(supervisor);
+                  yield* supervisor.connect;
+                }),
+              )
+              .pipe(Effect.ignore);
+            yield* upload(environmentId, registry).pipe(Effect.ignore);
+          }),
+        ),
+      );
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          schedulingPaired = false;
         }),
       ),
     );
   });
   return {
     control,
+    recordsSaved,
+    isMeasuring: () => schedulingPaired || status.running || ordinary.size > 0,
     choose,
     setRandomized,
     run,
