@@ -24,6 +24,7 @@ vi.mock(import("./SettingsScopeContext"), async (original) => ({
       environmentId: "env",
       label: "Build workstation",
       serverConfig: {
+        environment: { capabilities: { leaderKeybindings: false } },
         keybindings: compileResolvedKeybindingsConfig([
           { command: "composer.sendBackground", key: "mod+alt+enter", when: "false" },
         ]),
@@ -52,7 +53,10 @@ async function activate(locator: Locator, action: "click" | "focus") {
 }
 
 const existingField = page.getByRole("textbox", { name: "Keybinding for Sidebar: Toggle" });
-const existingPill = page.getByRole("button", { name: /^Edit shortcut for Sidebar: Toggle:/ });
+const existingPill = page.getByRole("button", {
+  name: "Edit shortcut for Sidebar: Toggle: Ctrl+B",
+  exact: true,
+});
 const newField = page.getByRole("textbox", { name: "Keybinding for new keybinding" });
 
 describe("Esc in a shortcut recorder", () => {
@@ -182,7 +186,9 @@ it("re-enables Save when a When editor closes on an expression it could not pars
       <KeybindingsSettingsPanel />
     </RegistryProvider>,
   );
-  const whenTrigger = screen.getByRole("button", { name: "Edit when clause for Terminal: Toggle" });
+  const whenTrigger = screen
+    .getByRole("button", { name: "Edit when clause for Terminal: Toggle" })
+    .last();
   const expression = screen.getByRole("textbox", { name: "When expression" });
 
   await whenTrigger.click();
