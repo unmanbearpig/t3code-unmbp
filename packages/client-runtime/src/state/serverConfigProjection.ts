@@ -3,6 +3,8 @@ import {
   type ServerConfig,
   type ServerConfigStreamEvent,
 } from "@t3tools/contracts";
+import type { ServerProvider } from "@t3tools/contracts";
+import { providerCatalogRevision } from "@t3tools/shared/reconnectSnapshots";
 import * as Equal from "effect/Equal";
 import * as Option from "effect/Option";
 
@@ -96,9 +98,35 @@ function withHeldProviderCatalogs(
 export function applyServerConfigProjection(
   current: Option.Option<ServerConfigProjection>,
   event: ServerConfigStreamEvent,
+  requestedCatalogs?: ReadonlyArray<ServerProvider>,
 ): Option.Option<ServerConfigProjection> {
   switch (event.type) {
     case "snapshot": {
+      let providers = event.config.providers;
+      if (event.cachedProviderCatalogs !== undefined) {
+        const retained = requestedCatalogs ?? Option.getOrUndefined(current)?.config.providers;
+        if (retained === undefined) return Option.none();
+        const cached = new Map(retained.map((item) => [item.instanceId, item]));
+        const restored = [];
+        for (const provider of providers) {
+          const expected = event.cachedProviderCatalogs[provider.instanceId];
+          if (expected === undefined) {
+            restored.push(provider);
+            continue;
+          }
+          const previous = cached.get(provider.instanceId);
+          if (previous === undefined || providerCatalogRevision(previous) !== expected) {
+            return Option.none();
+          }
+          restored.push({
+            ...provider,
+            models: previous.models,
+            skills: previous.skills,
+            slashCommands: previous.slashCommands,
+          });
+        }
+        providers = restored;
+      }
       // Wire snapshots never contain published themes. Keep the previous set
       // until the server sends its authoritative theme event.
       const carriedThemes = Option.isSome(current)
@@ -111,7 +139,7 @@ export function applyServerConfigProjection(
         ...event.config,
         providers: withHeldProviderCatalogs(
           Option.getOrUndefined(current)?.config.providers,
-          event.config.providers,
+          providers,
         ),
         ...(carriedThemes === undefined ? {} : { environmentThemes: carriedThemes }),
         ...(carriedSources === undefined ? {} : { usageLimitSources: carriedSources }),

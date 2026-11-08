@@ -1,5 +1,6 @@
 import { mFallback, msg } from "gt-i18n";
 import type { MFunctionType } from "gt-i18n/types";
+import { projectSnapshotRevision } from "@t3tools/shared/reconnectSnapshots";
 import {
   ORCHESTRATION_V2_WS_METHODS,
   type EnvironmentId,
@@ -705,6 +706,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           ...(loaded?.kind === "snapshot" && loaded.projectIdentities !== undefined
             ? { knownProjectIdentities: loaded.projectIdentities }
             : {}),
+          projectsRevision: projectSnapshotRevision(current.snapshot.value.projects),
           ...omission,
           requestCompletionMarker: true as const,
         };
