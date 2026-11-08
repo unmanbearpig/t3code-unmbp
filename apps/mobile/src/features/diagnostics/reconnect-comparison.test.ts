@@ -28,6 +28,12 @@ import * as Schema from "effect/Schema";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as TestClock from "effect/testing/TestClock";
 import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
+import * as Driver from "../../../../../packages/client-runtime/src/connection/driver.ts";
+import * as Connectivity from "../../../../../packages/client-runtime/src/connection/connectivity.ts";
+import * as Wakeups from "../../../../../packages/client-runtime/src/connection/wakeups.ts";
+import * as Comparison from "../../../../../packages/client-runtime/src/connection/reconnectComparison.ts";
+import { ConnectionTransientError } from "../../../../../packages/client-runtime/src/connection/model.ts";
 import * as Database from "../../persistence/mobile-database";
 import { make, ROUNDS, NATURAL_PROTOCOL_ID } from "./reconnect-comparison";
 
@@ -36,13 +42,16 @@ const decoder = Schema.decodeUnknownSync(Schema.fromJsonString(ReconnectComparis
 it.effect("starts in baseline when diagnostics storage is unavailable", () =>
   Effect.gen(function* () {
     let writes = 0;
+    let available = false;
     const service = yield* make.pipe(
       Effect.provide(
         Layer.mock(Database.MobileDatabase)({
           loadCache: () =>
-            Effect.fail(
-              new Database.MobileDatabaseError({ operation: "load-cache", cause: "offline" }),
-            ),
+            available
+              ? Effect.succeedSome("fixture-install")
+              : Effect.fail(
+                  new Database.MobileDatabaseError({ operation: "load-cache", cause: "offline" }),
+                ),
           saveCache: () =>
             Effect.sync(() => {
               writes++;
@@ -53,7 +62,15 @@ it.effect("starts in baseline when diagnostics storage is unavailable", () =>
     expect(service.read().mode).toBe("baseline");
     expect(service.read().randomized).toBe(true);
     expect(writes).toBe(0);
-  }),
+    const id = EnvironmentId.make("fixture");
+    service.control.beginSession(id);
+    yield* service.control.beginAttempt(id);
+    expect(service.read().recordingError).toBe("Could not save reconnect measurements.");
+    available = true;
+    yield* service.control.beginAttempt(id);
+    yield* service.control.finishAttempt(id, "failed");
+    expect(service.read().recordingError).toBeNull();
+  }).pipe(Effect.scoped),
 );
 
 it.effect("reconnects in the previous mode when saving a mode fails", () =>
@@ -159,7 +176,7 @@ it.effect("randomizes ordinary sessions once and keeps their assigned mode stabl
 
 it.effect("records ordinary retries with one arm and starts a new event after readiness", () =>
   Effect.gen(function* () {
-    const rows = new Map<string, string>();
+    const rows = new Map<string, string>([["install", "fixture-install"]]);
     const service = yield* make.pipe(
       Effect.provide(
         Layer.mock(Database.MobileDatabase)({
@@ -175,11 +192,10 @@ it.effect("records ordinary retries with one arm and starts a new event after re
     using uuid = vi
       .spyOn(Crypto, "randomUUID")
       .mockReturnValueOnce("ff000000-0000-4000-8000-000000000001")
-      .mockReturnValueOnce("12000000-0000-4000-8000-000000000001")
       .mockReturnValueOnce("00000000-0000-4000-8000-000000000001");
     service.control.beginSession(id);
-    yield* service.control.beginAttempt?.(id) ?? Effect.void;
-    yield* service.control.finishAttempt?.(id, "failed") ?? Effect.void;
+    yield* service.control.beginAttempt(id);
+    yield* service.control.finishAttempt(id, "failed");
     const attempts = () =>
       [...rows.values()]
         .filter((s) => s.startsWith("{"))
@@ -209,7 +225,7 @@ it.effect("records ordinary retries with one arm and starts a new event after re
     expect(attempts()[0]!.runId.split(".")[0]).toBe(attempts()[1]!.runId.split(".")[0]);
     service.control.beginSession(id);
     expect(service.control.mode(id)).toBe("proposed");
-    expect(uuid).toHaveBeenCalledTimes(3);
+    expect(uuid).toHaveBeenCalledTimes(2);
     yield* service.control.beginAttempt(id);
     const pendingBefore = rows.size;
     yield* service.upload(id, {} as EnvironmentRegistry.EnvironmentRegistry["Service"]);
@@ -222,7 +238,173 @@ it.effect("records ordinary retries with one arm and starts a new event after re
       cappedReadyMs: 60_000,
     });
     service.control.beginSession(id);
-    expect(uuid).toHaveBeenCalledTimes(3);
+    expect(uuid).toHaveBeenCalledTimes(2);
+  }).pipe(Effect.scoped),
+);
+
+it.effect("records supervisor failures and interruption while cancelling a stalled upload", () =>
+  Effect.gen(function* () {
+    const rows = new Map<string, string>([["install", "fixture-install"]]);
+    const service = yield* make.pipe(
+      Effect.provide(
+        Layer.mock(Database.MobileDatabase)({
+          loadCache: (_env, _kind, key) => Effect.succeed(Option.fromUndefinedOr(rows.get(key))),
+          saveCache: (_env, _kind, key, _version, value) =>
+            Effect.sync(() => {
+              rows.set(key, value);
+            }),
+          listCache: () => Effect.sync(() => [...rows.values()]),
+          removeCache: (_env, _kind, key) =>
+            Effect.sync(() => {
+              rows.delete(key);
+            }),
+        }),
+      ),
+    );
+    const id = EnvironmentId.make("fixture");
+    const target = new PrimaryConnectionTarget({
+      environmentId: id,
+      label: "Fixture",
+      httpBaseUrl: "https://fixture.invalid",
+      wsBaseUrl: "wss://fixture.invalid",
+    });
+    const prepared: PreparedConnection = {
+      environmentId: id,
+      label: target.label,
+      httpBaseUrl: target.httpBaseUrl,
+      socketUrl: "wss://fixture.invalid/ws",
+      httpAuthorization: null,
+      target,
+    };
+    const uploadStarted = yield* Deferred.make<void>();
+    const uploadCancelled = yield* Deferred.make<void>();
+    const stalledAttempt = yield* Deferred.make<void>();
+    const closed = yield* Deferred.make<never, ConnectionTransientError>();
+    const config = {
+      providers: [],
+      environment: { serverVersion: "fixture" },
+    } as unknown as ServerConfig;
+    const session = {
+      client: {
+        [WS_METHODS.serverRecordReconnectComparison]: () =>
+          Deferred.succeed(uploadStarted, undefined).pipe(
+            Effect.andThen(Effect.never),
+            Effect.ensuring(Deferred.succeed(uploadCancelled, undefined)),
+          ),
+      },
+      initialConfig: Effect.succeed(config),
+      subscribeServerConfig: () => Stream.never,
+      ready: Effect.void,
+      probe: Effect.void,
+      inboundFrames: Effect.succeed(0),
+      closed: Deferred.await(closed),
+    } as unknown as RpcSession;
+    let connects = 0;
+    using _uuid = vi
+      .spyOn(Crypto, "randomUUID")
+      .mockReturnValueOnce("ff000000-0000-4000-8000-000000000001")
+      .mockReturnValueOnce("00000000-0000-4000-8000-000000000002")
+      .mockReturnValueOnce("ff000000-0000-4000-8000-000000000003");
+    const supervisor = yield* EnvironmentSupervisor.make({
+      target,
+      profile: Option.none(),
+      enabled: true,
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.succeed(Connectivity.Connectivity, {
+            status: Effect.succeed("online" as const),
+            changes: Stream.succeed("online" as const),
+          }),
+          Layer.succeed(Wakeups.ConnectionWakeups, { changes: Stream.never }),
+          Layer.succeed(Driver.ConnectionDriver, {
+            preflight: () => Effect.succeed("ready"),
+            checkHost: () => Effect.succeed("unchecked"),
+            connect: (_entry, report) =>
+              Effect.gen(function* () {
+                connects++;
+                if (connects === 2)
+                  return yield* new ConnectionTransientError({
+                    reason: "transport",
+                    detail: "Preflight failed",
+                  });
+                yield* report({ stage: "synchronizing", prepared });
+                if (connects === 4)
+                  return yield* Deferred.succeed(stalledAttempt, undefined).pipe(
+                    Effect.andThen(Effect.never),
+                  );
+                const observer = service.control.observe(id, target.httpBaseUrl)!;
+                observer.socket();
+                observer.config(config, 0);
+                yield* observer.synchronized(v2ShellSnapshot);
+                return {
+                  prepared,
+                  session: { ...session, closed: connects === 1 ? session.closed : Effect.never },
+                };
+              }),
+          }),
+        ),
+      ),
+      Effect.provideService(Comparison.ReconnectComparison, service.control),
+    );
+    const registry = yield* Effect.service(EnvironmentRegistry.EnvironmentRegistry).pipe(
+      Effect.provide(
+        Layer.mock(EnvironmentRegistry.EnvironmentRegistry)({
+          entries: yield* SubscriptionRef.make<ReadonlyMap<EnvironmentId, ConnectionCatalogEntry>>(
+            new Map(),
+          ),
+          networkStatus: yield* SubscriptionRef.make<"online" | "offline" | "unknown">("online"),
+          run: (_id, effect) =>
+            effect.pipe(
+              Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+            ),
+        }),
+      ),
+    );
+    const phase = (wanted: "connected" | "backoff" | "available") =>
+      SubscriptionRef.changes(supervisor.state).pipe(
+        Stream.filter((state) => state.phase === wanted),
+        Stream.runHead,
+      );
+    yield* supervisor.connect;
+    yield* phase("connected");
+    yield* Queue.take(service.recordsSaved);
+    const uploading = yield* service.upload(id, registry).pipe(Effect.forkScoped);
+    yield* Deferred.await(uploadStarted);
+    const queuedUpload = yield* service.upload(id, registry).pipe(Effect.forkScoped);
+    yield* Deferred.fail(
+      closed,
+      new ConnectionTransientError({ reason: "transport", detail: "Network dropped" }),
+    );
+    yield* phase("backoff");
+    yield* supervisor.retryNow;
+    yield* Deferred.await(uploadCancelled);
+    yield* Queue.take(service.recordsSaved);
+    yield* phase("backoff");
+    yield* supervisor.retryNow;
+    yield* phase("connected");
+    yield* Queue.take(service.recordsSaved);
+    const attempts = () =>
+      [...rows.values()]
+        .filter((value) => value.startsWith("{"))
+        .map((value) => decoder(value))
+        .filter((row) => row.kind === "attempt");
+    expect(attempts().map((row) => [row.mode, row.outcome])).toEqual([
+      ["baseline", "ready"],
+      ["proposed", "failed"],
+      ["proposed", "ready"],
+    ]);
+    expect(attempts()[1]!.runId.split(".")[0]).toBe(attempts()[2]!.runId.split(".")[0]);
+    yield* Fiber.await(uploading);
+    yield* Fiber.await(queuedUpload);
+    yield* supervisor.disconnect;
+    yield* phase("available");
+    yield* supervisor.connect;
+    yield* Deferred.await(stalledAttempt);
+    yield* supervisor.disconnect;
+    yield* Queue.take(service.recordsSaved);
+    yield* phase("available");
+    expect(attempts()[3]).toMatchObject({ outcome: "interrupted", mode: "baseline" });
   }).pipe(Effect.scoped),
 );
 
