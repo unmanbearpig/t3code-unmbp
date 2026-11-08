@@ -2,6 +2,8 @@ import { EnvironmentRegistry } from "@t3tools/client-runtime/connection";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, ReconnectComparisonMode } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Cause from "effect/Cause";
+import * as Option from "effect/Option";
 import { Atom, AsyncResult } from "effect/reactivity";
 import { useState, useSyncExternalStore } from "react";
 import { Share, View } from "react-native";
@@ -12,6 +14,7 @@ import { environmentCatalog } from "../../connection/catalog";
 import { connectionAtomRuntime } from "../../connection/runtime";
 import { environmentShell } from "../../state/shell";
 import { SettingsSection } from "../settings/components/SettingsSection";
+import { SettingsSwitchRow } from "../settings/components/SettingsSwitchRow";
 import { MobileReconnectComparison, ROUNDS, BUILD_ID } from "./reconnect-comparison";
 import * as MobileDatabase from "../../persistence/mobile-database";
 
@@ -37,6 +40,14 @@ const uploadAtom = connectionAtomRuntime.fn((environmentId: EnvironmentId) =>
     const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
     yield* service.upload(environmentId, registry);
   }),
+);
+const randomizedAtom = connectionAtomRuntime.fn(
+  (input: { environmentId: EnvironmentId; enabled: boolean }) =>
+    Effect.gen(function* () {
+      const service = yield* MobileReconnectComparison;
+      const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+      yield* service.setRandomized(input, registry);
+    }),
 );
 const shareAtom = connectionAtomRuntime.fn((_input: void) =>
   Effect.gen(function* () {
@@ -90,30 +101,45 @@ function LoadedComparison(props: {
   const result = useAtomValue(runAtom);
   const choose = useAtomSet(chooseAtom);
   const choosing = useAtomValue(chooseAtom);
+  const setRandomized = useAtomSet(randomizedAtom);
+  const randomizing = useAtomValue(randomizedAtom);
   const upload = useAtomSet(uploadAtom);
   const share = useAtomSet(shareAtom);
-  const busy = status.running || choosing.waiting;
+  const busy = status.running || result.waiting || choosing.waiting || randomizing.waiting;
+  const error = AsyncResult.isFailure(result)
+    ? Option.getOrNull(Cause.findErrorOption(result.cause))
+    : null;
   return (
     <View className="gap-3">
       <SettingsSection title="Connection mode">
-        {(["baseline", "proposed"] as const).map((mode) => (
-          <SelectionRow
-            key={mode}
-            title={mode === "baseline" ? "Baseline" : "Proposed caching"}
-            selected={status.mode === mode}
-            disabled={busy}
-            onPress={() => choose({ environmentId: props.environmentId, mode })}
-          />
-        ))}
+        <SettingsSwitchRow
+          label="Randomized reconnect A/B"
+          value={status.randomized}
+          disabled={busy}
+          onValueChange={(enabled) =>
+            setRandomized({ environmentId: props.environmentId, enabled })
+          }
+        />
+        {status.randomized
+          ? null
+          : (["baseline", "proposed"] as const).map((mode) => (
+              <SelectionRow
+                key={mode}
+                title={mode === "baseline" ? "Baseline" : "Proposed caching"}
+                selected={status.mode === mode}
+                disabled={busy}
+                onPress={() => choose({ environmentId: props.environmentId, mode })}
+              />
+            ))}
       </SettingsSection>
       <SettingsSection title="Paired reconnect test">
         <ListActionRow
           icon="arrow.clockwise"
-          label={`Run ${ROUNDS} pairs`}
+          label={result.waiting && !status.running ? "Connecting..." : `Run ${ROUNDS} pairs`}
           disabled={busy}
           onPress={() => run(props.environmentId)}
         />
-        {status.running ? (
+        {result.waiting ? (
           <ListActionRow icon="stop.fill" label="Stop" onPress={() => run(Atom.Interrupt)} />
         ) : null}
         <ListActionRow
@@ -135,12 +161,19 @@ function LoadedComparison(props: {
       >{`${BUILD_ID}\n${status.completed}/${status.total} attempts · ${status.pending} pending`}</Text>
       {AsyncResult.isFailure(result) ? (
         <Text selectable className="px-2 text-sm text-danger-foreground">
-          {String(result.cause).slice(0, 240)}
+          {error instanceof Error
+            ? error.message
+            : "Could not start the comparison. Check the connection and try again."}
         </Text>
       ) : null}
       {AsyncResult.isFailure(choosing) ? (
         <Text className="px-2 text-sm text-danger-foreground">
           Could not switch connection mode
+        </Text>
+      ) : null}
+      {AsyncResult.isFailure(randomizing) ? (
+        <Text className="px-2 text-sm text-danger-foreground">
+          Could not save randomized reconnect A/B
         </Text>
       ) : null}
     </View>
