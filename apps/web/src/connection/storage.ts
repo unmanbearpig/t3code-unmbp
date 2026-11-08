@@ -838,7 +838,7 @@ export const layer = Layer.effectContext(
           ),
         })),
     });
-    const cacheStore = Persistence.EnvironmentCacheStore.of({
+    const cacheStore = yield* Persistence.shareServerConfigReads({
       loadShell: Effect.fn("Persistence.EnvironmentCacheStore.loadShell")(function (environmentId) {
         return readDatabaseValue(database, SHELL_STORE_NAME, environmentId).pipe(
           Effect.tap(() => Effect.promise(() => projectFaviconCache.hydrate())),

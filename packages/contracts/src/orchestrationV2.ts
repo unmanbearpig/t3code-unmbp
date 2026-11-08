@@ -3954,6 +3954,7 @@ export const OrchestrationV2SubscribeShellInput = Schema.Struct({
    * changed nothing since. A resume that still has the same identities does not resend them.
    */
   knownProjectIdentities: Schema.optionalKey(Schema.String),
+  projectsRevision: Schema.optionalKey(Schema.String),
   requestCompletionMarker: Schema.optionalKey(Schema.Boolean),
   /**
    * Snapshots leave out idle subagent children; read them with `getThreadFamily`. Send only to
