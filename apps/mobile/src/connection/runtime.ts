@@ -67,23 +67,32 @@ const layerUploads = Layer.effectDiscard(
   Effect.gen(function* () {
     const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
     const service = yield* MobileReconnectComparison;
-    yield* SubscriptionRef.changes(registry.entries).pipe(
+    const connected = SubscriptionRef.changes(registry.entries).pipe(
       Stream.switchMap((entries) =>
         Stream.mergeAll({ concurrency: "unbounded" })(
           [...entries.keys()].map((environmentId) =>
             registry.stateChanges(environmentId).pipe(
               Stream.filter((state) => state.phase === "connected"),
-              Stream.runForEach(() =>
-                service.read().running
-                  ? Effect.void
-                  : service.upload(environmentId, registry).pipe(Effect.ignore),
-              ),
-              Stream.fromEffect,
+              Stream.map(() => environmentId),
             ),
           ),
         ),
       ),
-      Stream.runDrain,
+    );
+    yield* Stream.merge(connected, Stream.fromQueue(service.recordsSaved)).pipe(
+      Stream.runForEach(() =>
+        service.isMeasuring()
+          ? Effect.void
+          : SubscriptionRef.get(registry.entries).pipe(
+              Effect.flatMap((entries) =>
+                Effect.forEach(
+                  [...entries.keys()],
+                  (environmentId) => service.upload(environmentId, registry).pipe(Effect.ignore),
+                  { discard: true },
+                ),
+              ),
+            ),
+      ),
       Effect.forkScoped,
     );
   }),

@@ -30,6 +30,7 @@ import * as RpcSession from "../rpc/session.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
 import * as ConnectionWakeups from "./wakeups.ts";
+import { ReconnectComparison } from "./reconnectComparison.ts";
 import {
   connectionRouteId,
   connectionRouteKind,
@@ -293,6 +294,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const connectivity = yield* Connectivity.Connectivity;
   const driver = yield* ConnectionDriver.ConnectionDriver;
   const wakeups = yield* ConnectionWakeups.ConnectionWakeups;
+  const comparison = yield* ReconnectComparison;
   // The primary environment served this client or runs beside it on loopback,
   // so the device reporting offline (often wrongly) never parks it. The report
   // still probes its live session, like any other network change.
@@ -881,6 +883,8 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     pendingRetry: Option.Option<PendingRetryTrace>,
     ignoreOffline: boolean,
   ) {
+    comparison?.beginSession?.(target.environmentId);
+    yield* comparison?.beginAttempt?.(target.environmentId) ?? Effect.void;
     const switchingTo = yield* Ref.get(preferredRouteId);
     yield* SubscriptionRef.set(prepared, Option.none());
     const synchronizedRoutes = yield* Ref.make(0);
@@ -1107,6 +1111,7 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       }
       const currentIntent = yield* Ref.get(intent);
       if (!currentIntent.desired) {
+        comparison?.reset?.(target.environmentId);
         resetRetryLadder();
         latestFailure = null;
         yield* clearLease;
@@ -1128,6 +1133,14 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       const nextGeneration = generation + 1;
       const outcome: AttemptOutcome = yield* Effect.scoped(
         runAttempt(attempt, nextGeneration, latestFailure, pendingRetry, replacing),
+      ).pipe(
+        Effect.onExit(
+          (exit) =>
+            comparison?.finishAttempt?.(
+              target.environmentId,
+              Exit.isSuccess(exit) && exit.value._tag === "Failure" ? "failed" : "interrupted",
+            ) ?? Effect.void,
+        ),
       );
       replacing = false;
       const failedProbe = yield* Ref.getAndSet(probeUnanswered, false);

@@ -196,7 +196,6 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
   const configStore = yield* Effect.serviceOption(Persistence.EnvironmentCacheStore);
 
   const connect = Effect.fnUntraced(function* (connection: PreparedConnection) {
-    comparison?.beginSession?.(connection.environmentId);
     const snapshotReuse = comparison?.mode(connection.environmentId) !== "baseline";
     const observation = comparison?.observe(
       connection.environmentId,

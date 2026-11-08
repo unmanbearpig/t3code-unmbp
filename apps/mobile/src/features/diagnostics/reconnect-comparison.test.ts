@@ -27,8 +27,9 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as TestClock from "effect/testing/TestClock";
+import * as Queue from "effect/Queue";
 import * as Database from "../../persistence/mobile-database";
-import { make, ROUNDS } from "./reconnect-comparison";
+import { make, ROUNDS, NATURAL_PROTOCOL_ID } from "./reconnect-comparison";
 
 const decoder = Schema.decodeUnknownSync(Schema.fromJsonString(ReconnectComparisonRecord));
 
@@ -50,6 +51,7 @@ it.effect("starts in baseline when diagnostics storage is unavailable", () =>
       ),
     );
     expect(service.read().mode).toBe("baseline");
+    expect(service.read().randomized).toBe(true);
     expect(writes).toBe(0);
   }),
 );
@@ -147,10 +149,81 @@ it.effect("randomizes ordinary sessions once and keeps their assigned mode stabl
     expect(service.control.mode(id)).toBe("baseline");
     expect(service.control.mode(id)).toBe("baseline");
     service.control.beginSession(id);
-    expect(service.control.mode(id)).toBe("proposed");
+    expect(service.control.mode(id)).toBe("baseline");
+    yield* service.control.observe(id, "https://fixture.invalid")!.synchronized(v2ShellSnapshot);
+    service.control.beginSession(id);
     expect(service.control.mode(id)).toBe("proposed");
     expect(uuid).toHaveBeenCalledTimes(2);
   }),
+);
+
+it.effect("records ordinary retries with one arm and starts a new event after readiness", () =>
+  Effect.gen(function* () {
+    const rows = new Map<string, string>();
+    const service = yield* make.pipe(
+      Effect.provide(
+        Layer.mock(Database.MobileDatabase)({
+          loadCache: (_env, _kind, key) => Effect.succeed(Option.fromUndefinedOr(rows.get(key))),
+          saveCache: (_env, _kind, key, _version, value) =>
+            Effect.sync(() => {
+              rows.set(key, value);
+            }),
+        }),
+      ),
+    );
+    const id = EnvironmentId.make("fixture");
+    using uuid = vi
+      .spyOn(Crypto, "randomUUID")
+      .mockReturnValueOnce("ff000000-0000-4000-8000-000000000001")
+      .mockReturnValueOnce("12000000-0000-4000-8000-000000000001")
+      .mockReturnValueOnce("00000000-0000-4000-8000-000000000001");
+    service.control.beginSession(id);
+    yield* service.control.beginAttempt?.(id) ?? Effect.void;
+    yield* service.control.finishAttempt?.(id, "failed") ?? Effect.void;
+    const attempts = () =>
+      [...rows.values()]
+        .filter((s) => s.startsWith("{"))
+        .map((value) => decoder(value))
+        .filter((r) => r.kind === "attempt");
+    expect(attempts()).toHaveLength(1);
+    expect(attempts()[0]).toMatchObject({
+      mode: "baseline",
+      outcome: "failed",
+      socketCount: 0,
+      protocolId: NATURAL_PROTOCOL_ID,
+    });
+    yield* Queue.take(service.recordsSaved);
+    service.control.beginSession(id);
+    expect(service.control.mode(id)).toBe("baseline");
+    yield* service.control.beginAttempt(id);
+    const observer = service.control.observe(id, "https://fixture.invalid")!;
+    observer.socket();
+    observer.config(
+      { providers: [], environment: { serverVersion: "fixture" } } as unknown as ServerConfig,
+      0,
+    );
+    yield* observer.synchronized(v2ShellSnapshot);
+    yield* Queue.take(service.recordsSaved);
+    expect(attempts()).toHaveLength(2);
+    expect(attempts()[1]).toMatchObject({ mode: "baseline", outcome: "ready" });
+    expect(attempts()[0]!.runId.split(".")[0]).toBe(attempts()[1]!.runId.split(".")[0]);
+    service.control.beginSession(id);
+    expect(service.control.mode(id)).toBe("proposed");
+    expect(uuid).toHaveBeenCalledTimes(3);
+    yield* service.control.beginAttempt(id);
+    const pendingBefore = rows.size;
+    yield* service.upload(id, {} as EnvironmentRegistry.EnvironmentRegistry["Service"]);
+    expect(rows.size).toBe(pendingBefore);
+    yield* TestClock.adjust("60 seconds");
+    yield* Queue.take(service.recordsSaved);
+    expect(attempts()[2]).toMatchObject({
+      mode: "proposed",
+      outcome: "timeout",
+      cappedReadyMs: 60_000,
+    });
+    service.control.beginSession(id);
+    expect(uuid).toHaveBeenCalledTimes(3);
+  }).pipe(Effect.scoped),
 );
 
 it.effect.each(["timeout", "interrupted", "connecting", "unavailable"] as const)(
