@@ -176,6 +176,9 @@ function LoadedComparison(props: {
           Could not save randomized reconnect A/B
         </Text>
       ) : null}
+      {status.recordingError === null ? null : (
+        <Text className="px-2 text-sm text-danger-foreground">{status.recordingError}</Text>
+      )}
     </View>
   );
 }
