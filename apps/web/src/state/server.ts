@@ -1,3 +1,4 @@
+import { mergeWithDefaultKeybindings } from "@t3tools/shared/keybindings";
 import {
   DEFAULT_SERVER_SETTINGS,
   type EditorId,
@@ -18,7 +19,6 @@ import {
 import { createServerEnvironmentAtoms } from "@t3tools/client-runtime/state/server";
 import { createOutdatedServerUpdateCommand } from "@t3tools/client-runtime/state/outdatedServerUpdate";
 import { createEnvironmentServerConfigsAtom } from "@t3tools/client-runtime/state/shell";
-import { mergeWithDefaultKeybindings } from "@t3tools/shared/keybindings";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 
@@ -127,13 +127,19 @@ export function createShortcutKeybindingsAtom(input: {
   const customAtom = Atom.make((get) => {
     if (get(input.primaryEnvironmentIdAtom) !== null) {
       // A primary stays authoritative while its config loads.
-      return get(input.primaryConfigAtom)?.keybindings ?? null;
+      return get(input.primaryConfigAtom) ?? null;
     }
     const environments = [...get(input.environmentsAtom).values()];
-    return environments.find(isConnectedWithConfig)?.serverConfig?.keybindings ?? null;
+    return environments.find(isConnectedWithConfig)?.serverConfig ?? null;
   });
+  const bindings = Atom.make((get) => get(customAtom)?.keybindings ?? null);
+  const supportsLeader = Atom.make(
+    (get) => get(customAtom)?.environment?.capabilities.leaderKeybindings === true,
+  );
   return Atom.make((get): ServerConfig["keybindings"] =>
-    mergeWithDefaultKeybindings(get(customAtom) ?? []),
+    mergeWithDefaultKeybindings(get(bindings) ?? [], {
+      leaderBindingsSupported: get(supportsLeader),
+    }),
   );
 }
 

@@ -32,6 +32,7 @@ import {
   useScheduledTaskEditor,
 } from "./scheduled-task-editor";
 import { moveDraftToThread, unbindDraftFromThread } from "./scheduledTaskDraft";
+import { useScheduledTaskBaseRef } from "./useScheduledTaskBaseRef";
 
 function MissingTaskDraft() {
   return (
@@ -141,6 +142,12 @@ export function ScheduledTaskBranchPickerRouteScreen() {
     cwd: project?.workspaceRoot ?? null,
     query: debouncedQuery,
   });
+  const { baseRef } = useScheduledTaskBaseRef({
+    environmentId: editor?.environmentId ?? null,
+    cwd: project?.workspaceRoot ?? null,
+    chosen: editor?.draft.baseRef ?? "",
+    worktree: editor?.draft.workspace === "worktree",
+  });
   const visibleBranches = branches.refs.filter(
     (branch) => !branch.isRemote && branch.name.toLowerCase().includes(query.trim().toLowerCase()),
   );
@@ -152,7 +159,7 @@ export function ScheduledTaskBranchPickerRouteScreen() {
       title="Base branch"
       project={project}
       branches={visibleBranches}
-      selectedBranchName={editor.draft.baseRef}
+      selectedBranchName={baseRef}
       query={query}
       onQueryChange={setQuery}
       loading={

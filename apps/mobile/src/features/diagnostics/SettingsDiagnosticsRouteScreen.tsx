@@ -1,3 +1,4 @@
+import { PerformanceLogSection } from "./PerformanceLogSection";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import * as Application from "expo-application";
@@ -102,6 +103,7 @@ export function SettingsDiagnosticsRouteScreen() {
         contentContainerClassName="gap-6 px-5 pt-4 pb-[18px]"
       >
         {crashReportingAvailable ? <CrashReportsSetting /> : null}
+        <PerformanceLogSection />
 
         <SettingsSection title="Startup crashes">
           {state.status === "loading" ? (

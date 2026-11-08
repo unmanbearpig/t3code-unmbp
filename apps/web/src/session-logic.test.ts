@@ -1071,6 +1071,49 @@ describe("native provider presentation in the v2 timeline", () => {
     item,
   });
 
+  it("keeps a question reply visible when it arrives after the original turn completed", () => {
+    const requestId = RuntimeRequestId.make("late-question");
+    const question: OrchestrationV2TurnItem = {
+      ...base,
+      type: "user_input_request",
+      requestId,
+      questions: [],
+      questionAnswer: {
+        requestId,
+        answers: { reply: "The controls are invisible" },
+        attachmentsByQuestionId: {},
+      },
+    };
+    const final: OrchestrationV2TurnItem = {
+      ...base,
+      id: TurnItemId.make("final"),
+      type: "assistant_message",
+      messageId: MessageId.make("final"),
+      text: "Previous response",
+      streaming: false,
+    };
+    const reply: OrchestrationV2TurnItem = {
+      ...base,
+      id: TurnItemId.make("late-reply"),
+      runId: RunId.make("resumed-run"),
+      type: "user_message",
+      messageId: MessageId.make(`async-answer:${requestId}`),
+      inputIntent: "turn_start",
+      text: "The controls are invisible",
+      createdBy: "user",
+      creationSource: "server",
+      attachments: [],
+    };
+    const input = { visibleTurnItems: [visible(question), visible(final)], optimisticMessages: [] };
+    const previous = deriveTimelineEntriesFromVisibleTurnItemsWithState(input);
+    const nextInput = { ...input, visibleTurnItems: [...input.visibleTurnItems, visible(reply)] };
+    const next = deriveTimelineEntriesFromVisibleTurnItemsWithState(nextInput, previous);
+    expect(next.entries).toEqual(deriveTimelineEntriesFromVisibleTurnItems(nextInput));
+    expect(
+      next.entries.filter((entry) => entry.kind === "message").map((entry) => entry.id),
+    ).toEqual([final.messageId, reply.messageId]);
+  });
+
   it("keeps async answers in the question row, including incrementally appended replies", () => {
     const requestId = RuntimeRequestId.make("question");
     const question: OrchestrationV2TurnItem = {

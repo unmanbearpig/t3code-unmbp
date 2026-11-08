@@ -3,6 +3,7 @@ import {
   snapShotModifierPairLabel,
   snapShotShortcutModifierPair,
   type KeybindingShortcut,
+  type AppKeybindingShortcut,
   type SnapShotModifier,
   type SnapShotShortcut,
 } from "@t3tools/contracts";
@@ -108,7 +109,10 @@ export function sameSnapShotShortcut(
 
 export function snapShotKeybindingConflict<Command extends string>(
   shortcut: SnapShotShortcut,
-  keybindings: ReadonlyArray<{ readonly command: Command; readonly shortcut: KeybindingShortcut }>,
+  keybindings: ReadonlyArray<{
+    readonly command: Command;
+    readonly shortcut: AppKeybindingShortcut;
+  }>,
   platform = navigator.platform,
 ): Command | null {
   if (isModifierPairShortcut(shortcut)) return null;

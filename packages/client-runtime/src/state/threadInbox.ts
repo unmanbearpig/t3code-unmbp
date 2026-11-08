@@ -1,7 +1,9 @@
 // @effect-diagnostics globalTimers:off - Shelf placement timers run in web and native clients, outside an Effect runtime.
 import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
-import { toSortableTimestamp } from "./threadSort.ts";
-import { effectiveSnoozed } from "./threadSettled.ts";
+import type { ScopedThreadRef } from "@t3tools/contracts";
+import { scopedThreadKey } from "../environment/scoped.ts";
+import { effectiveSnoozed, isFiledAsSettled } from "./threadSettled.ts";
+import { sortActiveThreadsByOrderKey, toSortableTimestamp } from "./threadSort.ts";
 
 type WorkingThreadInput = Pick<
   EnvironmentThreadShell,
@@ -12,9 +14,11 @@ type WorkingThreadInput = Pick<
   | "interactionMode"
   | "latestRun"
   | "runtime"
+  | "environmentConnected"
 >;
 
 export function isThreadWorking(thread: WorkingThreadInput): boolean {
+  if (thread.environmentConnected === false) return false;
   if (thread.hasPendingApprovals || thread.hasPendingUserInput) return false;
   if (thread.pendingSubagentRequest != null) return false;
   if (!threadRuntimeIsActive(thread.runtime) && thread.runtime?.status !== "idle") return false;
@@ -30,28 +34,56 @@ export function isThreadWorking(thread: WorkingThreadInput): boolean {
   return !(thread.interactionMode === "plan" && thread.hasActionableProposedPlan && runSettled);
 }
 
+/** Follow the order captured before settling, checking each candidate's current state. */
+export function findNextActionableThread(input: {
+  readonly threadRef: ScopedThreadRef;
+  readonly orderedThreadRefs: readonly ScopedThreadRef[];
+  readonly readThread: (ref: ScopedThreadRef) => EnvironmentThreadShell | null;
+  readonly excludedThreadKeys?: ReadonlySet<string> | undefined;
+  readonly now: string;
+}): EnvironmentThreadShell | null {
+  const currentKey = scopedThreadKey(input.threadRef);
+  const index = input.orderedThreadRefs.findIndex((ref) => scopedThreadKey(ref) === currentKey);
+  if (index === -1) return null;
+  for (let offset = 1; offset < input.orderedThreadRefs.length; offset += 1) {
+    const ref = input.orderedThreadRefs[(index + offset) % input.orderedThreadRefs.length]!;
+    if (scopedThreadKey(ref) === currentKey || input.excludedThreadKeys?.has(scopedThreadKey(ref)))
+      continue;
+    const thread = input.readThread(ref);
+    if (
+      thread !== null &&
+      thread.environmentConnected !== false &&
+      thread.archivedAt === null &&
+      thread.deletedAt === null &&
+      !isFiledAsSettled(thread) &&
+      !effectiveSnoozed(thread, { now: input.now }) &&
+      !isThreadWorking(thread)
+    ) {
+      return thread;
+    }
+  }
+  return null;
+}
+
 type InboxThreadInput = Pick<
   EnvironmentThreadShell,
   "id" | "environmentId" | "createdAt" | "unsettledAt" | "latestRun"
->;
+> &
+  Partial<Pick<EnvironmentThreadShell, "activeOrderKey">>;
 
 export function sortInboxThreadsByReturn<T extends InboxThreadInput>(
   threads: readonly T[],
   observedReturnAt?: (thread: T) => number | undefined,
 ): T[] {
-  const timestamps = new Map(
-    threads.map((thread) => [
-      thread,
-      Math.max(
-        toSortableTimestamp(thread.createdAt) ?? 0,
-        toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
-        toSortableTimestamp(thread.latestRun?.requestedAt ?? undefined) ?? 0,
-        toSortableTimestamp(thread.latestRun?.completedAt ?? undefined) ?? 0,
-        observedReturnAt?.(thread) ?? 0,
-      ),
-    ]),
+  return sortActiveThreadsByOrderKey(threads, (thread) =>
+    Math.max(
+      toSortableTimestamp(thread.createdAt) ?? 0,
+      toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
+      toSortableTimestamp(thread.latestRun?.requestedAt ?? undefined) ?? 0,
+      toSortableTimestamp(thread.latestRun?.completedAt ?? undefined) ?? 0,
+      observedReturnAt?.(thread) ?? 0,
+    ),
   );
-  return sortNewestFirst(threads, timestamps);
 }
 
 type WorkingSortInput = Pick<
@@ -112,7 +144,7 @@ type ThreadKeyInput = Pick<EnvironmentThreadShell, "environmentId" | "id">;
  * run can end moments before its continuation starts, so clients wait this long
  * before treating the thread as done.
  */
-const WORKING_EXIT_GRACE_MS = 2_000;
+export const WORKING_EXIT_GRACE_MS = 2_000;
 
 /**
  * Keep one at module scope so placement survives routes that unmount the list. Call
@@ -185,7 +217,9 @@ export function createInboxReturnTracker() {
         const key = keyOf(thread);
         present.add(key);
         const previous = states.get(key);
-        const actual = isThreadWorking(thread);
+        const actual =
+          isThreadWorking(thread) ||
+          (thread.environmentConnected === false && previous?.working === true);
         const placement =
           actual || previous?.working
             ? JSON.stringify([

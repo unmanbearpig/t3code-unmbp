@@ -16,6 +16,8 @@ import {
 } from "@t3tools/contracts";
 import { ToolCallVisibility } from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
+import { LeaderShortcut } from "@t3tools/contracts/settings";
+import { parseKeybindingShortcut } from "@t3tools/shared/keybindings";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
 import { isMicrophoneKind, type MicrophoneEntry } from "../lib/microphonePriority";
@@ -23,6 +25,8 @@ import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../l
 import * as MobileDatabase from "./mobile-database";
 import * as MobileSecureStorage from "./mobile-secure-storage";
 import { MobileStorageDecodeError, MobileStorageEncodeError } from "./mobile-storage";
+
+const isLeaderShortcut = Schema.is(LeaderShortcut);
 
 const PREFERENCES_KEY = "t3code.preferences";
 const PREFERENCES_FALLBACK_KEY = "t3code.preferences.fallback";
@@ -93,6 +97,7 @@ export interface Preferences {
   readonly hiddenNavigationTabs?: readonly string[];
   readonly pullRequestHideTestFiles?: boolean;
   readonly pullRequestMergeMethod?: PullRequestMergeMethod;
+  readonly leaderShortcut?: string | null;
   readonly liveActivitiesEnabled?: boolean;
   readonly themeId?: MobileThemeId;
   readonly lightThemeId?: MobileThemeId;
@@ -180,6 +185,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     hiddenNavigationTabs?: readonly string[];
     pullRequestHideTestFiles?: boolean;
     pullRequestMergeMethod?: PullRequestMergeMethod;
+    leaderShortcut?: string | null;
     liveActivitiesEnabled?: boolean;
     themeId?: MobileThemeId;
     lightThemeId?: MobileThemeId;
@@ -239,6 +245,13 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     preferences.pullRequestMergeMethod = parsed.pullRequestMergeMethod;
   }
 
+  if (
+    parsed.leaderShortcut === null ||
+    (typeof parsed.leaderShortcut === "string" &&
+      isLeaderShortcut(parseKeybindingShortcut(parsed.leaderShortcut)))
+  ) {
+    preferences.leaderShortcut = parsed.leaderShortcut;
+  }
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
     preferences.liveActivitiesEnabled = parsed.liveActivitiesEnabled;
   }

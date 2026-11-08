@@ -542,6 +542,10 @@
     "./speech": {
       "types": "./src/speech.ts",
       "import": "./src/speech.ts"
+    },
+    "./leaderKey": {
+      "types": "./src/leaderKey.ts",
+      "import": "./src/leaderKey.ts"
     }
   },
   "scripts": {

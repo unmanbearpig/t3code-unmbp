@@ -11,6 +11,34 @@ type TimelineTurnItem = Pick<OrchestrationV2TurnItem, "type" | "runId" | "nodeId
   readonly inputIntent?: OrchestrationV2UserMessageInputIntent;
 };
 
+export type UserInputAnswerTimelineItem = Pick<OrchestrationV2TurnItem, "type" | "runId"> & {
+  readonly messageId?: string | undefined;
+  readonly questionAnswer?: { readonly requestId: string } | undefined;
+};
+
+export function getFoldedUserInputAnswerMessageIds(
+  rows: ReadonlyArray<{ readonly item: UserInputAnswerTimelineItem }>,
+) {
+  const questionRuns = new Map<string, OrchestrationV2TurnItem["runId"]>();
+  for (const { item } of rows) {
+    if (item.type === "user_input_request" && item.questionAnswer) {
+      questionRuns.set(`async-answer:${item.questionAnswer.requestId}`, item.runId);
+    }
+  }
+  const folded = new Set<string>();
+  for (const { item } of rows) {
+    // A late answer can start a new turn. Its user message must stay at that turn's start.
+    if (
+      item.type === "user_message" &&
+      item.messageId !== undefined &&
+      questionRuns.get(item.messageId) === item.runId
+    ) {
+      folded.add(item.messageId);
+    }
+  }
+  return folded;
+}
+
 export function isOrchestrationV2SupersededInterrupt(input: {
   readonly item: TimelineTurnItem;
   readonly attempts: ReadonlyArray<TimelineRunAttempt>;
