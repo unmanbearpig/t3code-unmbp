@@ -28,7 +28,7 @@ import * as Queue from "effect/Queue";
 import { makeObservation, network } from "./reconnect-observation";
 import * as MobileDatabase from "../../persistence/mobile-database";
 
-export const BUILD_ID = "upstream-ade473-snapshot-v3-r3";
+export const BUILD_ID = "upstream-ade473-snapshot-v3-r4";
 export const PROTOCOL_ID = "snapshot-reuse-v3-90-cellular-pairs";
 export const NATURAL_PROTOCOL_ID = "snapshot-reuse-v3-natural-reconnects";
 export const UPSTREAM_COMMIT = "ade473018d32003658b7d38693e083ee2e314bd8";
@@ -88,6 +88,8 @@ export const make = Effect.gen(function* () {
     for (const listener of listeners) listener();
   };
   let schedulingPaired = false;
+  let preparing = 0;
+  let uploadCancellation: Deferred.Deferred<void> | null = null;
   let active: {
     environmentId: EnvironmentId;
     mode: ReconnectComparisonMode;
@@ -193,7 +195,23 @@ export const make = Effect.gen(function* () {
         );
       },
       Effect.catchCause(() => Effect.sync(recordingFailed)),
-      uploadLock.withPermit,
+      (effect) =>
+        Effect.acquireUseRelease(
+          Effect.sync(() => {
+            preparing++;
+          }),
+          () =>
+            Effect.gen(function* () {
+              // A reconnect cancels diagnostic traffic before taking the measurement lock.
+              if (uploadCancellation !== null)
+                yield* Deferred.succeed(uploadCancellation, undefined);
+              yield* effect.pipe(uploadLock.withPermit);
+            }),
+          () =>
+            Effect.sync(() => {
+              preparing--;
+            }),
+        ),
     ),
     finishAttempt: Effect.fn("MobileReconnectComparison.finishAttempt")(function* (
       environmentId: EnvironmentId,
@@ -240,13 +258,15 @@ export const make = Effect.gen(function* () {
     },
   };
   const save = (record: ReconnectComparisonRecord) =>
-    database.saveCache(
-      record.environmentId,
-      "reconnect-comparison",
-      record.id,
-      2,
-      JSON.stringify(record),
-    );
+    database
+      .saveCache(record.environmentId, "reconnect-comparison", record.id, 2, JSON.stringify(record))
+      .pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            if (status.recordingError !== null) update({ recordingError: null });
+          }),
+        ),
+      );
   const installLock = yield* Semaphore.make(1);
   let knownInstallId: string | null = null;
   const getInstallId = Effect.fn("MobileReconnectComparison.installId")(function* () {
@@ -266,31 +286,44 @@ export const make = Effect.gen(function* () {
       // Device preferences share this cache kind but contain no record envelope.
       if (!json.startsWith("{")) continue;
       const record = yield* decodeRecord(json);
-      if (record.environmentId === environmentId) records.push(record);
+      records.push(record);
     }
-    return records;
+    update({ pending: records.length });
+    return records.filter((record) => record.environmentId === environmentId);
   });
   const upload = Effect.fn("MobileReconnectComparison.upload")(function* (
     environmentId: EnvironmentId,
     registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
   ) {
-    if (active !== null || ordinary.size > 0) return;
-    const records = yield* pending(environmentId);
-    update({ pending: records.length });
-    yield* registry.run(
-      environmentId,
+    if (preparing > 0 || active !== null || ordinary.size > 0) return;
+    const cancellation = yield* Deferred.make<void>();
+    uploadCancellation = cancellation;
+    yield* Effect.raceFirst(
       Effect.gen(function* () {
-        const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
-        const session = yield* SubscriptionRef.get(supervisor.session);
-        if (Option.isNone(session)) return;
-        for (let i = 0; i < records.length; i += 20) {
-          const batch = records.slice(i, i + 20);
-          yield* recordReconnectComparison(session.value, batch);
-          for (const record of batch)
-            yield* database.removeCache(environmentId, "reconnect-comparison", record.id);
-          update({ pending: records.length - Math.min(i + 20, records.length) });
-        }
+        const records = yield* pending(environmentId);
+        yield* registry.run(
+          environmentId,
+          Effect.gen(function* () {
+            const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+            const session = yield* SubscriptionRef.get(supervisor.session);
+            if (Option.isNone(session)) return;
+            for (let i = 0; i < records.length; i += 20) {
+              const batch = records.slice(i, i + 20);
+              yield* recordReconnectComparison(session.value, batch);
+              for (const record of batch)
+                yield* database.removeCache(environmentId, "reconnect-comparison", record.id);
+              update({ pending: Math.max(0, status.pending - batch.length) });
+            }
+          }),
+        );
       }),
+      Deferred.await(cancellation),
+    ).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          uploadCancellation = null;
+        }),
+      ),
     );
   }, uploadLock.withPermit);
   const waitDisconnected = (supervisor: EnvironmentSupervisor.EnvironmentSupervisor["Service"]) =>
@@ -503,7 +536,7 @@ export const make = Effect.gen(function* () {
   return {
     control,
     recordsSaved,
-    isMeasuring: () => schedulingPaired || status.running || ordinary.size > 0,
+    isMeasuring: () => preparing > 0 || schedulingPaired || status.running || ordinary.size > 0,
     choose,
     setRandomized,
     run,
