@@ -32,7 +32,7 @@ import { randomUUID, digestStringAsync, CryptoDigestAlgorithm } from "expo-crypt
 import { AppState } from "react-native";
 import * as MobileDatabase from "../../persistence/mobile-database";
 
-export const BUILD_ID = "upstream-ade473-snapshot-v2-r1";
+export const BUILD_ID = "upstream-ade473-snapshot-v2-r2";
 export const PROTOCOL_ID = "snapshot-reuse-v2-90-cellular-pairs";
 export const UPSTREAM_COMMIT = "ade473018d32003658b7d38693e083ee2e314bd8";
 const sourceCommit = process.env.EXPO_PUBLIC_RECONNECT_SOURCE ?? "development";
@@ -65,6 +65,7 @@ const network = Effect.promise(() => Network.getNetworkStateAsync()).pipe(
 
 interface Status {
   readonly mode: ReconnectComparisonMode;
+  readonly randomized: boolean;
   readonly running: boolean;
   readonly completed: number;
   readonly total: number;
@@ -93,10 +94,17 @@ export const make = Effect.gen(function* () {
   const savedMode = yield* database
     .loadCache(storageEnvironment, "reconnect-comparison", "mode")
     .pipe(Effect.orElseSucceed(() => Option.none<string>()));
+  let randomized = yield* database
+    .loadCache(storageEnvironment, "reconnect-comparison", "randomized")
+    .pipe(
+      Effect.map((saved) => Option.getOrElse(saved, () => "true") === "true"),
+      Effect.orElseSucceed(() => false),
+    );
   let preferred: ReconnectComparisonMode =
     Option.getOrNull(savedMode) === "proposed" ? "proposed" : "baseline";
   let status: Status = {
     mode: preferred,
+    randomized,
     running: false,
     completed: 0,
     total: 0,
@@ -113,9 +121,21 @@ export const make = Effect.gen(function* () {
     mode: ReconnectComparisonMode;
     observe: (origin: string) => Comparison.SessionObservation;
   } | null = null;
+  const assignedModes = new Map<EnvironmentId, ReconnectComparisonMode>();
   const control = {
+    beginSession: (environmentId: EnvironmentId) => {
+      if (!randomized || active?.environmentId === environmentId) return;
+      assignedModes.set(
+        environmentId,
+        Number.parseInt(randomUUID().slice(0, 2), 16) < 128 ? "proposed" : "baseline",
+      );
+    },
     mode: (environmentId: EnvironmentId) =>
-      active?.environmentId === environmentId ? active.mode : preferred,
+      active?.environmentId === environmentId
+        ? active.mode
+        : randomized
+          ? (assignedModes.get(environmentId) ?? "baseline")
+          : preferred,
     observe: (environmentId: EnvironmentId, origin: string) =>
       active?.environmentId === environmentId ? active.observe(origin) : undefined,
   };
@@ -168,6 +188,30 @@ export const make = Effect.gen(function* () {
       Stream.runHead,
       Effect.asVoid,
     );
+  const connectedSession = Effect.fn("MobileReconnectComparison.connectedSession")(function* (
+    supervisor: EnvironmentSupervisor.EnvironmentSupervisor["Service"],
+  ) {
+    const current = yield* SubscriptionRef.get(supervisor.session);
+    if (Option.isSome(current)) return current.value;
+    yield* supervisor.connect;
+    const available = yield* SubscriptionRef.changes(supervisor.session).pipe(
+      Stream.filter(Option.isSome),
+      Stream.map((session) => session.value),
+      Stream.runHead,
+      Effect.timeoutOrElse({
+        duration: "60 seconds",
+        orElse: () =>
+          Effect.fail(
+            new ComparisonUnavailable({
+              message: `Could not connect to ${supervisor.target.label}. Check the connection and try again.`,
+            }),
+          ),
+      }),
+    );
+    if (Option.isNone(available))
+      return yield* new ComparisonUnavailable({ message: "The environment connection closed." });
+    return available.value;
+  });
   const choose = Effect.fn("MobileReconnectComparison.choose")(function* (
     input: {
       environmentId: EnvironmentId;
@@ -193,6 +237,39 @@ export const make = Effect.gen(function* () {
           preferred = input.mode;
           update({ mode: preferred });
         }).pipe(Effect.ensuring(supervisor.connect));
+        yield* connectedSession(supervisor);
+      }),
+    );
+  });
+  const setRandomized = Effect.fn("MobileReconnectComparison.setRandomized")(function* (
+    input: { environmentId: EnvironmentId; enabled: boolean },
+    registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
+  ) {
+    if (status.running) return;
+    yield* registry.run(
+      input.environmentId,
+      Effect.gen(function* () {
+        const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+        yield* supervisor.disconnect;
+        yield* waitDisconnected(supervisor);
+        yield* database
+          .saveCache(
+            storageEnvironment,
+            "reconnect-comparison",
+            "randomized",
+            2,
+            String(input.enabled),
+          )
+          .pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                randomized = input.enabled;
+                update({ randomized });
+              }),
+            ),
+            Effect.ensuring(supervisor.connect),
+          );
+        yield* connectedSession(supervisor);
       }),
     );
   });
@@ -201,6 +278,10 @@ export const make = Effect.gen(function* () {
     registry: EnvironmentRegistry.EnvironmentRegistry["Service"],
   ) {
     if (status.running) return;
+    yield* registry.run(
+      environmentId,
+      Effect.flatMap(EnvironmentSupervisor.EnvironmentSupervisor, connectedSession),
+    );
     const storedInstall = yield* database.loadCache(
       storageEnvironment,
       "reconnect-comparison",
@@ -237,12 +318,8 @@ export const make = Effect.gen(function* () {
         environmentId,
         Effect.gen(function* () {
           const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
-          const session = yield* SubscriptionRef.get(supervisor.session);
-          if (Option.isNone(session))
-            return yield* new ComparisonUnavailable({
-              message: "Connect to this environment before starting the comparison.",
-            });
-          yield* recordReconnectComparison(session.value, [savedPlan]);
+          const session = yield* connectedSession(supervisor);
+          yield* recordReconnectComparison(session, [savedPlan]);
         }),
       );
       yield* upload(environmentId, registry);
@@ -408,6 +485,7 @@ export const make = Effect.gen(function* () {
   return {
     control,
     choose,
+    setRandomized,
     run,
     upload,
     read: () => status,
