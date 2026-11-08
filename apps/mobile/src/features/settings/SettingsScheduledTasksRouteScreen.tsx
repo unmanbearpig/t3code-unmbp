@@ -1,3 +1,4 @@
+import { Alert } from "react-native";
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -70,6 +71,7 @@ import { resolveNewTaskBranchLabel } from "../threads/new-task-context-presentat
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { ScheduledTaskPromptField } from "./components/ScheduledTaskPromptField";
 import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
+import { useScheduledTaskBaseRef } from "./useScheduledTaskBaseRef";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-environment-filter";
@@ -695,6 +697,16 @@ function TaskForm({
           project.id === draft.task?.projectId),
     )
     .sort((left, right) => Number(right.pinnedAt != null) - Number(left.pinnedAt != null));
+  const {
+    baseRef,
+    pending: baseRefPending,
+    error: baseRefError,
+  } = useScheduledTaskBaseRef({
+    environmentId,
+    cwd: projects.find((project) => project.id === draft.projectId)?.workspaceRoot ?? null,
+    chosen: draft.baseRef,
+    worktree: draft.workspace === "worktree",
+  });
   const config = useEnvironmentServerConfig(environmentId);
   const destinationLabel = useScheduledTaskDestinationLabel(environmentId, draft.threadId);
   const boundThread = useScheduledTaskThread(environmentId, draft.threadId);
@@ -743,10 +755,16 @@ function TaskForm({
       saving ||
       dictationPending ||
       taskMissing ||
-      environmentUnavailable
+      environmentUnavailable ||
+      baseRefPending
     )
       return;
-    // Preserve signatures edited on other clients by sending the task's current value.
+    if (baseRefError !== null) {
+      Alert.alert("Could not choose a base branch", baseRefError);
+      return;
+    }
+    // Signatures are edited on desktop and web; send the task's current one,
+    // not the copy taken when this form opened, so a newer edit survives.
     const liveTask = tasks.data?.tasks.find((task) => task.id === draft.task?.id);
     const schedule = scheduleFromDraft(
       draft.schedule.mode === "webhook" && liveTask?.schedule.type === "webhook"
@@ -817,7 +835,7 @@ function TaskForm({
             ? { type: "existing_worktree", worktreePath: draft.checkoutPath.trim() }
             : {
                 type: "worktree",
-                baseRef: draft.baseRef.trim() || "main",
+                baseRef: baseRef.trim() || "main",
                 startFromOrigin: draft.startFromOrigin,
               },
       // Tasks have no mode picker; a mode above the administrator's ceiling is refused.
@@ -1035,7 +1053,7 @@ function TaskForm({
             <PickerRow
               label="Base branch"
               value={resolveNewTaskBranchLabel({
-                branchName: draft.baseRef,
+                branchName: baseRef,
                 startFromOrigin: draft.startFromOrigin,
                 workspaceMode: "worktree",
               })}

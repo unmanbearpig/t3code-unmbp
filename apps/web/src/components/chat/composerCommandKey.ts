@@ -40,6 +40,7 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
  */
 export function composerCommandKeyHandler(input: {
   readonly keybindings: ChatComposerProps["keybindings"];
+  readonly composerEmacsEditingEnabled: boolean;
   readonly sendShortcut: ChatComposerProps["settings"]["sendShortcut"];
   readonly routeKind: ChatComposerProps["routeKind"];
   readonly phase: ChatComposerProps["phase"];
@@ -101,6 +102,7 @@ export function composerCommandKeyHandler(input: {
 }) {
   const {
     keybindings,
+    composerEmacsEditingEnabled,
     sendShortcut,
     routeKind,
     phase,
@@ -235,6 +237,22 @@ export function composerCommandKeyHandler(input: {
     const { trigger } = resolveActiveComposerTrigger();
     const menuIsActive =
       !isLiteralPendingAnswer && (composerMenuOpenRef.current || trigger !== null);
+    if (
+      menuIsActive &&
+      composerEmacsEditingEnabled &&
+      event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.shiftKey &&
+      !event.isComposing
+    ) {
+      if (key.toLowerCase() === "n" || key.toLowerCase() === "p") {
+        if (composerMenuItemsRef.current.length > 0) {
+          nudgeComposerMenuHighlight(key.toLowerCase() === "n" ? "ArrowDown" : "ArrowUp");
+        }
+        return true;
+      }
+    }
     if (key === "Escape") {
       if (event.isComposing || event.keyCode === 229) return false;
       if (!menuIsActive && promptSuggestion !== null && promptRef.current.length === 0) {

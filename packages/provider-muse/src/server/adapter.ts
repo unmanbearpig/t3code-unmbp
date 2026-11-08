@@ -1586,6 +1586,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
           case "session/tokenUsage": {
             const usage = yield* decode(MuseTokenUsageEvent, params);
             yield* settleRetries(turn, "completed");
+            const updatedAt = DateTime.formatIso(yield* DateTime.now);
             const previous = turn.providerTurn.turnTokenUsage;
             const contextUsage = thread?.contextUsage;
             turn.providerTurn = {
@@ -1599,7 +1600,10 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
                       outputTokens: usage.usage.outputTokens,
                       cachedInputTokens: usage.usage.cacheReadTokens ?? usage.usage.cachedTokens,
                       reasoningOutputTokens: usage.usage.reasoningTokens,
-                      updatedAt: DateTime.formatIso(yield* DateTime.now),
+                      ...((usage.usage.cacheWriteTokens ?? 0) > 0
+                        ? { lastCacheWriteAt: updatedAt }
+                        : {}),
+                      updatedAt,
                     },
                   }
                 : {}),

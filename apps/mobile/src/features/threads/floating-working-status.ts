@@ -49,12 +49,14 @@ export type FloatingWorkingStatus =
     };
 
 export function connectionFloatingStatus(input: {
+  readonly hideReconnectStatus?: boolean;
   readonly connectionError: string | null;
   readonly connectionState: EnvironmentConnectionPhase;
   readonly connectionAwaitingApproval?: boolean;
   readonly environmentLabel: string | null;
   readonly onReconnect: () => void;
 }): FloatingWorkingStatus | null {
+  if (input.hideReconnectStatus) return null;
   const environmentLabel = input.environmentLabel ?? "Environment";
   const unavailable = (label: string): FloatingWorkingStatus => ({
     kind: "connection",

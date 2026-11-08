@@ -6,6 +6,9 @@ import {
   useAppearancePreferences,
   useAndroidFloatingTabs,
 } from "../settings/appearance/AppearancePreferencesProvider";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { findNextActionableThread } from "@t3tools/client-runtime/state/thread-inbox";
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
@@ -14,7 +17,7 @@ import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-searc
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import { THREAD_SIDEBAR_ROW_LAYOUT } from "./threadListAnimations";
 import { useAtomValue } from "@effect/atom-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 import { GestureDetector, useNativeGesture } from "react-native-gesture-handler";
 import type { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
@@ -25,7 +28,8 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { Button } from "../../components/ui/Button";
 import { scopedProjectKey, scopedThreadKey } from "../../lib/scopedEntities";
 import { useProjects } from "../../state/entities";
-import { steadyNavigationThreadShellsAtom } from "../../state/threads";
+import { steadyNavigationThreadShellsAtom, environmentThreadShells } from "../../state/threads";
+import { appAtomRegistry } from "../../state/atom-registry";
 import { useThreadSearch } from "../../state/queries";
 import { useThreadListV2ShelfPreferences } from "./use-thread-list-v2-shelf-preferences";
 import { useThreadListNow } from "./use-thread-list-now";
@@ -50,7 +54,8 @@ import {
   resolveHomeProjectFilterScope,
   sortHomeProjectScopes,
 } from "../home/homeThreadList";
-import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
+import { SwipeableScrollGateProvider } from "../home/thread-swipe-actions";
+import { useSwipeableScrollGate } from "../home/use-swipeable-scroll-gate";
 import { usePendingTaskListActions } from "../home/usePendingTaskListActions";
 import { useThreadListActions } from "../home/useThreadListActions";
 import { useFabScroll } from "../home/FabScrollContext";
@@ -342,6 +347,55 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     onOpenThreadPullRequests(thread, pr);
     openSwipeableRef.current?.close();
   };
+  const selectedThreadKeyRef = useRef(props.selectedThreadKey);
+  const listItemsRef = useRef(listItems);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps asynchronous navigation completion handlers on the mounted sidebar selection
+  useLayoutEffect(() => {
+    selectedThreadKeyRef.current = props.selectedThreadKey;
+    listItemsRef.current = listItems;
+    return () => {
+      selectedThreadKeyRef.current = null;
+    };
+  }, [listItems, props.selectedThreadKey]);
+  const onNewThreadInProject = props.onNewThreadInProject;
+  const handleSettleThread = useCallback(
+    async (thread: EnvironmentThreadShell) => {
+      const threadKey = scopedThreadKey(thread.environmentId, thread.id);
+      const shouldAdvance = selectedThreadKeyRef.current === threadKey;
+      const orderedThreadRefs = listItemsRef.current.flatMap((item) =>
+        item.type === "v2-thread"
+          ? [scopeThreadRef(item.item.thread.environmentId, item.item.thread.id)]
+          : [],
+      );
+      const settled = await settleThread(thread);
+      const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+      const readThread = (ref: typeof threadRef) =>
+        appAtomRegistry.get(environmentThreadShells.threadShellAtom(ref));
+      if (
+        settled &&
+        shouldAdvance &&
+        selectedThreadKeyRef.current === threadKey &&
+        isFiledAsSettled(readThread(threadRef))
+      ) {
+        const nextThread = findNextActionableThread({
+          threadRef,
+          orderedThreadRefs,
+          readThread,
+          now: new Date().toISOString(),
+        });
+        if (nextThread !== null) {
+          handleSelectThread(nextThread);
+        } else {
+          const project = projectByKey.get(
+            scopedProjectKey(thread.environmentId, thread.projectId),
+          );
+          if (project) onNewThreadInProject(project);
+        }
+      }
+      return settled;
+    },
+    [handleSelectThread, projectByKey, onNewThreadInProject, settleThread],
+  );
   const handleScrollBeginDrag = () => {
     openSwipeableRef.current?.close();
   };
@@ -361,7 +415,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     threadSearchMatchByKey,
     workingShelfEnabled,
   };
-  useThreadJumpShortcuts(listItems, handleSelectThread);
+  useThreadJumpShortcuts(listItems, handleSelectThread, props.selectedThreadKey);
   const sidebarItemsAreEqual = (previous: SidebarListItem, item: SidebarListItem): boolean => {
     if (isThreadListV2ListItem(previous) && isThreadListV2ListItem(item)) {
       return threadListV2ListItemsAreEqual(previous, item);
@@ -459,7 +513,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             onRegenerateThreadTitle={regenerateThreadTitle}
             titleRegenerationSupported={titleRegenerationEnvironmentIds.has(thread.environmentId)}
             settlementSupported={settlementEnvironmentIds.has(thread.environmentId)}
-            onSettleThread={settleThread}
+            onSettleThread={handleSettleThread}
             snoozeSupported={snoozeEnvironmentIds.has(thread.environmentId)}
             snoozePresets={snoozePresetsByEnvironmentId.get(thread.environmentId)}
             pinningSupported={pinningEnvironmentIds.has(thread.environmentId)}

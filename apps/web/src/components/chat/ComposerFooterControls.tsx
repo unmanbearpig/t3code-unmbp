@@ -1,3 +1,4 @@
+import { PromptCacheElapsed } from "./PromptCacheElapsed";
 import type { ModelSelection, ProviderInstanceId, RuntimeMode } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { type ComponentProps, memo, useId, useRef, useState } from "react";
@@ -189,6 +190,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   children?: React.ReactNode;
   compact: boolean;
   canOperateThread: boolean;
+  lastPromptCacheWriteAt: number | null;
   isPreparingWorktree: boolean;
   pendingAction: {
     questionIndex: number;
@@ -222,6 +224,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
 }) {
   return (
     <>
+      {props.lastPromptCacheWriteAt !== null ? <PromptCacheElapsed writtenAt={props.lastPromptCacheWriteAt} /> : null}
       <ComposerPrimaryActions
         compact={props.compact}
         canOperateThread={props.canOperateThread}

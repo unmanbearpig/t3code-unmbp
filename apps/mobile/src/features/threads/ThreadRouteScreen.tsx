@@ -961,6 +961,7 @@ function ThreadRouteContent(
           detailError: Option.getOrNull(selectedThreadDetailState.error),
           detailDeleted: selectedThreadDetailState.status === "deleted",
           connectionState: routeConnectionState,
+          connectionError: routeConnectionError,
         });
   const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
   const renderThreadRouteBody = () => (

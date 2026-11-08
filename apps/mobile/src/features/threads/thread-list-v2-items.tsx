@@ -11,6 +11,7 @@ import {
 import { RowPressable } from "../../components/ui/RowPressable";
 import { CustomSnoozeSheet } from "./CustomSnoozeSheet";
 import { appAtomRegistry } from "../../state/atom-registry";
+import { environmentCatalog } from "../../connection/catalog";
 import { threadArrangementOpenAtom } from "../../state/thread-order";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -102,6 +103,12 @@ interface StatusLabel {
   readonly iconTintClassName: string;
 }
 const STATUS_LABEL_BY_STATUS: Partial<Record<ThreadListV2Status, StatusLabel>> = {
+  disconnected: {
+    label: "Disconnected",
+    icon: "wifi.slash",
+    className: "text-foreground-muted",
+    iconTintClassName: "accent-foreground-muted",
+  },
   approval: {
     label: "Approval",
     icon: "exclamationmark.shield",
@@ -818,6 +825,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const handleDelete = useCallback(() => onDeleteThread(thread), [onDeleteThread, thread]);
   const handleRename = useCallback(() => onRenameThread(thread), [onRenameThread, thread]);
   const canOperateThread = useEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope);
+  const retryEnvironment = useAtomCommand(environmentCatalog.retryNow);
+  const handleReconnect = useCallback(
+    () => void retryEnvironment(thread.environmentId),
+    [retryEnvironment, thread.environmentId],
+  );
   const handleRegenerateTitle = useCallback(
     () => onRegenerateThreadTitle(thread),
     [onRegenerateThreadTitle, thread],
@@ -859,6 +871,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const snoozeGateNow = new Date(snoozeGateNowMs).toISOString();
   const swipeActions = resolveThreadListV2SwipeActions({
     variant,
+    environmentConnected: thread.environmentConnected,
+    canOperate: canOperateThread,
     settlementSupported: props.settlementSupported,
     snoozeSupported: props.snoozeSupported,
     snoozable: canSnooze(thread, { now: snoozeGateNow }),
@@ -1113,6 +1127,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     ],
   );
   const primaryAction = useMemo(() => {
+    if (swipeActions.primary === "reconnect") {
+      return {
+        accessibilityLabel: props.environmentLabel
+          ? `Reconnect to ${props.environmentLabel}`
+          : "Reconnect environment",
+        icon: "arrow.clockwise" as const,
+        label: "Reconnect",
+        onPress: handleReconnect,
+      };
+    }
     if (swipeActions.primary === "archive") {
       return {
         accessibilityLabel: `Archive ${thread.title}`,
@@ -1143,6 +1167,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           onPress: handleSettle,
         };
   }, [
+    handleReconnect,
+    props.environmentLabel,
     handleArchive,
     handleSettle,
     handleUnsettle,
@@ -1167,11 +1193,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         : null,
     [handleMenuAction, snoozePresetActions, swipeActions.secondary, thread.title],
   );
-  const swipeAccessibilityHint = !canOperateThread
-    ? "Opens the thread"
-    : secondaryAction === null
-      ? `Opens the thread. Swipe left to ${primaryAction.label.toLowerCase()}.`
-      : `Opens the thread. Swipe left for ${primaryAction.label.toLowerCase()} and snooze actions.`;
+  const swipeAccessibilityHint =
+    swipeActions.primary === null
+      ? "Opens the thread"
+      : secondaryAction === null
+        ? `Opens the thread. Swipe left to ${primaryAction.label.toLowerCase()}.`
+        : `Opens the thread. Swipe left for ${primaryAction.label.toLowerCase()} and snooze actions.`;
 
   const titleTextInset = props.project ? projectIconSize + 8 : 0;
   const cardContent = (
@@ -1565,7 +1592,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       </RowPressable>
     );
 
-  if (!canOperateThread)
+  if (swipeActions.primary === null)
     return <View style={rowAppearance.swipeContainerStyle}>{rowContent(() => {})}</View>;
 
   return (
@@ -1587,20 +1614,24 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         onSwipeableWillOpen={props.onSwipeableWillOpen}
         primaryAction={primaryAction}
         secondaryAction={secondaryAction}
-        resetKey={`${thread.environmentId}:${thread.id}:${variant}:${snoozedRow}:${thread.settledAt}:${thread.unsettledAt}:${thread.snoozedUntil}:${thread.pinnedAt}`}
+        resetKey={`${thread.environmentId}:${thread.id}:${variant}:${swipeActions.primary}:${snoozedRow}:${thread.settledAt}:${thread.unsettledAt}:${thread.snoozedUntil}:${thread.pinnedAt}`}
         simultaneousWith={props.simultaneousSwipeGesture}
         threadTitle={thread.title}
       >
-        {(close) => (
-          <Menu
-            accessibilityLabel={rowAccessibilityLabel}
-            actions={menuActions}
-            onPressAction={handleMenuAction}
-            shouldOpenOnLongPress
-          >
-            {rowContent(close)}
-          </Menu>
-        )}
+        {(close) =>
+          swipeActions.primary === "reconnect" ? (
+            rowContent(close)
+          ) : (
+            <Menu
+              accessibilityLabel={rowAccessibilityLabel}
+              actions={menuActions}
+              onPressAction={handleMenuAction}
+              shouldOpenOnLongPress
+            >
+              {rowContent(close)}
+            </Menu>
+          )
+        }
       </ThreadSwipeable>
     </View>
   );

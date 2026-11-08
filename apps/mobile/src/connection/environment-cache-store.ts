@@ -1,3 +1,4 @@
+import { PerformanceTelemetry } from "@t3tools/client-runtime/platform";
 import {
   ORCHESTRATION_CACHE_SCHEMA_VERSION,
   COMPACT_THREAD_CACHE_SCHEMA_VERSION,
@@ -57,20 +58,30 @@ function mapDatabaseError(operation: CacheOperation) {
 
 function loadDecodedCache<A, B, E>(input: {
   readonly database: MobileDatabase.MobileDatabase["Service"];
+  readonly observer: PerformanceTelemetry.PerformanceObserver | null;
   readonly environmentId: EnvironmentId;
-  readonly kind: MobileDatabase.ClientCacheKind;
+  readonly kind: NonNullable<PerformanceTelemetry.PerformanceMeasurement["category"]>;
   readonly cacheKey: string;
   readonly operation: CacheOperation;
   readonly decode: (raw: string) => Effect.Effect<A, E>;
   readonly select: (value: A) => Option.Option<B>;
 }): Effect.Effect<Option.Option<B>, Persistence.ConnectionPersistenceError> {
-  return input.database.loadCache(input.environmentId, input.kind, input.cacheKey).pipe(
+  return PerformanceTelemetry.measure(
+    input.database.loadCache(input.environmentId, input.kind, input.cacheKey),
+    input.observer,
+    { operation: "cache.read", category: input.kind },
+    (raw) => ({ payloadChars: Option.isSome(raw) ? raw.value.length : 0 }),
+  ).pipe(
     Effect.mapError(mapDatabaseError(input.operation)),
     Effect.flatMap(
       Option.match({
         onNone: () => Effect.succeed(Option.none<B>()),
         onSome: (raw) =>
-          input.decode(raw).pipe(
+          PerformanceTelemetry.measure(input.decode(raw), input.observer, {
+            operation: "cache.decode",
+            category: input.kind,
+            payloadChars: raw.length,
+          }).pipe(
             Effect.map(input.select),
             Effect.catch((cause) =>
               Effect.logWarning("Discarding corrupt mobile client cache record.", {
@@ -95,6 +106,23 @@ function loadDecodedCache<A, B, E>(input: {
 
 export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
   const database = yield* MobileDatabase.MobileDatabase;
+  const observer = yield* PerformanceTelemetry.PerformanceTelemetry;
+  const measureEncode = <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+    category: NonNullable<PerformanceTelemetry.PerformanceMeasurement["category"]>,
+  ) => PerformanceTelemetry.measure(effect, observer, { operation: "cache.encode", category });
+  const saveCache = (
+    environmentId: EnvironmentId,
+    category: NonNullable<PerformanceTelemetry.PerformanceMeasurement["category"]>,
+    cacheKey: string,
+    schemaVersion: number,
+    payload: string,
+  ) =>
+    PerformanceTelemetry.measure(
+      database.saveCache(environmentId, category, cacheKey, schemaVersion, payload),
+      observer,
+      { operation: "cache.write", category, payloadChars: payload.length },
+    );
   attachProjectFaviconDatabase(database);
   const encodeStoredShellSnapshot = makeStoredShellSnapshotEncoder();
   const encodeStoredThreadSnapshot = makeStoredThreadSnapshotEncoder({ format: "compact" });
@@ -103,6 +131,7 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
     loadShell: Effect.fn("MobileEnvironmentCache.loadShell")((environmentId) =>
       loadDecodedCache({
         database,
+        observer,
         environmentId,
         kind: "shell",
         cacheKey: "snapshot",
@@ -124,28 +153,23 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
         ),
       ),
     ),
-    saveShell: Effect.fn("MobileEnvironmentCache.saveShell")(
-      function* (environmentId, snapshot, origin) {
-        const payload = yield* encodeStoredShellSnapshot({
+    saveShell: Effect.fn("MobileEnvironmentCache.saveShell")(function* (environmentId, snapshot, origin) {
+      const payload = yield* measureEncode(
+        encodeStoredShellSnapshot({
           schemaVersion: ORCHESTRATION_CACHE_SCHEMA_VERSION,
           environmentId,
           snapshot,
           ...(origin === undefined ? {} : { origin }),
-        }).pipe(Effect.mapError((cause) => persistenceError("save-shell", cause)));
-        yield* database
-          .saveCache(
-            environmentId,
-            "shell",
-            "snapshot",
-            ORCHESTRATION_CACHE_SCHEMA_VERSION,
-            payload,
-          )
-          .pipe(Effect.mapError(mapDatabaseError("save-shell")));
-      },
-    ),
+        }),
+        "shell",
+      ).pipe(Effect.mapError((cause) => persistenceError("save-shell", cause)));
+      yield* saveCache(environmentId, "shell", "snapshot", ORCHESTRATION_CACHE_SCHEMA_VERSION, payload)
+        .pipe(Effect.mapError(mapDatabaseError("save-shell")));
+    }),
     loadThread: Effect.fn("MobileEnvironmentCache.loadThread")((environmentId, threadId) =>
       loadDecodedCache({
         database,
+        observer,
         environmentId,
         kind: "thread",
         cacheKey: threadId,
@@ -160,23 +184,14 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
     saveThread: Effect.fn("MobileEnvironmentCache.saveThread")(function* (environmentId, snapshot) {
       const threadId = snapshot.projection.thread.id;
       const isLatest = threadWriteOrder.beginSave(environmentId, threadId);
-      const payload = yield* encodeStoredThreadSnapshot({
-        environmentId,
-        threadId,
-        snapshot,
-      }).pipe(Effect.mapError((cause) => persistenceError("save-thread", cause)));
+      const payload = yield* measureEncode(
+        encodeStoredThreadSnapshot({ environmentId, threadId, snapshot }),
+        "thread",
+      ).pipe(Effect.mapError((cause) => persistenceError("save-thread", cause)));
       if (!isLatest()) return;
-      // An older copy of a thread now too large to keep would paint stale on reopen.
       yield* Option.match(payload, {
         onNone: () => database.removeCache(environmentId, "thread", threadId),
-        onSome: (encoded) =>
-          database.saveCache(
-            environmentId,
-            "thread",
-            threadId,
-            COMPACT_THREAD_CACHE_SCHEMA_VERSION,
-            encoded,
-          ),
+        onSome: (encoded) => saveCache(environmentId, "thread", threadId, COMPACT_THREAD_CACHE_SCHEMA_VERSION, encoded),
       }).pipe(Effect.mapError(mapDatabaseError("save-thread")));
     }),
     removeThread: Effect.fn("MobileEnvironmentCache.removeThread")((environmentId, threadId) => {
@@ -188,6 +203,7 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
     loadServerConfig: Effect.fn("MobileEnvironmentCache.loadServerConfig")((environmentId) =>
       loadDecodedCache({
         database,
+        observer,
         environmentId,
         kind: "server-config",
         cacheKey: "config",
@@ -199,25 +215,27 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
     ),
     saveServerConfig: Effect.fn("MobileEnvironmentCache.saveServerConfig")(
       function* (environmentId, config) {
-        const payload = yield* encodeStoredServerConfig({
-          schemaVersion: SERVER_CONFIG_CACHE_SCHEMA_VERSION,
-          environmentId,
-          config,
-        }).pipe(Effect.mapError((cause) => persistenceError("save-server-config", cause)));
-        yield* database
-          .saveCache(
+        const payload = yield* measureEncode(
+          encodeStoredServerConfig({
+            schemaVersion: SERVER_CONFIG_CACHE_SCHEMA_VERSION,
             environmentId,
-            "server-config",
-            "config",
-            SERVER_CONFIG_CACHE_SCHEMA_VERSION,
-            payload,
-          )
-          .pipe(Effect.mapError(mapDatabaseError("save-server-config")));
+            config,
+          }),
+          "server-config",
+        ).pipe(Effect.mapError((cause) => persistenceError("save-server-config", cause)));
+        yield* saveCache(
+          environmentId,
+          "server-config",
+          "config",
+          SERVER_CONFIG_CACHE_SCHEMA_VERSION,
+          payload,
+        ).pipe(Effect.mapError(mapDatabaseError("save-server-config")));
       },
     ),
     loadVcsRefs: Effect.fn("MobileEnvironmentCache.loadVcsRefs")((environmentId, cwd) =>
       loadDecodedCache({
         database,
+        observer,
         environmentId,
         kind: "vcs-refs",
         cacheKey: cwd,
@@ -231,15 +249,22 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
     ),
     saveVcsRefs: Effect.fn("MobileEnvironmentCache.saveVcsRefs")(
       function* (environmentId, cwd, refs) {
-        const payload = yield* encodeStoredVcsRefs({
-          schemaVersion: VCS_REFS_CACHE_SCHEMA_VERSION,
+        const payload = yield* measureEncode(
+          encodeStoredVcsRefs({
+            schemaVersion: VCS_REFS_CACHE_SCHEMA_VERSION,
+            environmentId,
+            cwd,
+            refs,
+          }),
+          "vcs-refs",
+        ).pipe(Effect.mapError((cause) => persistenceError("save-vcs-refs", cause)));
+        yield* saveCache(
           environmentId,
+          "vcs-refs",
           cwd,
-          refs,
-        }).pipe(Effect.mapError((cause) => persistenceError("save-vcs-refs", cause)));
-        yield* database
-          .saveCache(environmentId, "vcs-refs", cwd, VCS_REFS_CACHE_SCHEMA_VERSION, payload)
-          .pipe(Effect.mapError(mapDatabaseError("save-vcs-refs")));
+          VCS_REFS_CACHE_SCHEMA_VERSION,
+          payload,
+        ).pipe(Effect.mapError(mapDatabaseError("save-vcs-refs")));
       },
     ),
     removeVcsRefs: Effect.fn("MobileEnvironmentCache.removeVcsRefs")((environmentId, cwd) =>

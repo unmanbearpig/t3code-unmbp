@@ -1,3 +1,4 @@
+import { prefersReducedMotion } from "~/lib/animationPreference";
 import {
   type DesktopBridge,
   type DesktopPendingSnapShot,
@@ -456,7 +457,7 @@ export function SnapShotCoordinator() {
             (target) =>
               target && resolveSnapShotAttachmentTarget(questionPinsRef.current, event.id, target),
           );
-          if (animateCaptures && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          if (animateCaptures && !prefersReducedMotion()) {
             void beginSnapShotAnimationWhenReady(
               event.id,
               target,

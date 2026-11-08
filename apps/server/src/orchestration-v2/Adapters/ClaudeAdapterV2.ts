@@ -309,10 +309,15 @@ export function claudeProviderTurnTokenUsage(
   updatedAt: string,
   autoCompactWindow = "",
   requestedAt?: DateTime.Utc,
+  previousCacheWriteAt?: string,
 ) {
   const inputTokens = claudeMessageInputTokens(usage);
   const outputTokens = usage.output_tokens;
   const promptCacheTtlMs = claudePromptCacheTtlMs(usage.cache_creation);
+  const lastCacheWriteAt =
+    (usage.cache_creation_input_tokens ?? 0) > 0 || promptCacheTtlMs !== undefined
+      ? updatedAt
+      : previousCacheWriteAt;
   // The cache lifetime starts with the request, not when its response ends.
   const promptCacheExpiresAt =
     promptCacheTtlMs === undefined || requestedAt === undefined
@@ -326,6 +331,7 @@ export function claudeProviderTurnTokenUsage(
     outputTokens,
     reasoningOutputTokens: 0,
     ...(promptCacheTtlMs === undefined ? {} : { promptCacheTtlMs }),
+    ...(lastCacheWriteAt === undefined ? {} : { lastCacheWriteAt }),
     ...claudeAutoCompactThreshold(autoCompactWindow, maxTokens),
     ...(promptCacheExpiresAt === undefined ? {} : { promptCacheExpiresAt }),
     updatedAt,
@@ -4868,6 +4874,7 @@ function formatClaudeUsageLimitWait(waitMs: number): string {
 
 interface ActiveClaudeTurnContext {
   retryBudgetFailure?: OrchestrationV2ProviderFailure;
+  lastCacheWriteAt?: string | undefined;
   readonly queryPolicy: ClaudeRuntimeQueryPolicy;
   readonly input: ProviderAdapter.ProviderAdapterV2TurnInput;
   readonly autoCompactWindow: string;
@@ -6231,7 +6238,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   DateTime.formatIso(now),
                   context.autoCompactWindow,
                   context.streamUsage?.requestedAt,
+                  context.lastCacheWriteAt,
                 );
+          if ("lastCacheWriteAt" in tokenUsage)
+            context.lastCacheWriteAt = tokenUsage.lastCacheWriteAt;
           if (typeof usage !== "number") {
             if (claudeMessageInputTokens(usage) <= 0) return;
             context.compactionTokens = undefined;
