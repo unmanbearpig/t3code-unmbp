@@ -24,13 +24,16 @@ const provider: ServerProvider = {
 };
 
 describe("cached provider catalogs", () => {
-  it.each(["absent", "match", "stale", "changed", "removed"] as const)(
+  it.each(["absent", "match", "untrimmed", "stale", "changed", "removed"] as const)(
     "returns a complete first response with %s client revisions",
     (mode) => {
       const current =
         mode === "changed"
           ? { ...provider, skills: [] }
-          : { ...provider, checkedAt: "2026-11-07T01:00:00Z" };
+          : mode === "untrimmed"
+            ? // The client only ever sees the trimmed name the wire encoding sends.
+              { ...provider, models: [{ ...provider.models[0]!, name: "Luna " }] }
+            : { ...provider, checkedAt: "2026-11-07T01:00:00Z" };
       const config = { providers: mode === "removed" ? [] : [current] } as unknown as ServerConfig;
       const snapshot: ServerConfigStreamEvent = { version: 1, type: "snapshot", config };
       const revisions =
@@ -40,7 +43,7 @@ describe("cached provider catalogs", () => {
       const next = omitCachedProviderCatalogs(snapshot, revisions);
       expect(next.type).toBe("snapshot");
       if (next.type !== "snapshot") throw new Error("Expected snapshot");
-      if (mode === "match") {
+      if (mode === "match" || mode === "untrimmed") {
         expect(next.cachedProviderCatalogs).toEqual({ codex: providerCatalogRevision(provider) });
         expect(next.config.providers[0]).toEqual({
           ...current,
