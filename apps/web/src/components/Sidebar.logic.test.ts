@@ -326,7 +326,7 @@ describe("resolveSidebarThreadStatus", () => {
         }),
       ).toBe(false);
       expect(resolveSidebarThreadStatus({ ...cached, environmentConnected: true })).toBe(
-        status === "idle" ? "waiting" : "working",
+        status === "idle" ? "waiting" : status === "preparing" ? "preparing" : "working",
       );
     },
   );
