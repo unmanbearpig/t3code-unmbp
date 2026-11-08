@@ -350,15 +350,23 @@ describe("shellStreamItemsFromInitialSnapshot", () => {
     expect(JSON.stringify(items[1]).length).toBeLessThan(JSON.stringify(items[0]).length);
   });
 
-  it.each(["absent", "match", "stale"] as const)(
+  it.each(["absent", "match", "untrimmed", "stale"] as const)(
     "resumes with the enrichment frame unless the client's %s project hash matches",
     (mode) => {
+      const project = (id: string, title: string) => ({
+        id,
+        title,
+        workspaceRoot: `/workspace/${id.slice(-1)}`,
+        defaultModelSelection: null,
+        scripts: [],
+        createdAt: "2026-11-07T00:00:00.000Z",
+        updatedAt: "2026-11-07T00:00:00.000Z",
+      });
+      const received = [project("project-b", "B"), project("project-a", "A")];
       const snapshot = {
         ...emptyShellSnapshot,
-        projects: [
-          { id: "project-b", workspaceRoot: "/workspace/b" },
-          { id: "project-a", workspaceRoot: "/workspace/a" },
-        ],
+        // The client only ever sees the trimmed title the wire encoding sends.
+        projects: mode === "untrimmed" ? [received[0], project("project-a", "A ")] : received,
       } as unknown as OrchestrationV2ShellSnapshot;
       const items = shellStreamItemsFromResumeSnapshot({
         snapshot,
@@ -367,13 +375,17 @@ describe("shellStreamItemsFromInitialSnapshot", () => {
           ? {}
           : {
               projectsRevision:
-                mode === "match"
-                  ? projectSnapshotRevision([...snapshot.projects].toReversed())
-                  : "stale",
+                mode === "stale"
+                  ? "stale"
+                  : projectSnapshotRevision(
+                      [
+                        ...received,
+                      ].toReversed() as unknown as OrchestrationV2ShellSnapshot["projects"],
+                    ),
             }),
       });
       expect(items.map((item) => item.resolvedRepositoryIdentityRoots)).toEqual(
-        mode === "match" ? [] : [["/workspace/a"]],
+        mode === "match" || mode === "untrimmed" ? [] : [["/workspace/a"]],
       );
     },
   );
