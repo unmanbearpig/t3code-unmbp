@@ -2001,6 +2001,7 @@ export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerCon
     providerCatalogDigests: Schema.optional(Schema.Boolean),
     /** Send provider changes as `providerStatusDeltas`; older clients reject the event type. */
     providerStatusDeltas: Schema.optional(Schema.Boolean),
+    providerCatalogRevisions: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   }),
   success: ServerConfigStreamEvent,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),

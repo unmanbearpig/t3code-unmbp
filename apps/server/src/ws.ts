@@ -21,6 +21,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { rpcInitialItems } from "./rpcInitialItems.ts";
+import { omitCachedProviderCatalogs } from "./reconnectSnapshots.ts";
 import { subscribeChatGptHandoff } from "./provider/CodexChatGptHandoff.ts";
 import {
   AcpRegistryOperationError,
@@ -1130,6 +1131,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
     readonly afterSequence?: number;
     readonly httpSnapshotFallback?: true;
     readonly knownProjectIdentities?: string;
+    readonly projectsRevision?: string;
     readonly requestCompletionMarker?: boolean;
     readonly omitIdleSubagents?: boolean;
     readonly omitOlderSettled?: boolean;
@@ -1316,14 +1318,18 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
           resolvedRepositoryIdentityRoots: loaded.resolvedRepositoryIdentityRoots,
         }),
       );
-    const initialEnrichmentItems = (loaded: {
-      readonly snapshot: OrchestrationV2ShellSnapshot;
-      readonly resolvedRepositoryIdentityRoots: ReadonlyArray<string>;
-    }) =>
+    const initialEnrichmentItems = (
+      loaded: {
+        readonly snapshot: OrchestrationV2ShellSnapshot;
+        readonly resolvedRepositoryIdentityRoots: ReadonlyArray<string>;
+      },
+      projectsRevision: string | undefined,
+    ) =>
       rpcInitialItems(
         shellStreamItemsFromResumeSnapshot({
           snapshot: loaded.snapshot,
           resolvedRepositoryIdentityRoots: loaded.resolvedRepositoryIdentityRoots,
+          projectsRevision,
         }),
       );
     // Drain initial frames before merging enrichment with live events so marked refreshes cannot precede the initial frame.
@@ -1388,8 +1394,8 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
             projects: loaded.snapshot.projects,
             resolvedRepositoryIdentityRoots: loaded.resolvedRepositoryIdentityRoots,
             knownProjectIdentities: input.knownProjectIdentities,
-          }),
-        }),
+          }, input.projectsRevision),
+        }, input.projectsRevision),
         tail: Stream.concat(Stream.concat(replay, completionMarker), liveFrom(highWater)),
         enrichment: enrichmentRefreshes,
       });
@@ -3437,7 +3443,10 @@ export const layerWsRpc = (
               );
               return Stream.concat(
                 rpcInitialItems([
-                  { version: 1 as const, type: "snapshot" as const, config: initialConfig },
+                  omitCachedProviderCatalogs(
+                    { version: 1, type: "snapshot", config: initialConfig },
+                    input.providerCatalogRevisions,
+                  ),
                 ]),
                 input.providerStatusDeltas === true
                   ? updates.pipe(withProviderStatusDeltas(initialConfig.providers))
