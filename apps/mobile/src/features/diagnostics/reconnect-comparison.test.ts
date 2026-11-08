@@ -6,6 +6,7 @@ vi.mock("expo-constants", () => ({
 }));
 import { expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
+import * as Crypto from "expo-crypto";
 import {
   EnvironmentId,
   ReconnectComparisonRecord,
@@ -127,7 +128,32 @@ vi.mock("expo-crypto", () => ({
   digestStringAsync: async () => "fixture-state-hash",
 }));
 
-it.effect.each(["timeout", "interrupted"] as const)(
+it.effect("randomizes ordinary sessions once and keeps their assigned mode stable", () =>
+  Effect.gen(function* () {
+    const service = yield* make.pipe(
+      Effect.provide(
+        Layer.mock(Database.MobileDatabase)({
+          loadCache: (_env, _kind, key) =>
+            Effect.succeed(key === "randomized" ? Option.some("true") : Option.none()),
+        }),
+      ),
+    );
+    const id = EnvironmentId.make("fixture");
+    using uuid = vi
+      .spyOn(Crypto, "randomUUID")
+      .mockReturnValueOnce("ff000000-0000-4000-8000-000000000001")
+      .mockReturnValueOnce("00000000-0000-4000-8000-000000000001");
+    service.control.beginSession(id);
+    expect(service.control.mode(id)).toBe("baseline");
+    expect(service.control.mode(id)).toBe("baseline");
+    service.control.beginSession(id);
+    expect(service.control.mode(id)).toBe("proposed");
+    expect(service.control.mode(id)).toBe("proposed");
+    expect(uuid).toHaveBeenCalledTimes(2);
+  }),
+);
+
+it.effect.each(["timeout", "interrupted", "connecting", "unavailable"] as const)(
   "preserves the schedule and a scored %s attempt",
   (outcome) =>
     Effect.gen(function* () {
@@ -155,6 +181,7 @@ it.effect.each(["timeout", "interrupted"] as const)(
       const id = EnvironmentId.make("fixture");
       const state = yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE);
       const stalled = yield* Deferred.make<void>();
+      const connectionRequested = yield* Deferred.make<void>();
       const complete = {
         client: {
           [WS_METHODS.serverRecordReconnectComparison]: (input: {
@@ -165,6 +192,11 @@ it.effect.each(["timeout", "interrupted"] as const)(
             }),
         },
       } as unknown as RpcSession;
+      const session = yield* SubscriptionRef.make(
+        outcome === "connecting" || outcome === "unavailable"
+          ? Option.none<RpcSession>()
+          : Option.some(complete),
+      );
       let connection = 0;
       const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
         target: new PrimaryConnectionTarget({
@@ -174,11 +206,15 @@ it.effect.each(["timeout", "interrupted"] as const)(
           wsBaseUrl: "wss://fixture.invalid",
         }),
         state,
-        session: yield* SubscriptionRef.make(Option.some(complete)),
+        session,
         prepared: yield* SubscriptionRef.make(Option.none<PreparedConnection>()),
         disconnect: SubscriptionRef.set(state, AVAILABLE_CONNECTION_STATE),
         retryNow: Effect.void,
         connect: Effect.gen(function* () {
+          if (Option.isNone(yield* SubscriptionRef.get(session))) {
+            yield* Deferred.succeed(connectionRequested, undefined);
+            return;
+          }
           if (!service.read().running) return;
           connection++;
           const observer = service.control.observe(id, "https://fixture.invalid");
@@ -213,6 +249,19 @@ it.effect.each(["timeout", "interrupted"] as const)(
         ),
       );
       const running = yield* service.run(id, registry).pipe(Effect.forkScoped);
+      if (outcome === "connecting" || outcome === "unavailable") {
+        yield* Deferred.await(connectionRequested);
+        expect(saved).toHaveLength(0);
+        if (outcome === "unavailable") {
+          yield* TestClock.adjust("60 seconds");
+          const result = yield* Fiber.join(running).pipe(Effect.exit);
+          expect(result._tag).toBe("Failure");
+          expect(saved).toHaveLength(0);
+          expect(service.read().running).toBe(false);
+          return;
+        }
+        yield* SubscriptionRef.set(session, Option.some(complete));
+      }
       yield* Deferred.await(stalled);
       const plan = saved.find((row) => row.kind === "plan");
       expect(plan?.kind).toBe("plan");
@@ -223,18 +272,18 @@ it.effect.each(["timeout", "interrupted"] as const)(
           new Set(["baseline", "proposed"]),
         );
       }
-      if (outcome === "timeout") {
+      if (outcome !== "interrupted") {
         yield* TestClock.adjust("60 seconds");
         yield* Fiber.join(running);
       } else yield* Fiber.interrupt(running);
       const attempts = saved.filter((row) => row.kind === "attempt");
       expect(attempts[2]).toMatchObject({
-        outcome,
+        outcome: outcome === "interrupted" ? "interrupted" : "timeout",
         cappedReadyMs: 60_000,
         warmup: false,
         index: 2,
       });
-      expect(attempts).toHaveLength(outcome === "timeout" ? 62 : 3);
+      expect(attempts).toHaveLength(outcome === "interrupted" ? 3 : 62);
       expect(service.read().running).toBe(false);
       expect(service.control.mode(id)).toBe("baseline");
       expect(uploaded.size).toBe(1 + attempts.length);

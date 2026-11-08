@@ -17,6 +17,7 @@ export interface SessionObservation {
 }
 
 export class ReconnectComparison extends Context.Reference<{
+  readonly beginSession?: (environmentId: EnvironmentId) => void;
   readonly mode: (environmentId: EnvironmentId) => ReconnectComparisonMode;
   readonly observe: (
     environmentId: EnvironmentId,
