@@ -470,8 +470,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           ...(omitOlderSettled ? { omitOlderSettled: true as const } : {}),
         };
         if (!canResume || Option.isNone(current.snapshot)) {
+          session.comparison?.shellRequest(false);
           return { ...omission, requestCompletionMarker: true as const };
         }
+        session.comparison?.shellRequest(session.snapshotReuse !== false);
         return {
           afterSequence: current.snapshot.value.snapshotSequence,
           ...(session.snapshotReuse === false

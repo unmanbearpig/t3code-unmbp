@@ -836,8 +836,9 @@ describe("environment shell synchronization", () => {
           ...session(client),
           snapshotReuse,
           comparison: {
-            sent: () => {},
-            received: () => {},
+            socket: () => {},
+            catalogRequest: () => {},
+            shellRequest: () => {},
             config: () => {},
             synchronized: (snapshot) => Queue.offer(completed, snapshot).pipe(Effect.asVoid),
           },

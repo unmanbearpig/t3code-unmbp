@@ -9,9 +9,10 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
 export interface SessionObservation {
-  readonly sent: (data: unknown) => void;
-  readonly received: (data: unknown) => void;
-  readonly config: (config: ServerConfig) => void;
+  readonly socket: () => void;
+  readonly catalogRequest: (revisions: number) => void;
+  readonly shellRequest: (hasRevision: boolean) => void;
+  readonly config: (config: ServerConfig, reusedCatalogs: number) => void;
   readonly synchronized: (snapshot: OrchestrationV2ShellSnapshot) => Effect.Effect<void>;
 }
 

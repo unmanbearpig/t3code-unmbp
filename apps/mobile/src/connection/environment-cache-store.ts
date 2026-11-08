@@ -1,3 +1,4 @@
+import { ReconnectComparison } from "@t3tools/client-runtime/connection";
 import { PerformanceTelemetry } from "@t3tools/client-runtime/platform";
 import {
   ORCHESTRATION_CACHE_SCHEMA_VERSION,
@@ -124,7 +125,7 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
     );
   attachProjectFaviconDatabase(database);
   const encodeStoredShellSnapshot = makeStoredShellSnapshotEncoder();
-  return yield* Persistence.shareServerConfigReads({
+  const store = Persistence.EnvironmentCacheStore.of({
     loadShell: Effect.fn("MobileEnvironmentCache.loadShell")((environmentId) =>
       loadDecodedCache({
         database,
@@ -281,6 +282,18 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
         Effect.andThen(database.clearEnvironmentCache(environmentId)),
         Effect.mapError(mapDatabaseError("clear-environment")),
       ),
+    ),
+  });
+  const shared = yield* Persistence.shareServerConfigReads(store);
+  return Persistence.EnvironmentCacheStore.of({
+    ...shared,
+    loadServerConfig: Effect.fn("MobileEnvironmentCache.loadSelectedConfig")(
+      function* (environmentId) {
+        const comparison = yield* ReconnectComparison.ReconnectComparison;
+        return yield* comparison?.mode(environmentId) === "baseline"
+          ? store.loadServerConfig(environmentId)
+          : shared.loadServerConfig(environmentId);
+      },
     ),
   });
 });

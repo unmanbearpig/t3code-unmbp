@@ -252,15 +252,9 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     let inboundFrames = 0;
     const countingWebSocketConstructor: typeof webSocketConstructor = (url, options) => {
       const socket = webSocketConstructor(url, options);
-      const send = socket.send.bind(socket);
-      if (observation)
-        socket.send = (data) => {
-          observation.sent(data);
-          return send(data);
-        };
-      socket.addEventListener("message", (event) => {
+      observation?.socket();
+      socket.addEventListener("message", () => {
         inboundFrames += 1;
-        observation?.received(event.data);
       });
       return socket;
     };
@@ -317,7 +311,9 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       Effect.forkScoped,
     );
     const protocolClient = yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));
-    const memoryConfig = Option.fromUndefinedOr(lastConfigs.get(connection.environmentId));
+    const memoryConfig = snapshotReuse
+      ? Option.fromUndefinedOr(lastConfigs.get(connection.environmentId))
+      : Option.none<ServerConfig>();
     const cachedProviders = !snapshotReuse
       ? undefined
       : Option.getOrUndefined(
@@ -334,7 +330,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       reason: "remote-unavailable",
       detail: `${connection.label} config subscription ended.`,
     });
-    const serverConfigSource = protocolClient[WS_METHODS.subscribeServerConfig]({
+    const configInput = {
       ...onDemandSnapshots(serverConfigInput),
       ...(cachedProviders === undefined
         ? {}
@@ -346,7 +342,9 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
               ]),
             ),
           }),
-    }).pipe(
+    };
+    observation?.catalogRequest(Object.keys(configInput.providerCatalogRevisions ?? {}).length);
+    const serverConfigSource = protocolClient[WS_METHODS.subscribeServerConfig](configInput).pipe(
       Stream.runForEach((event) =>
         Effect.gen(function* () {
           const buffered = yield* Ref.modify(serverConfigState, (current) => {
@@ -392,7 +390,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
           });
           if (Option.isSome(buffered)) {
             const config = buffered.value.replay.projection.config;
-            if (config.environment.environmentId === connection.environmentId) {
+            if (snapshotReuse && config.environment.environmentId === connection.environmentId) {
               lastConfigs.set(connection.environmentId, config);
             }
             yield* PubSub.publish(serverConfigUpdates, buffered.value);
@@ -407,11 +405,11 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
                 }),
               });
             }
-            observation?.config(buffered.value.replay.projection.config);
-            yield* Deferred.succeed(initialConfigDeferred, {
-              ...event.config,
-              providers: buffered.value.replay.projection.config.providers,
-            });
+            const initial = snapshotReuse
+              ? { ...event.config, providers: buffered.value.replay.projection.config.providers }
+              : event.config;
+            observation?.config(initial, Object.keys(event.cachedProviderCatalogs ?? {}).length);
+            yield* Deferred.succeed(initialConfigDeferred, initial);
           }
         }),
       ),
