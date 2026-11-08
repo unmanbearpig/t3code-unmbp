@@ -101,10 +101,14 @@ it.effect.each(["timeout", "interrupted"] as const)(
           connection++;
           const observer = service.control.observe(id, "https://fixture.invalid");
           expect(observer).toBeDefined();
-          observer!.config({
-            providers: [],
-            environment: { serverVersion: "fixture" },
-          } as unknown as ServerConfig);
+          observer!.socket();
+          observer!.config(
+            {
+              providers: [],
+              environment: { serverVersion: "fixture" },
+            } as unknown as ServerConfig,
+            0,
+          );
           if (connection === 3) {
             yield* Deferred.succeed(stalled, undefined);
             return;

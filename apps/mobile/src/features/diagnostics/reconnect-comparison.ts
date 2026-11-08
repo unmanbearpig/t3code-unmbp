@@ -44,13 +44,6 @@ export const ROUNDS = 30;
 const TIMEOUT_MS = 60_000;
 const storageEnvironment = EnvironmentId.make("reconnect-comparison-device");
 const decodeRecord = Schema.decodeUnknownEffect(Schema.fromJsonString(ReconnectComparisonRecord));
-const encoder = new TextEncoder();
-const size = (data: unknown) =>
-  typeof data === "string"
-    ? encoder.encode(data).length
-    : data instanceof ArrayBuffer
-      ? data.byteLength
-      : 0;
 const networkName = (state: Network.NetworkState): ReconnectComparisonAttempt["networkStart"] =>
   state.type === Network.NetworkStateType.CELLULAR
     ? "cellular"
@@ -274,47 +267,34 @@ export const make = Effect.gen(function* () {
               }>();
               const started = performance.now();
               let valid = true;
-              let jsonDown = 0,
-                jsonUp = 0,
-                instrumentationMs = 0,
-                socketCount = 0;
+              let socketCount = 0;
               let configMs: number | null = null;
               let lastConfig: ServerConfig | null = null;
-              let catalogRevisionsSent = 0,
+              let catalogRevisionsRequested = 0,
                 catalogsReused = 0,
-                projectRevisionsSent = 0;
+                projectRevisionsRequested = 0;
               const origins = new Set<string>(),
                 serverVersions = new Set<string>();
-              const count = (data: unknown, sent: boolean) => {
-                if (!valid) return;
-                const start = performance.now();
-                if (sent) jsonUp += size(data);
-                else jsonDown += size(data);
-                if (typeof data === "string") {
-                  const catalogs = /"providerCatalogRevisions":\{([^}]*)\}/g;
-                  const reused = /"cachedProviderCatalogs":\{([^}]*)\}/g;
-                  for (const match of data.matchAll(sent ? catalogs : reused)) {
-                    const count = match[1]?.match(/:/g)?.length ?? 0;
-                    if (sent) catalogRevisionsSent += count;
-                    else catalogsReused += count;
-                  }
-                  if (sent) projectRevisionsSent += data.match(/"projectsRevision":/g)?.length ?? 0;
-                }
-                instrumentationMs += performance.now() - start;
-              };
               active = {
                 environmentId,
                 mode: assignment.mode,
                 observe: (origin) => {
-                  socketCount++;
                   origins.add(origin);
                   return {
-                    sent: (data) => count(data, true),
-                    received: (data) => count(data, false),
-                    config: (config) => {
+                    socket: () => {
+                      if (valid) socketCount++;
+                    },
+                    catalogRequest: (count) => {
+                      if (valid) catalogRevisionsRequested += count;
+                    },
+                    shellRequest: (hasRevision) => {
+                      if (valid && hasRevision) projectRevisionsRequested++;
+                    },
+                    config: (config, reused) => {
                       if (!valid) return;
                       configMs ??= performance.now() - started;
                       lastConfig = config;
+                      catalogsReused += reused;
                       serverVersions.add(config.environment.serverVersion);
                     },
                     synchronized: (snapshot) =>
@@ -374,15 +354,15 @@ export const make = Effect.gen(function* () {
                 cappedReadyMs:
                   success === null ? TIMEOUT_MS : Math.min(TIMEOUT_MS, success.at - started),
                 configMs,
-                jsonDown,
-                jsonUp,
-                instrumentationMs,
+                jsonDown: null,
+                jsonUp: null,
+                instrumentationMs: null,
                 socketCount,
                 origins: [...origins],
                 serverVersions: [...serverVersions],
-                catalogRevisionsSent,
+                catalogRevisionsRequested,
                 catalogsReused,
-                projectRevisionsSent,
+                projectRevisionsRequested,
                 catalogState,
                 shellState,
                 networkStart,
