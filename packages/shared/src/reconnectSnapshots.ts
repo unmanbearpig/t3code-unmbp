@@ -1,4 +1,9 @@
 import type { OrchestrationProjectShell, ServerProvider } from "@t3tools/contracts";
+
+type ServerProviderCatalog = Pick<
+  typeof ServerProvider.Encoded,
+  "models" | "skills" | "slashCommands"
+>;
 import { sha256 } from "@noble/hashes/sha2";
 import * as Hex from "effect/encoding/Hex";
 
@@ -19,9 +24,12 @@ const revision = (value: unknown) =>
     ),
   ).slice(0, 32);
 
-const catalogRevisions = new WeakMap<ServerProvider, string>();
+const catalogRevisions = new WeakMap<object, string>();
 
-export function providerCatalogRevision(provider: ServerProvider): string {
+/** Accepts the encoded wire form too, which is what the server must hash. */
+export function providerCatalogRevision(
+  provider: Pick<ServerProvider, "models" | "skills" | "slashCommands"> | ServerProviderCatalog,
+): string {
   const cached = catalogRevisions.get(provider);
   if (cached !== undefined) return cached;
   const value = revision({
@@ -34,7 +42,7 @@ export function providerCatalogRevision(provider: ServerProvider): string {
 }
 
 export function projectSnapshotRevision(
-  projects: ReadonlyArray<OrchestrationProjectShell>,
+  projects: ReadonlyArray<OrchestrationProjectShell | typeof OrchestrationProjectShell.Encoded>,
 ): string {
   return revision(
     [...projects].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
