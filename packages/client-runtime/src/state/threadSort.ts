@@ -22,9 +22,14 @@ export function toSortableTimestamp(iso: string | undefined): number | null {
 export type SettledThreadTimestampInput = Pick<
   EnvironmentThreadShell,
   "settledAt" | "latestUserMessageAt" | "latestRun" | "updatedAt"
->;
+> &
+  Partial<Pick<EnvironmentThreadShell, "settleWhenIdleAt">>;
 
+/** The timestamp a settled row sorts and labels by on every client: when it
+    was filed, else settledAt when stamped, otherwise the latest message or
+    turn stamp, then updatedAt. */
 export function resolveSettledThreadTimestamp(thread: SettledThreadTimestampInput): string | null {
+  if (thread.settleWhenIdleAt != null) return thread.settleWhenIdleAt;
   if (thread.settledAt != null && toSortableTimestamp(thread.settledAt) !== null) {
     return thread.settledAt;
   }
@@ -321,12 +326,15 @@ export function sortActiveThreadsByOrderKey<
     readonly activeOrderKey?: string | null | undefined;
     readonly environmentId?: string | undefined;
   },
->(threads: readonly T[]): T[] {
+>(
+  threads: readonly T[],
+  anchorTimestamp: (thread: T) => number = activeThreadAnchorTimestampMs,
+): T[] {
   if (threads.length < 2) return [...threads];
   const timestamps = new Map<T, number>();
   for (const thread of threads) {
     if (thread.activeOrderKey == null) {
-      timestamps.set(thread, activeThreadAnchorTimestampMs(thread));
+      timestamps.set(thread, anchorTimestamp(thread));
     }
   }
   return [...threads].sort((left, right) => {

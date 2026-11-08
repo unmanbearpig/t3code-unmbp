@@ -22,6 +22,34 @@ const FATAL = {
 };
 
 describe("parseStartupCrashRecords", () => {
+  it("keeps Android recovery crashes with their exception and native stack", () => {
+    const stacktrace = [
+      "com.facebook.react.common.JavascriptException: broken",
+      "com.facebook.react.runtime.ReactInstance.callFunctionOnModule(ReactInstance.java:123)",
+    ];
+    const [record] = parseStartupCrashRecords([
+      {
+        timestamp: 1,
+        level: "error",
+        code: "Unknown",
+        message: "ErrorRecovery: exception encountered: TypeError: broken",
+      },
+      {
+        timestamp: 2,
+        level: "error",
+        code: "Unknown",
+        message: "UpdatesErrorRecovery: could not recover from error, crashing",
+        stacktrace,
+      },
+    ]);
+    expect(record).toMatchObject({
+      timestamp: 2,
+      description: "TypeError: broken",
+      frames: stacktrace,
+    });
+    expect(record?.detail).toContain("ReactInstance.java:123");
+  });
+
   it("extracts the JS error and a compact component stack from a fatal entry", () => {
     const [record] = parseStartupCrashRecords([FATAL]);
     expect(record?.description).toBe(

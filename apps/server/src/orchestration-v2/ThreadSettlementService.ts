@@ -164,6 +164,9 @@ export function isAutoSettlementCandidate(
 ): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
   if (thread.pinnedAt != null || thread.autoSettleDisabledAt != null) return false;
+  // A filed thread settles through its own intent once its work finishes.
+  if (thread.settleWhenIdleAt != null) return false;
+  // Blocked-on-you work must never park behind a settled override.
   if (thread.pendingRuntimeRequest !== null) return false;
   // A guest is waiting on the owner; settling would hide the Request.
   if ((thread.pendingGuestMessageCount ?? 0) > 0) return false;
@@ -351,7 +354,33 @@ export const make = Effect.gen(function* () {
     if (mergedPullRequest !== null) yield* pauseQuietReads();
     const settings = yield* settingsService.getSettings;
     const automaticSettlementEnabled = autoSettlementConfigured(settings);
+    // Explicit user intent remains actionable with every automatic rule disabled.
     const threads = yield* projections.getSettlementCandidates(threadId);
+    for (const thread of threads) {
+      // Candidates never have a live run or a pending request.
+      if (
+        thread.settleWhenIdleAt == null ||
+        backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])
+      )
+        continue;
+      const uuid = yield* random.uuidV4();
+      yield* orchestrator
+        .dispatch({
+          type: "thread.settle-when-idle",
+          commandId: CommandId.make(`server:settle-when-idle:${thread.id}:${uuid}`),
+          threadId: thread.id,
+        })
+        .pipe(
+          Effect.catchCauseIf(
+            (cause) => !Cause.hasInterruptsOnly(cause),
+            (cause) =>
+              Effect.logWarning("deferred thread settlement skipped", {
+                threadId: thread.id,
+                cause: Cause.pretty(cause),
+              }),
+          ),
+        );
+    }
     if (threads.length === 0) return;
     const projectShells = yield* projectStore.listShells();
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
@@ -754,6 +783,8 @@ export const make = Effect.gen(function* () {
       case "thread.archived":
       case "thread.deleted":
         return enqueueFullSweep();
+      case "thread.settle-when-idle-set":
+        return event.payload.settleWhenIdleAt != null ? enqueueThread(event.threadId) : Effect.void;
       case "thread.pull-request-link-updated":
       case "thread.pull-request-synced":
       case "provider-session.detached":

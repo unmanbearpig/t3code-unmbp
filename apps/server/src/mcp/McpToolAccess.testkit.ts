@@ -1,3 +1,4 @@
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import {
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
@@ -12,6 +13,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 
 const EPOCH = DateTime.makeUnsafe("2026-01-01T00:00:00.000Z");
@@ -100,3 +103,19 @@ export const idleThreadProjection = (
     updatedAt: shell.updatedAt,
   };
 };
+
+/** Defaults for MCP tests that do not exercise workspace preparation or branch discovery. */
+export const scheduledTaskDependenciesLayer = Layer.mergeAll(
+  Layer.mock(GitVcsDriver.GitVcsDriver)({
+    execute: () =>
+      Effect.succeed({
+        exitCode: ChildProcessSpawner.ExitCode(0),
+        stdout: ".git",
+        stderr: "",
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      }),
+    listLocalBranchNames: () => Effect.succeed(["main"]),
+  }),
+  Layer.mock(ThreadLaunchService.ThreadLaunchService)({ checkWorktreeBase: () => Effect.void }),
+);

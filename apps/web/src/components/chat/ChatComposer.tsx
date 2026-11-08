@@ -1,6 +1,8 @@
 import { VoiceInputSetup } from "./VoiceInputSetup";
+import { resolveShortcutCommand } from "../../keybindings";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
+import { registerLeaderShortcutHandler } from "~/appShortcutEvents";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { BackgroundThreadContext } from "./backgroundThread";
 import {
@@ -427,6 +429,7 @@ export interface ChatComposerProps {
   reportedModelSelection?: ModelSelection | null;
   activeProjectId: ProjectId | null;
   projectName?: string | undefined;
+  lastPromptCacheWriteAt: number | null;
 
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
@@ -546,6 +549,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     reportedModelSelection,
     activeProjectId,
     projectName,
+    lastPromptCacheWriteAt,
     compactThreadUnavailable,
     compactDisabled,
     resolvedTheme,
@@ -1819,6 +1823,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentId,
     projectId: activeProjectId,
     projectName,
+    lastPromptCacheWriteAt,
     ownerKey: questionAttachmentTarget ?? composerDraftTargetKey,
     disabled: dictationDisabled,
     readDraft: () => {
@@ -2318,6 +2323,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const onComposerCommandKey = (key: string, event: KeyboardEvent, isTaskItem?: boolean) =>
     composerCommandKeyHandler({
+      composerEmacsEditingEnabled: settings.composerEmacsEditingEnabled,
       keybindings,
       sendShortcut: settings.sendShortcut,
       routeKind,
@@ -2354,6 +2360,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       promptSuggestion: offeredPromptSuggestion,
       dismissPromptSuggestion,
     })(key, event, isTaskItem);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the composer leader shortcut handler until unmount
+  useEffect(() =>
+    registerLeaderShortcutHandler((event) => {
+      const target = event.target ?? document.activeElement;
+      if (!(target instanceof Node) || !composerFormRef.current?.contains(target)) return;
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: { composerFocus: true, draftThreadRoute: routeKind === "draft", turnRunning: phase === "running" },
+      });
+      if (!command?.startsWith("composer.send")) return;
+      if (onComposerCommandKey(event.key, event)) event.preventDefault();
+    }, true),
+  );
+
 
   const {
     stashQueue,
@@ -3654,6 +3674,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     <ComposerPrimaryActions
                       compact
                       canOperateThread={canOperateThread}
+                    lastPromptCacheWriteAt={lastPromptCacheWriteAt}
                       pendingAction={pendingPrimaryAction}
                       isRunning={false}
                       canInterrupt={false}
@@ -3723,6 +3744,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     key={`${environmentId}:${activeThreadId ?? "new"}`}
                     compact={isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
+                    lastPromptCacheWriteAt={lastPromptCacheWriteAt}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running" || phase === "connecting"}
                     canInterrupt={canInterrupt}

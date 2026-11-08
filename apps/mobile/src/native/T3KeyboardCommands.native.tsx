@@ -1,3 +1,4 @@
+import type { NativeLeaderConfig } from "../features/keyboard/leaderKeyboardShortcuts";
 import { requireNativeView } from "expo";
 import type { PropsWithChildren } from "react";
 import type { NativeSyntheticEvent, ViewProps } from "react-native";
@@ -5,6 +6,7 @@ import type { NativeSyntheticEvent, ViewProps } from "react-native";
 import type { HardwareKeyboardCommand } from "../features/keyboard/hardwareKeyboardCommands";
 
 interface NativeKeyboardCommandsProps extends ViewProps {
+  readonly leaderConfig?: NativeLeaderConfig;
   readonly enabledCommands: ReadonlyArray<HardwareKeyboardCommand>;
   readonly onCommand: (
     event: NativeSyntheticEvent<{ readonly command: HardwareKeyboardCommand }>,
@@ -15,6 +17,7 @@ const NativeKeyboardCommands = requireNativeView<NativeKeyboardCommandsProps>("T
 
 export function T3KeyboardCommands(
   props: PropsWithChildren<{
+    readonly leaderConfig?: NativeLeaderConfig;
     readonly enabledCommands: ReadonlyArray<HardwareKeyboardCommand>;
     readonly onCommand: (command: HardwareKeyboardCommand) => void;
   }>,
@@ -23,6 +26,7 @@ export function T3KeyboardCommands(
     <NativeKeyboardCommands
       onCommand={(event) => props.onCommand(event.nativeEvent.command)}
       enabledCommands={props.enabledCommands}
+      leaderConfig={props.leaderConfig}
       style={{ flex: 1 }}
     >
       {props.children}

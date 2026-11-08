@@ -1,5 +1,8 @@
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import {
   CommandId,
+  type GitCommandError,
   type RunId,
   isProviderAvailable,
   MessageId,
@@ -108,8 +111,6 @@ import {
   runOutcome,
 } from "../orchestration-v2/RestartBackgroundNote.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
-import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
 import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -282,6 +283,7 @@ function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): Orchestrato
     projectId: task.projectId,
     boundThreadId: task.threadId,
     freshSession: scheduledTaskThreadMode(task) === "fresh_session",
+    workspace: task.workspaceStrategy.type,
     schedule: task.schedule,
     nextRunAt: task.nextRunAt,
     lastRunStatus: task.lastRunStatus,
@@ -1194,13 +1196,13 @@ function timelineItemsWithinBudget(
 
 const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
+  const gitDriver = yield* GitVcsDriver.GitVcsDriver;
+  const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const providerAdapters = yield* ProviderAdapterRegistry.ProviderAdapterRegistryV2;
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
   const projects = yield* ProjectService.ProjectService;
-  const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
-  const gitDriver = yield* GitVcsDriver.GitVcsDriver;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const remoteDelegation = yield* RemoteDelegation.RemoteDelegation;
 
@@ -2014,50 +2016,50 @@ const make = Effect.gen(function* () {
       effect.pipe(Effect.timeoutOption(Duration.millis(timeoutMs)), Effect.map(Option.flatten)),
   );
 
-  const refExists = (cwd: string, revision: string) =>
-    gitDriver.resolveCommit({ cwd, revision }).pipe(
-      Effect.as(true),
-      Effect.orElseSucceed(() => false),
+  const defaultScheduledTaskWorktree = Effect.fn(
+    "OrchestratorMcpService.defaultScheduledTaskWorktree",
+  )(function* (
+    projectId: ProjectId,
+  ): Effect.fn.Return<ScheduledTask["workspaceStrategy"], OrchestratorMcpFailure> {
+    const { workspaceRoot: cwd } = yield* requireProject(projectId);
+    const worktreeFrom = (baseRef: string) =>
+      ({ type: "worktree", baseRef, startFromOrigin: true }) as const;
+    const unreadable = failure(
+      "orchestration_error",
+      "Could not read the project's branches to pick a base branch; try again.",
     );
-
-  const resolveScheduledTaskBaseRef = Effect.fn(
-    "OrchestratorMcpService.resolveScheduledTaskBaseRef",
-  )(function* (cwd: string) {
+    const readGit = <A>(read: Effect.Effect<A, GitCommandError>) =>
+      read.pipe(Effect.mapError(() => unreadable));
+    const probe = yield* readGit(
+      gitDriver.execute({
+        operation: "OrchestratorMcpService.scheduledTaskBase",
+        cwd,
+        args: ["rev-parse", "--git-dir"],
+        allowNonZeroExit: true,
+        env: { LC_ALL: "C" },
+      }),
+    );
+    if (probe.exitCode !== 0) {
+      if (probe.stderr.toLowerCase().includes("not a git repository")) return worktreeFrom("main");
+      return yield* unreadable;
+    }
+    const localBranches = yield* readGit(gitDriver.listLocalBranchNames(cwd));
+    if (localBranches.includes("main")) return worktreeFrom("main");
     const remoteName = yield* gitDriver
       .resolvePrimaryRemoteName(cwd)
-      .pipe(Effect.orElseSucceed(() => null));
-    const conventional = ["main", "master"];
-    if (remoteName !== null) {
-      const remoteDefault = yield* gitDriver
-        .resolveDefaultBranchName(cwd, remoteName)
-        .pipe(Effect.orElseSucceed(() => null));
-      // Fetch does not update a recorded HEAD, so it can outlive the branch it names.
-      for (const branch of remoteDefault === null
-        ? conventional
-        : [remoteDefault, ...conventional]) {
-        // Launch resolves a bare name through a local branch's upstream, or else assumes `origin`.
-        if (yield* refExists(cwd, `refs/remotes/${remoteName}/${branch}`)) {
-          return `${remoteName}/${branch}`;
-        }
-      }
+      .pipe(Effect.orElseSucceed(() => "origin"));
+    {
+      const remoteBranchExists = (branch: string) =>
+        readGit(gitDriver.remoteBranchExists({ cwd, remoteName, refName: branch }));
+      if (yield* remoteBranchExists("main")) return worktreeFrom(`${remoteName}/main`);
+      const remoteDefault = yield* readGit(gitDriver.resolveDefaultBranchName(cwd, remoteName));
+      if (remoteDefault !== null && (yield* remoteBranchExists(remoteDefault)))
+        return worktreeFrom(`${remoteName}/${remoteDefault}`);
+      if (remoteDefault === null && (yield* remoteBranchExists("master")))
+        return worktreeFrom(`${remoteName}/master`);
     }
-    // Local-only repositories, or a remote with neither a usable HEAD nor a conventional branch.
-    for (const branch of conventional) {
-      if (yield* refExists(cwd, `refs/heads/${branch}`)) return branch;
-    }
-    return "main";
-  });
-
-  const scheduledTaskWorkspaceStrategy = Effect.fn(
-    "OrchestratorMcpService.scheduledTaskWorkspaceStrategy",
-  )(function* (boundToThread: boolean, projectId: ProjectId) {
-    if (boundToThread) return { type: "root" as const };
-    const { workspaceRoot } = yield* requireProject(projectId);
-    return {
-      type: "worktree" as const,
-      baseRef: yield* resolveScheduledTaskBaseRef(workspaceRoot),
-      startFromOrigin: true,
-    };
+    const { branch } = yield* readGit(gitDriver.statusDetailsLocal(cwd));
+    return worktreeFrom(branch ?? "main");
   });
 
   const scheduledTaskRunModes = Effect.fn("OrchestratorMcpService.scheduledTaskRunModes")(
@@ -2142,6 +2144,36 @@ const make = Effect.gen(function* () {
     return task;
   });
 
+  /**
+   * Workspace strategy for a scheduled task created/updated over MCP. Bound
+   * runs post into the existing thread, so the strategy is unused and stays
+   * root. Unbound runs get a fresh worktree unless root is asked for; an
+   * explicit worktree is refused up front when one cannot be made.
+   */
+  const scheduledTaskWorkspaceStrategy = Effect.fn(
+    "OrchestratorMcpService.scheduledTaskWorkspaceStrategy",
+  )(function* (
+    projectId: ScheduledTask["projectId"],
+    boundToThread: boolean,
+    workspace: "root" | "worktree" | undefined,
+  ): Effect.fn.Return<ScheduledTask["workspaceStrategy"], OrchestratorMcpFailure> {
+    if (boundToThread || workspace === "root") return { type: "root" };
+    const worktree = yield* defaultScheduledTaskWorktree(projectId);
+    if (workspace !== undefined) {
+      yield* threadLaunch
+        .checkWorktreeBase({ projectId, workspaceStrategy: worktree })
+        .pipe(
+          Effect.mapError((error) =>
+            failure(
+              "invalid_request",
+              `${error.message} Pass workspace:"root" to run in the project folder.`,
+            ),
+          ),
+        );
+    }
+    return worktree;
+  });
+
   return OrchestratorMcpService.of({
     scheduleTask: Effect.fn("OrchestratorMcpService.scheduleTask")(function* (scope, input) {
       const { parent, limits } = yield* loadCaller(scope, ["runs"]);
@@ -2178,7 +2210,11 @@ const make = Effect.gen(function* () {
           : bindToCurrentThread
             ? "continue"
             : "new_thread",
-        workspaceStrategy: yield* scheduledTaskWorkspaceStrategy(bindToCurrentThread, projectId),
+        workspaceStrategy: yield* scheduledTaskWorkspaceStrategy(
+          projectId,
+          bindToCurrentThread,
+          input.workspace,
+        ),
         modelSelection,
         runtimeMode: limits.runtimeMode,
         interactionMode: limits.interactionMode,
@@ -2258,11 +2294,17 @@ const make = Effect.gen(function* () {
             : input.bindToCurrentThread && parent !== undefined
               ? parent.thread.id
               : null;
-        // Reset the workspace only when the binding flips, so unbinding cannot leave runs in the shared checkout.
+        // Update workspace strategy on rebinding so unbound root tasks cannot run in the shared checkout.
+        const rebound = (threadId === null) !== (existing.threadId === null);
         const workspaceStrategy =
-          (threadId === null) === (existing.threadId === null)
+          !rebound &&
+          (input.workspace === undefined || input.workspace === existing.workspaceStrategy.type)
             ? existing.workspaceStrategy
-            : yield* scheduledTaskWorkspaceStrategy(threadId !== null, existing.projectId);
+            : yield* scheduledTaskWorkspaceStrategy(
+                existing.projectId,
+                threadId !== null,
+                input.workspace,
+              );
         const upsertInput: ScheduledTaskUpsertInput = {
           id: existing.id,
           title: input.title ?? existing.title,

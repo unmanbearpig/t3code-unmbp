@@ -1,4 +1,5 @@
 import { flushSync } from "react-dom";
+import { prefersReducedMotion as clientPrefersReducedMotion } from "~/lib/animationPreference";
 
 export const DRAFT_HERO_TRANSITION_ANIMATION_ID = "t3-draft-hero-transition";
 export const DRAFT_HERO_TRANSITION_EASING = "cubic-bezier(0.4, 0, 0.2, 1)";
@@ -51,7 +52,7 @@ export function runMobileComposerTransition(
   const transitionDocument = document as ComposerViewTransitionDocument;
   const mobileViewport = window.matchMedia?.("(max-width: 639px)").matches ?? false;
   const prefersReducedMotion =
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    clientPrefersReducedMotion();
   const startViewTransition = transitionDocument.startViewTransition?.bind(transitionDocument);
   if (!options.active || !mobileViewport || prefersReducedMotion || !startViewTransition) {
     runInlineUpdate(update);

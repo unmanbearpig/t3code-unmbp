@@ -10,6 +10,7 @@ import {
 } from "@t3tools/contracts";
 
 import { createOptimisticThreadLifecycle } from "./threadLifecycle.ts";
+import { settleWaitsForWork } from "./models.ts";
 import * as DateTime from "effect/DateTime";
 
 import {
@@ -472,15 +473,24 @@ export function createThreadEnvironmentAtoms<R, E>(
     snapshotAtom: optimistic.snapshotAtom,
     pendingThreadIdsAtom: optimistic.pendingThreadIdsAtom,
     settle: optimistic.wrap(commands.settle, (thread, _input, now, accepted) =>
-      !accepted &&
-      (thread.pendingRuntimeRequest !== null ||
-        ["preparing", "queued", "starting", "running", "waiting"].includes(thread.status))
+      !accepted && thread.pendingRuntimeRequest !== null
         ? thread
         : {
             ...thread,
             pendingRuntimeRequest: null,
-            settledOverride: "settled",
-            settledAt: thread.settledOverride === "settled" ? (thread.settledAt ?? now) : now,
+            ...(settleWaitsForWork(
+              thread.activityRunStatus ?? thread.status,
+              thread.pendingBackgroundTasks,
+            )
+              ? { settleWhenIdleAt: thread.settleWhenIdleAt ?? now }
+              : {
+                  settleWhenIdleAt: null,
+                  settledOverride: "settled" as const,
+                  settledAt:
+                    thread.settledOverride === "settled"
+                      ? (thread.settledAt ?? now)
+                      : (thread.settleWhenIdleAt ?? now),
+                }),
             unsettledAt: null,
             activeOrderKey: null,
             pinnedAt: null,
@@ -491,6 +501,7 @@ export function createThreadEnvironmentAtoms<R, E>(
     ),
     unsettle: optimistic.wrap(commands.unsettle, (thread, input, now) => ({
       ...thread,
+      settleWhenIdleAt: null,
       settledOverride: input.reason === "user" ? "active" : null,
       settledAt: null,
       unsettledAt: thread.settledOverride === "active" ? (thread.unsettledAt ?? null) : now,
@@ -504,6 +515,7 @@ export function createThreadEnvironmentAtoms<R, E>(
         ? thread
         : {
             ...thread,
+            settleWhenIdleAt: null,
             snoozedUntil: DateTime.makeUnsafe(input.snoozedUntil),
             snoozedAt: now,
           },
@@ -519,6 +531,7 @@ export function createThreadEnvironmentAtoms<R, E>(
     })),
     pin: optimistic.wrap(commands.pin, (thread, input, now) => ({
       ...thread,
+      settleWhenIdleAt: null,
       pinnedAt: thread.pinnedAt ?? now,
       pinOrderKey: thread.pinnedAt == null ? (input.orderKey ?? null) : thread.pinOrderKey,
       ...(thread.settledOverride === "settled"
@@ -542,6 +555,7 @@ export function createThreadEnvironmentAtoms<R, E>(
     })),
     reorderActive: optimistic.wrap(commands.reorderActive, (thread, input) => ({
       ...thread,
+      settleWhenIdleAt: null,
       activeOrderKey: input.orderKey,
     })),
     // Shown at once, so a composer that releases its accepted pick keeps showing it.

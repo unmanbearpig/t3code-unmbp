@@ -1,5 +1,6 @@
 import { useAtomMount } from "@effect/atom-react";
 import { asLaunchingThread } from "@t3tools/client-runtime/state/thread-inbox";
+import { isFiledAsSettled } from "@t3tools/client-runtime/state/thread-settled";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
@@ -54,6 +55,7 @@ import {
   TerminalIcon,
   Undo2Icon,
   UserRoundIcon,
+  WifiOffIcon,
   XIcon,
 } from "lucide-react";
 import {
@@ -530,6 +532,7 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
 };
 
 const TOP_STATUS_ICONS = {
+  disconnected: WifiOffIcon,
   working: CircleDashedIcon,
   waiting: CircleDotDashedIcon,
   input: MessageCircleQuestionIcon,
@@ -737,7 +740,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const isWoke =
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
-    thread.settledOverride !== "settled";
+    !isFiledAsSettled(thread);
   const shouldRecede = shouldRecedeSidebarThread({
     status,
     isUnread,
@@ -746,66 +749,78 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     isSelected,
   });
   const topStatus =
-    status === "preparing" || status === "working"
+    status === "disconnected"
       ? {
-          label:
-            status === "preparing"
-              ? "Setting up"
-              : thread.goal?.status === "active"
-                ? "Goal"
-                : "Working",
-          icon: "working" as const,
-          className: "text-info-foreground",
+          label: "Disconnected",
+          icon: "disconnected" as const,
+          className: "text-muted-foreground",
         }
-      : status === "waiting"
+      : status === "preparing" || status === "working"
         ? {
-            label: "Waiting",
-            icon: "waiting" as const,
-            className: "text-muted-foreground",
+            label:
+              status === "preparing"
+                ? "Setting up"
+                : thread.goal?.status === "active"
+                  ? "Goal"
+                  : "Working",
+            icon: "working" as const,
+            className: "text-info-foreground",
           }
-        : status === "approval"
+        : status === "working"
           ? {
-              label: "Approval",
-              icon: "approval" as const,
-              className: "text-warning-foreground",
+              label: thread.goal?.status === "active" ? "Goal" : "Working",
+              icon: "working" as const,
+              className: "text-info",
             }
-          : status === "input"
+          : status === "waiting"
             ? {
-                label: "Input",
-                icon: "input" as const,
-                className: "text-indigo-600 dark:text-indigo-300",
+                label: "Waiting",
+                icon: "waiting" as const,
+                className: "text-muted-foreground",
               }
-            : status === "request"
+            : status === "approval"
               ? {
-                  label: "Request",
-                  icon: "request" as const,
-                  className: "text-guest-foreground",
+                  label: "Approval",
+                  icon: "approval" as const,
+                  className: "text-warning-foreground",
                 }
-              : status === "limited"
+              : status === "request"
                 ? {
-                    label: "Limited",
-                    icon: "failed" as const,
-                    className: "text-warning-foreground",
+                    label: "Request",
+                    icon: "request" as const,
+                    className: "text-guest-foreground",
                   }
-                : status === "failed"
+                : status === "input"
                   ? {
-                      label: "Failed",
-                      icon: "failed" as const,
-                      className: "text-error-foreground",
+                      label: "Input",
+                      icon: "input" as const,
+                      className: "text-indigo-600 dark:text-indigo-300",
                     }
-                  : isWoke
+                  : status === "limited"
                     ? {
-                        label: "Woke",
-                        icon: "woke" as const,
+                        label: "Limited",
+                        icon: "failed" as const,
                         className: "text-warning-foreground",
                       }
-                    : isUnread
+                    : status === "failed"
                       ? {
-                          label: "Done",
-                          icon: "done" as const,
-                          className: "text-success-foreground",
+                          label: "Failed",
+                          icon: "failed" as const,
+                          className: "text-error-foreground",
                         }
-                      : null;
+                      : isWoke
+                        ? {
+                            label: "Woke",
+                            icon: "woke" as const,
+                            className: "text-warning-foreground",
+                          }
+                        : isUnread
+                          ? {
+                              label: "Done",
+                              icon: "done" as const,
+                              className: "text-success-foreground",
+                            }
+                          : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -1335,13 +1350,19 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       </span>
                     ) : (
                       <span className="text-xs">
-                        <RelativeTimeLabel
-                          timestamp={
-                            variantAction === "unsettle"
-                              ? resolveSettledThreadTimestamp(thread)
-                              : resolveThreadActivityTimestamp(thread)
-                          }
-                        />
+                        {status === "disconnected" ? (
+                          "Disconnected"
+                        ) : thread.settleWhenIdleAt != null ? (
+                          "Working"
+                        ) : (
+                          <RelativeTimeLabel
+                            timestamp={
+                              variantAction === "unsettle"
+                                ? resolveSettledThreadTimestamp(thread)
+                                : resolveThreadActivityTimestamp(thread)
+                            }
+                          />
+                        )}
                       </span>
                     )}
                   </span>
@@ -1518,7 +1539,23 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                             topStatus.className,
                           )}
                         >
-                          <TopStatusIcon icon={topStatus.icon} className="size-4" />
+                          {topStatus.icon === "disconnected" ? (
+                            <WifiOffIcon aria-hidden className="size-4 shrink-0" />
+                          ) : topStatus.icon === "working" ? (
+                            <CircleDashedIcon aria-hidden className="size-4 shrink-0" />
+                          ) : topStatus.icon === "waiting" ? (
+                            <CircleDotDashedIcon aria-hidden className="size-4 shrink-0" />
+                          ) : topStatus.icon === "input" ? (
+                            <MessageCircleQuestionIcon aria-hidden className="size-4 shrink-0" />
+                          ) : topStatus.icon === "request" ? (
+                            <UserRoundIcon aria-hidden className="size-4 shrink-0" />
+                          ) : topStatus.icon === "approval" ? (
+                            <ShieldQuestionIcon aria-hidden className="size-4 shrink-0" />
+                          ) : topStatus.icon === "failed" ? (
+                            <CircleAlertIcon aria-hidden className="size-4 shrink-0" />
+                          ) : topStatus.icon === "done" ? (
+                            <CircleCheckIcon aria-hidden className="size-4 shrink-0" />
+                          ) : null}
                           {/* Not a live region: a collapsed sidebar is inert, so
                             BackgroundThreadAnnouncer and the open thread's
                             timeline speak status changes instead. */}

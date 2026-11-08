@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from "react";
+import { useLeaderActive } from "./leaderState";
 import { isEditableFocused } from "./lib/editableFocus";
 
 export interface ShortcutModifierState {
+  leaderKey?: boolean;
   metaKey: boolean;
   ctrlKey: boolean;
   altKey: boolean;
@@ -20,6 +22,7 @@ function areShortcutModifierStatesEqual(
   right: ShortcutModifierState,
 ): boolean {
   return (
+    (left.leaderKey ?? false) === (right.leaderKey ?? false) &&
     left.metaKey === right.metaKey &&
     left.ctrlKey === right.ctrlKey &&
     left.altKey === right.altKey &&
@@ -88,7 +91,9 @@ const editableIgnoringShortcutModifierStore = createShortcutModifierStore(true);
 
 export function useShortcutModifierState(ignoreEditable = false): ShortcutModifierState {
   const store = ignoreEditable ? editableIgnoringShortcutModifierStore : shortcutModifierStore;
-  return useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const leaderKey = useLeaderActive();
+  return leaderKey ? { ...state, leaderKey: true } : state;
 }
 
 function normalizeModifierKey(key: string): keyof ShortcutModifierState | null {

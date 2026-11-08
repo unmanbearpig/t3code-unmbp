@@ -47,6 +47,7 @@ const reactTests = [
   "src/features/home/home-route-visibility.test.tsx",
   "src/features/layout/workspace/useSearchScrollRestoration.test.tsx",
   "src/features/connection/useRetryEnvironment.test.tsx",
+  "src/features/home/use-swipeable-scroll-gate.test.tsx",
   "src/features/connection/ConnectionsNewRouteScreen.test.tsx",
   "src/features/connection/LinkedEnvironmentsSection.test.tsx",
   "src/features/devices/device-stream.browser.test.ts",

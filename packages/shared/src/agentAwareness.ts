@@ -94,11 +94,11 @@ export interface ProjectThreadAwarenessV2Input {
     | "modelSelection"
     | "pendingBackgroundTasks"
     | "pendingRuntimeRequest"
-    | "settledOverride"
+    | "settleWhenIdleAt"
     | "status"
     | "title"
     | "updatedAt"
-  >;
+  > & { readonly settledOverride?: OrchestrationV2ThreadShell["settledOverride"] };
   /** What a live subagent below this thread is waiting on the user for. */
   readonly pendingSubagentRequest?: SubagentRequestAwareness | null;
 }
@@ -175,9 +175,9 @@ function resolveThreadAwarenessPhaseV2(
     case "waiting":
       return "running";
     case "completed":
-      return backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? []) ||
-        monitorHoldsWakeCompletion(thread)
-        ? "running"
+      if (backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? []) || monitorHoldsWakeCompletion(thread)) return "running";
+      return thread.settleWhenIdleAt != null || thread.settledOverride === "settled"
+        ? null
         : "completed";
     case "failed":
       return "failed";

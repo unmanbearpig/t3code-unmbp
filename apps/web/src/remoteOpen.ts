@@ -53,6 +53,7 @@ function parseHostname(url: string): string | null {
 export function resolveRemoteOpenState(input: {
   readonly target: ConnectionTarget | null;
   readonly sshTarget: { readonly alias: string; readonly username: string | null } | null;
+  readonly httpBaseUrl?: string | null;
   readonly remoteOpenTargets: ReadonlyArray<RemoteOpenTarget> | undefined;
   readonly isDesktopRenderer: boolean;
   readonly hostEnvironmentId: string | null;
@@ -70,8 +71,17 @@ export function resolveRemoteOpenState(input: {
     if (hostname !== null && isLoopbackHostname(hostname)) {
       return LOCAL_EXEC;
     }
-  } else if (isDesktopLocalConnectionTarget(target)) {
-    return LOCAL_EXEC;
+  } else if (target._tag === "BearerConnectionTarget") {
+    if (isDesktopLocalConnectionTarget(target)) {
+      return LOCAL_EXEC;
+    }
+    // A separately managed server on localhost is local even when the
+    // desktop app's bundled backend is disabled.
+    const hostname =
+      input.sshTarget === null && input.httpBaseUrl ? parseHostname(input.httpBaseUrl) : null;
+    if (hostname !== null && isLoopbackHostname(hostname)) {
+      return LOCAL_EXEC;
+    }
   }
 
   if (input.sshTarget !== null && input.sshTarget.alias.length > 0) {
@@ -122,6 +132,7 @@ const remoteOpenResolutionAtom = Atom.family((environmentId: EnvironmentId) =>
         sshTarget:
           profile !== null && profile._tag === "SshConnectionProfile" ? profile.target : null,
         remoteOpenTargets: presentation?.serverConfig?.remoteOpenTargets,
+        httpBaseUrl: profile?._tag === "BearerConnectionProfile" ? profile.httpBaseUrl : null,
         isDesktopRenderer: window.desktopBridge !== undefined,
         hostEnvironmentId: get(hostEnvironmentIdAtom),
       }),
