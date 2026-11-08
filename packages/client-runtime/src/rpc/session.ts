@@ -8,6 +8,7 @@ import {
 } from "./webTransportProtocol.ts";
 import { AttemptReconnectArm, ReconnectExperiment } from "../connection/reconnectExperiment.ts";
 import { providerCatalogRevision } from "@t3tools/shared/reconnectSnapshots";
+import { ReconnectLoopOutbox } from "./reconnectLoopSamples.ts";
 import { makeReconnectMeasurement } from "./reconnectMeasurement.ts";
 import {
   type ServerConfig,
@@ -229,6 +230,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     const experiment = yield* ReconnectExperiment;
     const reconnectMeasurement = yield* makeReconnectMeasurement(connection.environmentId);
     const snapshotCacheArm = reconnectMeasurement.arm;
+    const loopOutbox = yield* ReconnectLoopOutbox;
     const diskConfig =
       !lastConfigs.has(connection.environmentId) && Option.isSome(configStore)
         ? yield* configStore.value.loadServerConfig(connection.environmentId).pipe(
@@ -761,11 +763,15 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     }
     return {
       snapshotCacheArm,
-      ...(reconnectMeasurement.enabled
+      ...(reconnectMeasurement.enabled || loopOutbox !== null
         ? {
-            reconnectReady: reconnectMeasurement
-              .ready(protocolClient, transport)
-              .pipe(Effect.forkIn(sessionScope), Effect.asVoid),
+            reconnectReady: Effect.gen(function* () {
+              yield* reconnectMeasurement.ready(protocolClient, transport);
+              const config = yield* initialConfig;
+              if (loopOutbox !== null && config.reconnectLoopMeasurements === true) {
+                yield* loopOutbox.flush(connection.environmentId, protocolClient);
+              }
+            }).pipe(Effect.ignore, Effect.forkIn(sessionScope), Effect.asVoid),
           }
         : {}),
       transport,

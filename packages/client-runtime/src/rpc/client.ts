@@ -22,6 +22,7 @@ import * as Diagnostics from "../connection/diagnostics.ts";
 import * as Performance from "../platform/performance.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import type { RpcSession } from "../rpc/session.ts";
+import { ReconnectLoopOutbox } from "./reconnectLoopSamples.ts";
 
 export class EnvironmentRpcUnavailableError extends Schema.TaggedError<EnvironmentRpcUnavailableError>()(
   "EnvironmentRpcUnavailableError",
@@ -147,6 +148,21 @@ const currentSession = Effect.fn("EnvironmentRpc.currentSession")(function* () {
     ),
   );
 });
+
+export const flushReconnectLoopResults = Effect.fn("EnvironmentRpc.flushReconnectLoopResults")(
+  function* () {
+    const outbox = yield* ReconnectLoopOutbox;
+    if (outbox === null) return 0;
+    const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
+    const pending = yield* outbox.pending(supervisor.target.environmentId);
+    if (pending.length === 0) return 0;
+    const session = yield* currentSession();
+    const config = yield* session.initialConfig;
+    return config.reconnectLoopMeasurements === true
+      ? yield* outbox.flush(supervisor.target.environmentId, session.client)
+      : pending.length;
+  },
+);
 
 export const getInitialServerConfig = Effect.fn("EnvironmentRpc.getInitialServerConfig")(
   function* () {

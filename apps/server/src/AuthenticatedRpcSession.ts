@@ -1943,6 +1943,7 @@ export const layerAuthenticatedHandlers = (
             : { managedPolicy: serverSettings.managedPolicy }),
           shellResumeCompletionMarker: true,
           reconnectMeasurements: true,
+          reconnectLoopMeasurements: true,
           legacyCatchUpPacing: true,
           shellThreadFamilies: true,
           shellOlderSettled: true,
@@ -2685,6 +2686,8 @@ export const layerAuthenticatedHandlers = (
           backgroundPolicy.reportClientActivity(currentSessionId, leaseOwner, input),
         [WS_METHODS.serverRecordReconnectSamples]: (input) =>
           reconnectMetrics.record(input.samples),
+        [WS_METHODS.serverRecordReconnectLoopSamples]: (input) =>
+          reconnectMetrics.recordLoop(input.samples),
         [WS_METHODS.cloudGetRelayClientStatus]: (_input) => relayClient.resolve,
         [WS_METHODS.cloudInstallRelayClient]: (_input) =>
           Stream.callback<RelayClientInstallProgressEvent, RelayClientInstallFailedError>((queue) =>

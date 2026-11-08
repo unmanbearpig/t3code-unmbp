@@ -1,6 +1,8 @@
 import {
   ORCHESTRATION_V2_WS_METHODS,
   type EnvironmentId,
+  type ReconnectLoopSample,
+  type ReconnectTraffic,
   type OrchestrationV2ShellSnapshot,
   type OrchestrationV2ShellStreamItem,
 } from "@t3tools/contracts";
@@ -9,6 +11,7 @@ import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import * as Random from "effect/Random";
 import * as Schema from "effect/Schema";
@@ -18,7 +21,9 @@ import * as Socket from "effect/socket/Socket";
 
 import * as Persistence from "../platform/persistence.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
-import { AttemptSnapshotTrial, SnapshotExperiment } from "./snapshotExperiment.ts";
+import { ReconnectLoopOutbox } from "../rpc/reconnectLoopSamples.ts";
+import { flushReconnectLoopResults } from "../rpc/client.ts";
+import { AttemptSnapshotTrial, SnapshotExperiment, trafficDelta } from "./snapshotExperiment.ts";
 import { AttemptReconnectArm, ReconnectExperiment } from "./reconnectExperiment.ts";
 import * as RpcSession from "../rpc/session.ts";
 import { applyShellStreamEvents, mergeShellSnapshotProjects } from "../state/shellReducer.ts";
@@ -29,32 +34,9 @@ class ReconnectLoopError extends Schema.TaggedError<ReconnectLoopError>()("Recon
   message: Schema.String,
 }) {}
 
-export type ReconnectLoopArm = "warmup" | "full" | "cached" | "restart";
-
-export interface AppTraffic {
-  readonly receivedBytes: number;
-  readonly sentBytes: number;
-  readonly receivedPackets: number;
-  readonly sentPackets: number;
-}
-
-export interface ReconnectLoopRow {
-  readonly at: string;
-  readonly round: number;
-  readonly arm: ReconnectLoopArm;
-  readonly ok: boolean;
-  readonly error?: string;
-  readonly prepareMs: number;
-  readonly configMs: number;
-  readonly syncedMs: number;
-  readonly jsonDown: number;
-  readonly jsonUp: number;
-  readonly sentRevisions: number;
-  readonly reusedCatalogs: number;
-  readonly projectFrames: number;
-  /** Android per-app counters: every socket this app has open, including its own connection. */
-  readonly appTraffic: AppTraffic | null;
-}
+export type ReconnectLoopArm = ReconnectLoopSample["arm"];
+export type AppTraffic = ReconnectTraffic;
+export type ReconnectLoopRow = ReconnectLoopSample;
 
 const encoder = new TextEncoder();
 const byteLength = (data: unknown) =>
@@ -64,27 +46,35 @@ const byteLength = (data: unknown) =>
       ? data.byteLength
       : 0;
 
-const trafficDelta = (before: AppTraffic | null, after: AppTraffic | null): AppTraffic | null =>
-  before === null || after === null
-    ? null
-    : {
-        receivedBytes: after.receivedBytes - before.receivedBytes,
-        sentBytes: after.sentBytes - before.sentBytes,
-        receivedPackets: after.receivedPackets - before.receivedPackets,
-        sentPackets: after.sentPackets - before.sentPackets,
-      };
-
 export const runReconnectLoop = Effect.fn("ReconnectLoop.run")(
   function* (input: {
     readonly environmentId: EnvironmentId;
     readonly rounds: number;
+    readonly runId: string;
+    readonly platform: ReconnectLoopSample["platform"];
+    readonly appVersion: string;
+    readonly networkType: Effect.Effect<ReconnectLoopSample["networkType"]>;
+    readonly onPending: (count: number) => void;
     readonly options: RpcSession.RpcSessionOptions;
     readonly readTraffic: () => AppTraffic | null;
     readonly onRow: (row: ReconnectLoopRow) => void;
   }) {
     const experiment = yield* ReconnectExperiment;
     const pipelineArm = experiment?.arm(input.environmentId) ?? "new";
+    const outbox = yield* ReconnectLoopOutbox;
+    if (outbox === null) {
+      return yield* new ReconnectLoopError({ message: "Reconnect loop storage is unavailable." });
+    }
     const registry = yield* EnvironmentRegistry;
+    const upload = registry.run(input.environmentId, flushReconnectLoopResults()).pipe(
+      Effect.timeout("10 seconds"),
+      Effect.catch(() =>
+        outbox.pending(input.environmentId).pipe(Effect.map((rows) => rows.length)),
+      ),
+      Effect.tap((pending) => Effect.sync(() => input.onPending(pending))),
+    );
+    yield* upload;
+    let attemptIndex = 0;
     const resolver = yield* ConnectionResolver;
     const store = yield* Persistence.EnvironmentCacheStore;
     const webSocketConstructor = yield* Socket.WebSocketConstructor;
@@ -130,9 +120,9 @@ export const runReconnectLoop = Effect.fn("ReconnectLoop.run")(
             ? store
             : Persistence.EnvironmentCacheStore.of({
                 ...store,
-                loadServerConfig: Effect.fn("ReconnectLoop.noStoredConfig")(function* () {
-                  return Option.none();
-                }),
+                loadServerConfig: Effect.fn("ReconnectLoop.noStoredConfig")(
+                  () => Effect.succeedNone,
+                ),
               }),
         ),
       );
@@ -191,14 +181,22 @@ export const runReconnectLoop = Effect.fn("ReconnectLoop.run")(
       if (Option.isNone(entry)) {
         return yield* new ReconnectLoopError({ message: "Environment is not registered here." });
       }
+      const networkType = yield* input.networkType.pipe(Effect.interruptible);
       const trafficBefore = input.readTraffic();
       tally = { jsonDown: 0, jsonUp: 0, sentRevisions: 0, reusedCatalogs: 0 };
       const preparing = yield* Clock.currentTimeMillis;
-      const prepared = yield* resolver.prepare(entry.value);
-      const started = yield* Clock.currentTimeMillis;
+      let started = preparing;
+      let prepareMs = 0;
+      let serverVersion: string | null = null;
+      let transport: ReconnectLoopSample["transport"] = "unknown";
       const result = yield* Effect.gen(function* () {
+        const prepared = yield* resolver.prepare(entry.value);
+        started = yield* Clock.currentTimeMillis;
+        prepareMs = started - preparing;
         const session = yield* factory.connect(prepared);
+        transport = session.transport ?? "unknown";
         const config = yield* session.initialConfig;
+        serverVersion = config.environment.serverVersion;
         const configMs = (yield* Clock.currentTimeMillis) - started;
         const omitIdleSubagents = config.shellThreadFamilies === true;
         const omitOlderSettled = config.shellOlderSettled === true && omitIdleSubagents;
@@ -223,42 +221,66 @@ export const runReconnectLoop = Effect.fn("ReconnectLoop.run")(
           Stream.runCollect,
         );
         const syncedMs = (yield* Clock.currentTimeMillis) - started;
-        return { configMs, syncedMs, items: Array.from(items) };
+        return {
+          configMs,
+          syncedMs,
+          items: Array.from(items),
+          tally: { ...tally },
+          appTraffic: trafficDelta(trafficBefore, input.readTraffic()),
+        };
       }).pipe(
         Effect.provideService(AttemptReconnectArm, pipelineArm),
         Effect.scoped,
         Effect.timeout("60 seconds"),
+        Effect.interruptible,
         Effect.exit,
       );
       const at = DateTime.formatIso(yield* DateTime.now);
       const base = {
+        version: 1 as const,
+        id: `${input.runId}:${attemptIndex++}`,
+        runId: input.runId,
         at,
         round,
         arm,
-        prepareMs: started - preparing,
-        ...tally,
-        appTraffic: trafficDelta(trafficBefore, input.readTraffic()),
+        pipelineArm,
+        platform: input.platform,
+        appVersion: input.appVersion,
+        networkType,
+        serverVersion,
+        transport,
+        prepareMs,
       };
-      if (Exit.isFailure(result)) {
-        input.onRow({
-          ...base,
-          ok: false,
-          error: String(result.cause).slice(0, 300),
-          configMs: 0,
-          syncedMs: 0,
-          projectFrames: 0,
-        });
-        return;
+      const row: ReconnectLoopRow = Exit.isFailure(result)
+        ? {
+            ...base,
+            ...tally,
+            ok: false,
+            error: Cause.hasInterruptsOnly(result.cause)
+              ? "Interrupted"
+              : "Connection attempt failed",
+            configMs: 0,
+            syncedMs: 0,
+            projectFrames: 0,
+            appTraffic: trafficDelta(trafficBefore, input.readTraffic()),
+          }
+        : {
+            ...base,
+            ...result.value.tally,
+            ok: true,
+            configMs: result.value.configMs,
+            syncedMs: result.value.syncedMs,
+            projectFrames: result.value.items.filter((item) => item.kind === "snapshot").length,
+            appTraffic: result.value.appTraffic,
+          };
+      if (Exit.isSuccess(result)) applyItems(result.value.items);
+      yield* outbox.save(input.environmentId, row).pipe(Effect.uninterruptible);
+      input.onRow(row);
+      if (Exit.isFailure(result) && Cause.hasInterruptsOnly(result.cause)) {
+        return yield* Effect.interrupt;
       }
-      applyItems(result.value.items);
-      input.onRow({
-        ...base,
-        ok: true,
-        configMs: result.value.configMs,
-        syncedMs: result.value.syncedMs,
-        projectFrames: result.value.items.filter((item) => item.kind === "snapshot").length,
-      });
-    });
+      yield* upload.pipe(Effect.interruptible);
+    }, Effect.uninterruptible);
 
     yield* attempt(-1, "warmup");
     yield* Effect.sleep("5 seconds");

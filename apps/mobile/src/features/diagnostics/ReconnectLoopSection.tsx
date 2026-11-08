@@ -1,11 +1,16 @@
-// Bench-only: runs ReconnectLoop against a paired environment and shares the rows as NDJSON.
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { ReconnectLoop } from "@t3tools/client-runtime/connection";
-import type { EnvironmentId } from "@t3tools/contracts";
+import { ReconnectTraffic, type EnvironmentId } from "@t3tools/contracts";
 import { requireOptionalNativeModule } from "expo";
+import Constants from "expo-constants";
+import { randomUUID } from "expo-crypto";
+import * as Network from "expo-network";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as Result from "effect/Result";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { useRef, useState } from "react";
-import { Share, View } from "react-native";
+import { Platform, Share, View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
@@ -18,10 +23,13 @@ const native = requireOptionalNativeModule<{ getAppNetworkTraffic?: () => unknow
   "T3NativeControls",
 );
 
+const decodeTraffic = Schema.decodeUnknownResult(ReconnectTraffic);
+
 function readTraffic(): ReconnectLoop.AppTraffic | null {
   try {
     const value = native?.getAppNetworkTraffic?.();
-    return value !== null && typeof value === "object" ? (value as ReconnectLoop.AppTraffic) : null;
+    const decoded = decodeTraffic(value);
+    return Result.isSuccess(decoded) ? decoded.success : null;
   } catch {
     return null;
   }
@@ -31,11 +39,26 @@ const runLoopAtom = connectionAtomRuntime
   .fn(
     (input: {
       readonly environmentId: EnvironmentId;
+      readonly onPending: (count: number) => void;
       readonly onRow: (row: ReconnectLoop.ReconnectLoopRow) => void;
     }) =>
       ReconnectLoop.runReconnectLoop({
         environmentId: input.environmentId,
         rounds: ROUNDS,
+        runId: randomUUID(),
+        platform: Platform.OS === "android" ? "android" : "ios",
+        appVersion: Constants.expoConfig?.version ?? "dev",
+        networkType: Effect.promise(() => Network.getNetworkStateAsync()).pipe(
+          Effect.map((state) =>
+            state.type === Network.NetworkStateType.CELLULAR
+              ? ("cellular" as const)
+              : state.type === Network.NetworkStateType.WIFI
+                ? ("wifi" as const)
+                : ("other" as const),
+          ),
+          Effect.catchCause(() => Effect.succeed("other" as const)),
+        ),
+        onPending: input.onPending,
         options: {
           usageLimitSources: true,
           usageLimitsCommand: true,
@@ -72,6 +95,7 @@ export function ReconnectLoopSection() {
   const run = useAtomSet(runLoopAtom);
   const rowsRef = useRef<Array<ReconnectLoop.ReconnectLoopRow>>([]);
   const [rows, setRows] = useState<ReadonlyArray<ReconnectLoop.ReconnectLoopRow>>([]);
+  const [pending, setPending] = useState<number | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const running = result.waiting;
 
@@ -81,6 +105,7 @@ export function ReconnectLoopSection() {
     setTarget(label);
     run({
       environmentId,
+      onPending: setPending,
       onRow: (row) => {
         rowsRef.current.push(row);
         setRows([...rowsRef.current]);
@@ -123,6 +148,9 @@ export function ReconnectLoopSection() {
             ? ""
             : `${target}: ${running ? "running" : "stopped"}, ${measured.length}/${ROUNDS * 3} attempts`,
           ...(measured.length > 0 ? summary(measured) : []),
+          ...(pending === null
+            ? []
+            : [pending === 0 ? "Last upload complete" : `Last upload: ${pending} pending`]),
           ...(failure ? [`Error: ${failure}`] : []),
         ].join("\n")}
       </Text>

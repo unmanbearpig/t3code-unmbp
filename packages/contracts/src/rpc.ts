@@ -82,7 +82,11 @@ import {
   EnvironmentAuthorizationError,
 } from "./auth.ts";
 import { ClientActivityReportInput } from "./background.ts";
-import { ReconnectSamplesInput, ReconnectMetricsError } from "./reconnectMetrics.ts";
+import {
+  ReconnectSamplesInput,
+  ReconnectLoopSamplesInput,
+  ReconnectMetricsError,
+} from "./reconnectMetrics.ts";
 import {
   FilesystemGetMetadataInput,
   FilesystemGetMetadataResult,
@@ -537,6 +541,7 @@ export const WS_METHODS = {
   serverSignalProcess: "server.signalProcess",
   serverReportClientActivity: "server.reportClientActivity",
   serverRecordReconnectSamples: "server.recordReconnectSamples",
+  serverRecordReconnectLoopSamples: "server.recordReconnectLoopSamples",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
 
@@ -1000,6 +1005,14 @@ const WsServerRecordReconnectSamplesRpc = Rpc.make(WS_METHODS.serverRecordReconn
   payload: ReconnectSamplesInput,
   error: Schema.Union([EnvironmentAuthorizationError, ReconnectMetricsError]),
 });
+
+const WsServerRecordReconnectLoopSamplesRpc = Rpc.make(
+  WS_METHODS.serverRecordReconnectLoopSamples,
+  {
+    payload: ReconnectLoopSamplesInput,
+    error: Schema.Union([EnvironmentAuthorizationError, ReconnectMetricsError]),
+  },
+);
 
 const PullRequestRpcError = Schema.Union([
   PullRequestUnavailableError,
@@ -2184,6 +2197,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeDeviceStateRpc,
   WsSubscribeServerConfigRpc,
   WsServerRecordReconnectSamplesRpc,
+  WsServerRecordReconnectLoopSamplesRpc,
   WsSubscribeServerLifecycleRpc,
   WsSubscribeAuthAccessRpc,
   WsSubscribeResourceTelemetryRpc,

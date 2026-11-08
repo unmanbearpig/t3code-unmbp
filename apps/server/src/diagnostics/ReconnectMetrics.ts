@@ -1,4 +1,8 @@
-import { ReconnectMetricsError, type ReconnectSample } from "@t3tools/contracts";
+import {
+  ReconnectMetricsError,
+  type ReconnectLoopSample,
+  type ReconnectSample,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -13,6 +17,9 @@ export class ReconnectMetrics extends Context.Service<
     readonly record: (
       samples: ReadonlyArray<ReconnectSample>,
     ) => Effect.Effect<void, ReconnectMetricsError>;
+    readonly recordLoop: (
+      samples: ReadonlyArray<ReconnectLoopSample>,
+    ) => Effect.Effect<void, ReconnectMetricsError>;
   }
 >()("t3/diagnostics/ReconnectMetrics") {}
 
@@ -20,10 +27,10 @@ const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const config = yield* ServerConfig.ServerConfig;
-  const filename = path.join(config.logsDir, "reconnect-samples.ndjson");
   const lock = yield* Semaphore.make(1);
-  const record = Effect.fn("ReconnectMetrics.record")(
-    function* (samples: ReadonlyArray<ReconnectSample>) {
+  const record = Effect.fn("ReconnectMetrics.append")(
+    function* (name: string, samples: ReadonlyArray<ReconnectSample | ReconnectLoopSample>) {
+      const filename = path.join(config.logsDir, name);
       if (samples.length === 0) return;
       yield* fs.makeDirectory(config.logsDir, { recursive: true });
       const size = yield* fs.stat(filename).pipe(
@@ -43,7 +50,14 @@ const make = Effect.gen(function* () {
     lock.withPermit,
     Effect.mapError((cause) => new ReconnectMetricsError({ cause })),
   );
-  return ReconnectMetrics.of({ record });
+  return ReconnectMetrics.of({
+    record: Effect.fn("ReconnectMetrics.record")((samples) =>
+      record("reconnect-samples.ndjson", samples),
+    ),
+    recordLoop: Effect.fn("ReconnectMetrics.recordLoop")((samples) =>
+      record("reconnect-loop-samples.ndjson", samples),
+    ),
+  });
 });
 
 export const layer = Layer.effect(ReconnectMetrics, make);

@@ -14,6 +14,7 @@ import * as Runtime from "../lib/runtime";
 import { appAtomRegistry } from "../state/atom-registry";
 import * as MobileConnectionLog from "../features/diagnostics/connection-log";
 import * as SnapshotExperiment from "../features/diagnostics/snapshot-experiment";
+import * as ReconnectLoopOutbox from "../features/diagnostics/reconnect-loop-outbox";
 import * as BackgroundActivity from "./background-activity";
 import * as ConnectionPlatform from "./platform";
 
@@ -36,6 +37,7 @@ type ConnectionLayerSource =
   | typeof BackgroundActivity.layerObserver
   | typeof BackgroundActivity.layerReporter
   | typeof MobileConnectionLog.layerObserver
+  | typeof ReconnectLoopOutbox.layer
   | typeof SnapshotExperiment.layer
   | typeof MobileConnectionLog.layerExperiment;
 
@@ -51,6 +53,7 @@ const layerProvidedClientConnection = layerSnapshotLoader.pipe(
       MobileConnectionLog.layerObserver.pipe(Layer.provide(Runtime.layer)),
       MobileConnectionLog.layerExperiment.pipe(Layer.provide(Runtime.layer)),
       SnapshotExperiment.layer.pipe(Layer.provide(Runtime.layer)),
+      ReconnectLoopOutbox.layer.pipe(Layer.provide(Runtime.layer)),
     ),
   ),
 );

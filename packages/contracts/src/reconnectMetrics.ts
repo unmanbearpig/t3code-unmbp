@@ -47,6 +47,37 @@ export const ReconnectSamplesInput = Schema.Struct({
   samples: Schema.Array(ReconnectSample).check(Schema.isMaxLength(20)),
 });
 
+export const ReconnectLoopSample = Schema.Struct({
+  version: Schema.Literal(1),
+  id: Label,
+  runId: Label,
+  at: IsoDateTime,
+  round: Schema.Int.check(Schema.isGreaterThanOrEqualTo(-1)),
+  arm: Schema.Literals(["warmup", "full", "cached", "restart"]),
+  pipelineArm: Schema.Literals(["old", "new"]),
+  platform: Schema.Literals(["android", "ios", "web"]),
+  appVersion: Label,
+  serverVersion: Schema.NullOr(Label),
+  networkType: Schema.Literals(["wifi", "cellular", "other"]),
+  transport: Schema.Literals(["websocket", "webtransport", "unknown"]),
+  ok: Schema.Boolean,
+  error: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(300))),
+  prepareMs: DurationMs,
+  configMs: DurationMs,
+  syncedMs: DurationMs,
+  jsonDown: Counter,
+  jsonUp: Counter,
+  sentRevisions: Counter,
+  reusedCatalogs: Counter,
+  projectFrames: Counter,
+  appTraffic: Schema.NullOr(ReconnectTraffic),
+});
+export type ReconnectLoopSample = typeof ReconnectLoopSample.Type;
+
+export const ReconnectLoopSamplesInput = Schema.Struct({
+  samples: Schema.Array(ReconnectLoopSample).check(Schema.isMaxLength(20)),
+});
+
 export class ReconnectMetricsError extends Schema.TaggedError<ReconnectMetricsError>()(
   "ReconnectMetricsError",
   {
