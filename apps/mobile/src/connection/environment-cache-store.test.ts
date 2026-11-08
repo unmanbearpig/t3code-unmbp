@@ -1,3 +1,4 @@
+import { ReconnectComparison } from "@t3tools/client-runtime/connection";
 import { PerformanceTelemetry } from "@t3tools/client-runtime/platform";
 import {
   ORCHESTRATION_CACHE_SCHEMA_VERSION,
@@ -735,3 +736,32 @@ describe("mobile SQLite environment cache store", () => {
     }),
   );
 });
+
+it.effect.each(["baseline", "proposed"] as const)("uses %s cache read semantics", (mode) =>
+  Effect.gen(function* () {
+    const memory = makeDatabase();
+    let reads = 0;
+    const database = MobileDatabase.MobileDatabase.of({
+      ...memory.database,
+      loadCache: (environmentId, kind, key) => {
+        if (kind === "server-config") reads++;
+        return memory.database.loadCache(environmentId, kind, key);
+      },
+    });
+    const store = yield* make().pipe(
+      Effect.provideService(MobileDatabase.MobileDatabase, database),
+    );
+    const load = store.loadServerConfig(ENVIRONMENT_ID).pipe(
+      Effect.provideService(ReconnectComparison.ReconnectComparison, {
+        mode: () => mode,
+        observe: () => undefined,
+      }),
+    );
+    yield* load;
+    yield* load;
+    expect(reads).toBe(mode === "baseline" ? 2 : 1);
+    yield* store.clear(ENVIRONMENT_ID);
+    yield* load;
+    expect(reads).toBe(mode === "baseline" ? 3 : 2);
+  }),
+);
