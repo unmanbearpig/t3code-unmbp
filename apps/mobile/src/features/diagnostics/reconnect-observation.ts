@@ -116,10 +116,12 @@ export const makeObservation = Effect.fn("ReconnectObservation.make")(function* 
               ]),
             ),
           );
+    const encodedShell = completed === null ? null : encodeShell(completed.snapshot);
     const shellState =
-      completed === null
-        ? null
-        : yield* Effect.promise(() => digest(encodeShell(completed.snapshot)));
+      encodedShell === null ? null : yield* Effect.promise(() => digest(encodedShell));
+    // Agent activity rarely touches projects, so this checks project reuse while the server is busy.
+    const projectsState =
+      encodedShell === null ? null : yield* Effect.promise(() => digest(encodedShell.projects));
     const elapsedMs = (completed?.at ?? ended) - started;
     const networkEnd = yield* network;
     const activityEnd = activity();
@@ -152,6 +154,7 @@ export const makeObservation = Effect.fn("ReconnectObservation.make")(function* 
       projectRevisionsRequested,
       catalogState,
       shellState,
+      projectsState,
       networkStart,
       networkEnd,
       networkChanged: networkChanged || networkStart !== networkEnd,
