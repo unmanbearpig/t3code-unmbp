@@ -62,6 +62,7 @@ export const ReconnectComparisonAttempt = Schema.Struct({
   projectRevisionsRequested: NonNegativeInt,
   catalogState: Digest,
   shellState: Digest,
+  projectsState: Schema.optionalKey(Digest),
   networkStart: Network,
   networkEnd: Network,
   networkChanged: Schema.Boolean,

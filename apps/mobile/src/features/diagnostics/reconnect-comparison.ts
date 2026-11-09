@@ -28,7 +28,7 @@ import * as Queue from "effect/Queue";
 import { makeObservation, network } from "./reconnect-observation";
 import * as MobileDatabase from "../../persistence/mobile-database";
 
-export const BUILD_ID = "upstream-ade473-snapshot-v3-r4";
+export const BUILD_ID = "upstream-ade473-snapshot-v3-r5";
 export const PROTOCOL_ID = "snapshot-reuse-v3-90-cellular-pairs";
 export const NATURAL_PROTOCOL_ID = "snapshot-reuse-v3-natural-reconnects";
 export const UPSTREAM_COMMIT = "ade473018d32003658b7d38693e083ee2e314bd8";
