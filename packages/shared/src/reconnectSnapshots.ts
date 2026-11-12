@@ -1,11 +1,7 @@
-import type { OrchestrationProjectShell, ServerProvider } from "@t3tools/contracts";
-
-type ServerProviderCatalog = Pick<
-  typeof ServerProvider.Encoded,
-  "models" | "skills" | "slashCommands"
->;
+import { OrchestrationProjectShell, ServerProvider } from "@t3tools/contracts";
 import { sha256 } from "@noble/hashes/sha2";
 import * as Hex from "effect/encoding/Hex";
+import * as Schema from "effect/Schema";
 
 const revision = (value: unknown) =>
   Hex.encode(
@@ -24,27 +20,28 @@ const revision = (value: unknown) =>
     ),
   ).slice(0, 32);
 
-const catalogRevisions = new WeakMap<object, string>();
+// Both sides hash the encoded wire form: encoding normalizes fields (it trims model names), and
+// hashing a decoded or in-memory copy would let client and server disagree without any error.
+const encodeProvider = Schema.encodeSync(ServerProvider);
+const encodeProjects = Schema.encodeSync(Schema.Array(OrchestrationProjectShell));
 
-/** Accepts the encoded wire form too, which is what the server must hash. */
-export function providerCatalogRevision(
-  provider: Pick<ServerProvider, "models" | "skills" | "slashCommands"> | ServerProviderCatalog,
-): string {
+const catalogRevisions = new WeakMap<ServerProvider, string>();
+
+export function providerCatalogRevision(provider: ServerProvider): string {
   const cached = catalogRevisions.get(provider);
   if (cached !== undefined) return cached;
-  const value = revision({
-    models: provider.models,
-    skills: provider.skills,
-    slashCommands: provider.slashCommands,
-  });
+  const { models, skills, slashCommands } = encodeProvider(provider);
+  const value = revision({ models, skills, slashCommands });
   catalogRevisions.set(provider, value);
   return value;
 }
 
 export function projectSnapshotRevision(
-  projects: ReadonlyArray<OrchestrationProjectShell | typeof OrchestrationProjectShell.Encoded>,
+  projects: ReadonlyArray<OrchestrationProjectShell>,
 ): string {
   return revision(
-    [...projects].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
+    [...encodeProjects(projects)].sort((left, right) =>
+      left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
+    ),
   );
 }

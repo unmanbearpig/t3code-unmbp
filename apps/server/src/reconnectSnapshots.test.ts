@@ -2,12 +2,16 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   ProviderDriverKind,
   ProviderInstanceId,
+  ServerProvider,
   type ServerConfig,
   type ServerConfigStreamEvent,
-  type ServerProvider,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { providerCatalogRevision } from "@t3tools/shared/reconnectSnapshots";
 import { omitCachedProviderCatalogs } from "./reconnectSnapshots.ts";
+
+const encodeProvider = Schema.encodeSync(ServerProvider);
+const decodeProvider = Schema.decodeUnknownSync(ServerProvider);
 
 const provider: ServerProvider = {
   instanceId: ProviderInstanceId.make("codex"),
@@ -36,10 +40,17 @@ describe("cached provider catalogs", () => {
             : { ...provider, checkedAt: "2026-11-07T01:00:00Z" };
       const config = { providers: mode === "removed" ? [] : [current] } as unknown as ServerConfig;
       const snapshot: ServerConfigStreamEvent = { version: 1, type: "snapshot", config };
+      // The client hashes its decoded copy of what the server sent.
+      const received = decodeProvider(encodeProvider(current));
       const revisions =
         mode === "absent"
           ? undefined
-          : { codex: mode === "stale" ? "stale" : providerCatalogRevision(provider) };
+          : {
+              codex:
+                mode === "stale"
+                  ? "stale"
+                  : providerCatalogRevision(mode === "untrimmed" ? received : provider),
+            };
       const next = omitCachedProviderCatalogs(snapshot, revisions);
       expect(next.type).toBe("snapshot");
       if (next.type !== "snapshot") throw new Error("Expected snapshot");
