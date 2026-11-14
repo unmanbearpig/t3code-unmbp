@@ -56,6 +56,9 @@ vi.mock("../hooks/useScratchProject", () => ({
   useScratchProject: () => ({ scratchEnvironmentId: () => null }),
 }));
 vi.mock("../hooks/useNewProject", () => ({ useNewProject: () => async () => undefined }));
+vi.mock("../hooks/useExternalTerminal", () => ({
+  useExternalTerminal: () => ({ available: false, open: async () => undefined }),
+}));
 vi.mock("../hooks/useHandleNewThread", () => ({
   useHandleNewThread: () => ({
     activeDraftThread: null,
