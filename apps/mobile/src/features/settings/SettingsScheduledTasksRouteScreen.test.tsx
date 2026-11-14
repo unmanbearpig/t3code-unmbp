@@ -128,6 +128,9 @@ vi.mock("../../state/server", () => ({
     upsertScheduledTask: { permissionAtom: () => Atom.make(true) },
   },
 }));
+vi.mock("../../state/queries", () => ({
+  usePaginatedBranches: () => ({ refs: [], data: null, error: null, isPending: false }),
+}));
 vi.mock("../../state/query", () => ({
   useEnvironmentQuery: () => ({ data: { tasks: mocks.tasks, threads: [] } }),
 }));

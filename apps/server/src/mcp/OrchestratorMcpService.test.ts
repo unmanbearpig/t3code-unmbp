@@ -43,7 +43,6 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
@@ -3679,13 +3678,7 @@ describe("OrchestratorMcpService provider resolution", () => {
       Effect.gen(function* () {
         const saved = yield* Ref.make<ReadonlyArray<ScheduledTask["workspaceStrategy"]>>([]);
         const mcp = yield* OrchestratorMcpService.OrchestratorMcpService.pipe(
-          Effect.provide(
-            service(masterRepository, saved, {
-              ...existing,
-              threadId: ThreadId.make("thread:scheduled-base"),
-              threadMode: "continue",
-            }),
-          ),
+          Effect.provide(service(masterRepository, saved, existing)),
         );
         yield* mcp.updateScheduledTask(client, {
           scheduledTaskId: existing.id,
@@ -5206,7 +5199,7 @@ describe("OrchestratorMcpService scheduled tasks that launch a fresh worktree pe
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("skips an origin default that no longer exists for the checked-out branch", () =>
+  it.effect("resolves the remote default when its cached HEAD no longer exists", () =>
     Effect.gen(function* () {
       const workspaceRoot = yield* cloneOf("master");
       yield* git(workspaceRoot, ["checkout", "-b", "feature"]);
@@ -5216,7 +5209,7 @@ describe("OrchestratorMcpService scheduled tasks that launch a fresh worktree pe
         "refs/remotes/origin/HEAD",
         "refs/remotes/origin/gone",
       ]);
-      yield* expectBase(workspaceRoot, "feature");
+      yield* expectBase(workspaceRoot, "origin/master");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

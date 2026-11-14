@@ -1823,7 +1823,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentId,
     projectId: activeProjectId,
     projectName,
-    lastPromptCacheWriteAt,
     ownerKey: questionAttachmentTarget ?? composerDraftTargetKey,
     disabled: dictationDisabled,
     readDraft: () => {
@@ -2367,13 +2366,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       const target = event.target ?? document.activeElement;
       if (!(target instanceof Node) || !composerFormRef.current?.contains(target)) return;
       const command = resolveShortcutCommand(event, keybindings, {
-        context: { composerFocus: true, draftThreadRoute: routeKind === "draft", turnRunning: phase === "running" },
+        context: {
+          composerFocus: true,
+          draftThreadRoute: routeKind === "draft",
+          turnRunning: phase === "running",
+        },
       });
       if (!command?.startsWith("composer.send")) return;
       if (onComposerCommandKey(event.key, event)) event.preventDefault();
     }, true),
   );
-
 
   const {
     stashQueue,
@@ -3674,7 +3676,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     <ComposerPrimaryActions
                       compact
                       canOperateThread={canOperateThread}
-                    lastPromptCacheWriteAt={lastPromptCacheWriteAt}
                       pendingAction={pendingPrimaryAction}
                       isRunning={false}
                       canInterrupt={false}

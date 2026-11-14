@@ -180,6 +180,7 @@ describe("resolveRemoteOpenState", () => {
             sshTarget: null,
             isDesktopRenderer,
             remoteOpenTargets: TAILSCALE_TARGETS,
+            hostEnvironmentId: null,
           }),
         ).toEqual({ mode: "local-exec" });
       }
@@ -198,6 +199,7 @@ describe("resolveRemoteOpenState", () => {
         sshTarget: null,
         isDesktopRenderer: true,
         remoteOpenTargets: TAILSCALE_TARGETS,
+        hostEnvironmentId: null,
       }),
     ).toEqual({ mode: "remote-links", host: TAILSCALE_TARGETS[0] });
     expect(
@@ -207,6 +209,7 @@ describe("resolveRemoteOpenState", () => {
         sshTarget: { alias: "sol", username: null },
         isDesktopRenderer: true,
         remoteOpenTargets: TAILSCALE_TARGETS,
+        hostEnvironmentId: null,
       }),
     ).toEqual({ mode: "remote-links", host: { kind: "ssh-alias", host: "sol" } });
   });
