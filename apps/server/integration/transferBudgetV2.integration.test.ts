@@ -118,7 +118,11 @@ const CLIENT_THREAD_SUBSCRIPTION = {
   acceptCompactIds: true,
   acceptDedupedBodies: true,
 } satisfies Required<Omit<OrchestrationV2SubscribeThreadInput, "threadId" | "afterSequence">>;
-type ShellResumeField = "afterSequence" | "httpSnapshotFallback" | "knownProjectIdentities";
+type ShellResumeField =
+  | "afterSequence"
+  | "httpSnapshotFallback"
+  | "knownProjectIdentities"
+  | "projectsRevision";
 const CLIENT_SHELL_SUBSCRIPTION = {
   requestCompletionMarker: true,
   omitIdleSubagents: true,

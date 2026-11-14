@@ -432,6 +432,22 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       entries.flatMap(([session, item]) => (session === subscription?.session ? [item] : [])),
       subscription?.identity ?? null,
     );
+    const session = subscription?.session;
+    if (
+      !session?.comparison ||
+      !entries.some(([source, item]) => source === session && item.kind === "synchronized")
+    )
+      return;
+    const current = yield* SubscriptionRef.get(state);
+    const active = yield* SubscriptionRef.get(supervisor.session);
+    if (
+      Option.isSome(active) &&
+      active.value === session &&
+      current.status === "live" &&
+      Option.isSome(current.snapshot)
+    ) {
+      yield* session.comparison.synchronized(current.snapshot.value);
+    }
   }, snapshotWriteLock.withPermit);
 
   const stateScope = yield* Effect.scope;
@@ -721,29 +737,12 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       },
     ).pipe(
       Stream.runForEachArray((entries) =>
-        Effect.forEach(
-          groupBySession(entries),
-          ([session, items]) =>
-            applyItems(items, sessionOmissions.get(session) ?? null).pipe(
-              Effect.andThen(
-                Effect.gen(function* () {
-                  if (!session.comparison || !items.some((item) => item.kind === "synchronized"))
-                    return;
-                  const current = yield* SubscriptionRef.get(state);
-                  const active = yield* SubscriptionRef.get(supervisor.session);
-                  if (
-                    Option.isSome(active) &&
-                    active.value === session &&
-                    current.status === "live" &&
-                    Option.isSome(current.snapshot)
-                  ) {
-                    yield* session.comparison.synchronized(current.snapshot.value);
-                  }
-                }),
-              ),
-            ),
-          { discard: true },
-        ).pipe(Effect.andThen(Effect.sync(() => { defectRetries = 0; })),
+        applyItems(entries).pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              defectRetries = 0;
+            }),
+          ),
         ),
       ),
     ),

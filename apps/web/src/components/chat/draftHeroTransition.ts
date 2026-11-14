@@ -51,8 +51,7 @@ export function runMobileComposerTransition(
 
   const transitionDocument = document as ComposerViewTransitionDocument;
   const mobileViewport = window.matchMedia?.("(max-width: 639px)").matches ?? false;
-  const prefersReducedMotion =
-    clientPrefersReducedMotion();
+  const prefersReducedMotion = clientPrefersReducedMotion();
   const startViewTransition = transitionDocument.startViewTransition?.bind(transitionDocument);
   if (!options.active || !mobileViewport || prefersReducedMotion || !startViewTransition) {
     runInlineUpdate(update);

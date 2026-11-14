@@ -6909,6 +6909,16 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
         threadId,
         runId: queued.id,
       });
+      for (const run of filed.runs.filter(
+        (run) => run.status === "queued" && run.id !== queued.id,
+      )) {
+        yield* orchestrator.dispatch({
+          type: "queued-run.cancel",
+          commandId: CommandId.make(`settle-automatic-cancel:${run.id}`),
+          threadId,
+          runId: run.id,
+        });
+      }
       yield* orchestrator.dispatch({
         type: "thread.settle-when-idle",
         commandId: CommandId.make("settle-automatic-fulfill-2"),
@@ -12297,6 +12307,7 @@ const layerProductionBrowserAccessTest = RuntimeLayer.layerProduction.pipe(
       refreshStatus: () => Effect.die("unused"),
     }),
   ),
+  Layer.provide(Layer.mock(DeviceService.DeviceService)({})),
   Layer.provide(layerPlatformTest),
 );
 

@@ -616,7 +616,7 @@ it.effect("a launch into a new worktree creates nothing when its base ref has no
     const plain = (yield* launchFrom("plain")).at(-1)?.result;
     expect(plain).toMatchObject({ code: "invalid_request" });
     expect((plain as { message: string }).message).toContain(
-      "is not a Git repository, so it cannot get a worktree. No thread was created.",
+      "is not a Git repository. No thread was created.",
     );
     expect(launched).toHaveLength(0);
 

@@ -154,19 +154,26 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
         ),
       ),
     ),
-    saveShell: Effect.fn("MobileEnvironmentCache.saveShell")(function* (environmentId, snapshot, origin) {
-      const payload = yield* measureEncode(
-        encodeStoredShellSnapshot({
-          schemaVersion: ORCHESTRATION_CACHE_SCHEMA_VERSION,
+    saveShell: Effect.fn("MobileEnvironmentCache.saveShell")(
+      function* (environmentId, snapshot, origin) {
+        const payload = yield* measureEncode(
+          encodeStoredShellSnapshot({
+            schemaVersion: ORCHESTRATION_CACHE_SCHEMA_VERSION,
+            environmentId,
+            snapshot,
+            ...(origin === undefined ? {} : { origin }),
+          }),
+          "shell",
+        ).pipe(Effect.mapError((cause) => persistenceError("save-shell", cause)));
+        yield* saveCache(
           environmentId,
-          snapshot,
-          ...(origin === undefined ? {} : { origin }),
-        }),
-        "shell",
-      ).pipe(Effect.mapError((cause) => persistenceError("save-shell", cause)));
-      yield* saveCache(environmentId, "shell", "snapshot", ORCHESTRATION_CACHE_SCHEMA_VERSION, payload)
-        .pipe(Effect.mapError(mapDatabaseError("save-shell")));
-    }),
+          "shell",
+          "snapshot",
+          ORCHESTRATION_CACHE_SCHEMA_VERSION,
+          payload,
+        ).pipe(Effect.mapError(mapDatabaseError("save-shell")));
+      },
+    ),
     loadThread: Effect.fn("MobileEnvironmentCache.loadThread")((environmentId, threadId) =>
       loadDecodedCache({
         database,
@@ -192,7 +199,14 @@ export const make = Effect.fn("MobileEnvironmentCacheStore.make")(function* () {
       if (!isLatest()) return;
       yield* Option.match(payload, {
         onNone: () => database.removeCache(environmentId, "thread", threadId),
-        onSome: (encoded) => saveCache(environmentId, "thread", threadId, COMPACT_THREAD_CACHE_SCHEMA_VERSION, encoded),
+        onSome: (encoded) =>
+          saveCache(
+            environmentId,
+            "thread",
+            threadId,
+            COMPACT_THREAD_CACHE_SCHEMA_VERSION,
+            encoded,
+          ),
       }).pipe(Effect.mapError(mapDatabaseError("save-thread")));
     }),
     removeThread: Effect.fn("MobileEnvironmentCache.removeThread")((environmentId, threadId) => {

@@ -796,49 +796,6 @@ export const layer = Layer.effect(
         ),
       );
 
-    // last_run_at identifies this preparation result, so a later run keeps its own status.
-    const recordFailedPreparation = Effect.fn("ScheduledTaskService.recordFailedPreparation")(
-      function* (input: {
-        readonly id: ScheduledTaskId;
-        readonly startedAtIso: string;
-        readonly threadId: ThreadId;
-        readonly messageId: MessageId;
-      }) {
-        // The thread is new, so replaying its run updates from the start is cheap.
-        const leftPreparation = yield* threadManagement
-          .streamStoredEventsFrom({
-            threadId: input.threadId,
-            afterSequence: 0,
-            eventType: "run.updated",
-          })
-          .pipe(
-            Stream.map((stored) =>
-              stored.event.type === "run.updated" &&
-              stored.event.payload.userMessageId === input.messageId
-                ? stored.event.payload.status
-                : "preparing",
-            ),
-            Stream.filter((status) => status !== "preparing"),
-            Stream.runHead,
-          );
-        if (Option.getOrUndefined(leftPreparation) !== "failed") return;
-        yield* sql`
-          UPDATE scheduled_tasks
-          SET last_run_status = 'failed',
-              last_run_error = ${`Workspace preparation failed. See thread ${input.threadId}.`}
-          WHERE task_id = ${input.id}
-            AND last_run_status = 'succeeded'
-            AND last_run_at = ${input.startedAtIso}
-        `;
-        yield* notifyChanged;
-      },
-      Effect.catchCause((cause) =>
-        Cause.hasInterruptsOnly(cause)
-          ? Effect.void
-          : Effect.logWarning("Could not record a failed workspace preparation", { cause }),
-      ),
-    );
-
     // A failure between markRunning and markCompleted must still write a terminal record:
     // runDueTasks skips 'running' rows forever, and the dispatch may already have gone out,
     // so next_run_at must advance. Pending webhook attempts count only with their completion.

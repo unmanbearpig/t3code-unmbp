@@ -175,7 +175,11 @@ function resolveThreadAwarenessPhaseV2(
     case "waiting":
       return "running";
     case "completed":
-      if (backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? []) || monitorHoldsWakeCompletion(thread)) return "running";
+      if (
+        backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? []) ||
+        monitorHoldsWakeCompletion(thread)
+      )
+        return "running";
       return thread.settleWhenIdleAt != null || thread.settledOverride === "settled"
         ? null
         : "completed";

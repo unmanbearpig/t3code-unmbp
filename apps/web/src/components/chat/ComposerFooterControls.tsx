@@ -224,7 +224,9 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
 }) {
   return (
     <>
-      {props.lastPromptCacheWriteAt !== null ? <PromptCacheElapsed writtenAt={props.lastPromptCacheWriteAt} /> : null}
+      {props.lastPromptCacheWriteAt !== null ? (
+        <PromptCacheElapsed writtenAt={props.lastPromptCacheWriteAt} />
+      ) : null}
       <ComposerPrimaryActions
         compact={props.compact}
         canOperateThread={props.canOperateThread}

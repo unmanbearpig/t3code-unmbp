@@ -1389,14 +1389,17 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
       }
       const replay = toShellStream(Stream.fromIterable(replayed));
       return composeShellStreamWithEnrichment({
-        initial: initialEnrichmentItems({
-          snapshot: loaded.snapshot,
-          resolvedRepositoryIdentityRoots: resumeIdentityRoots({
-            projects: loaded.snapshot.projects,
-            resolvedRepositoryIdentityRoots: loaded.resolvedRepositoryIdentityRoots,
-            knownProjectIdentities: input.knownProjectIdentities,
-          }, input.projectsRevision),
-        }, input.projectsRevision),
+        initial: initialEnrichmentItems(
+          {
+            snapshot: loaded.snapshot,
+            resolvedRepositoryIdentityRoots: resumeIdentityRoots({
+              projects: loaded.snapshot.projects,
+              resolvedRepositoryIdentityRoots: loaded.resolvedRepositoryIdentityRoots,
+              knownProjectIdentities: input.knownProjectIdentities,
+            }),
+          },
+          input.projectsRevision,
+        ),
         tail: Stream.concat(Stream.concat(replay, completionMarker), liveFrom(highWater)),
         enrichment: enrichmentRefreshes,
       });
