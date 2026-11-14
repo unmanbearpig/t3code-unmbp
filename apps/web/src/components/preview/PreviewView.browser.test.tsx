@@ -382,7 +382,7 @@ describe("PreviewView", () => {
         source: "scanner",
       },
     ];
-    await using _screen = await render(<ToastProvider timeout={0}>{view()}</ToastProvider>);
+    await using _screen = await render(view());
     const card = page.getByRole("button", { name: /localhost:8081/ });
     await expect.element(card).toBeVisible();
 
