@@ -15,13 +15,7 @@ import {
   type ComponentProps,
   type ReactNode,
 } from "react";
-import type {
-  ColorValue,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
-  StyleProp,
-  ViewStyle,
-} from "react-native";
+import type { ColorValue, StyleProp, ViewStyle } from "react-native";
 import { Platform, Pressable, View, useWindowDimensions } from "react-native";
 import ReanimatedSwipeable, {
   type SwipeableMethods,

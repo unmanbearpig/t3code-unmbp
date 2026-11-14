@@ -250,7 +250,6 @@ function layerTest(input: {
   readonly onReveal?: (window: Electron.BrowserWindow) => void;
   readonly focusedWindow?: Electron.BrowserWindow;
   readonly fallbackWindow?: Electron.BrowserWindow;
-  readonly platform?: NodeJS.Platform;
   readonly appearanceWindows?: ReadonlyArray<{
     readonly window: Electron.BrowserWindow;
     readonly titleBarOverlay: boolean;

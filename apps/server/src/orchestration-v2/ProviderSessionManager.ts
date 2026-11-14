@@ -1185,7 +1185,9 @@ export const layerWithOptions = (
                   input.entry.requestEventPermit.withPermits(1),
                 ),
               ),
-              Effect.exit(writeReleasedBackgroundWorkEvents(input.releasedProviderThreads, input.releasedAt)),
+              Effect.exit(
+                writeReleasedBackgroundWorkEvents(input.releasedProviderThreads, input.releasedAt),
+              ),
             ],
             { concurrency: 1 },
           ).pipe(Effect.flatMap(Exit.asVoidAll));

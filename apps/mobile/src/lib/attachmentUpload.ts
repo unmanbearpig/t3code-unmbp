@@ -289,7 +289,13 @@ async function uploadFileBytes(
         encoding: "base64",
       });
     }
-    const result = await uploadAttachmentFile(file, url, composerAttachmentWireMimeType(attachment), signal, onProgress);
+    const result = await uploadAttachmentFile(
+      file,
+      url,
+      composerAttachmentWireMimeType(attachment),
+      signal,
+      onProgress,
+    );
     if (!result) throw new Error("Upload cancelled.");
     if (result.status < 200 || result.status >= 300) {
       throw new Error(
