@@ -65,6 +65,7 @@ import { CloudManagedEndpointRuntime } from "../cloud/ManagedEndpointRuntime.ts"
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as DocumentText from "../provider/DocumentText.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -13133,6 +13134,7 @@ const layerProductionBrowserAccessTest = RuntimeLayer.layerProduction.pipe(
   Layer.provide(
     Layer.mergeAll(
       Layer.mock(AnalyticsService.AnalyticsService)({}),
+      Layer.mock(DocumentText.DocumentText)({}),
       Layer.mock(CloudManagedEndpointRuntime)({ inspectConnector: Effect.succeed(null) }),
       Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({}),
       Layer.mock(ProviderRegistry.ProviderRegistry)({}),

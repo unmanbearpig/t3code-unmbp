@@ -3571,6 +3571,15 @@ describe("OrchestratorMcpService provider resolution", () => {
         Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
         Layer.provide(
           Layer.mock(GitVcsDriver.GitVcsDriver)({
+            execute: () =>
+              Effect.succeed({
+                exitCode: ChildProcessSpawner.ExitCode(0),
+                stdout: ".git",
+                stderr: "",
+                stdoutTruncated: false,
+                stderrTruncated: false,
+              }),
+            listLocalBranchNames: () => Effect.succeed(["main"]),
             resolvePrimaryRemoteName: () => Effect.succeed("origin"),
             resolveDefaultBranchName: () => Effect.succeed("main"),
             resolveCommit: () => Effect.succeed({ commitSha: "abc123" }),

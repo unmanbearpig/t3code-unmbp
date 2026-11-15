@@ -1218,6 +1218,7 @@ it.effect("records a run whose worktree cannot be made as failed instead of laun
       Scheduler.layer,
       // No launch: a run that got past the check would die on the mock.
       Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+        isNonGitProject: () => Effect.succeed(false),
         checkWorktreeBase: ({ projectId }) =>
           Effect.fail(
             new ThreadLaunchService.ThreadLaunchNotRepositoryError({
