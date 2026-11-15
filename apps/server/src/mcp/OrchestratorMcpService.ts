@@ -1,5 +1,3 @@
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import {
   CommandId,
   type GitCommandError,
