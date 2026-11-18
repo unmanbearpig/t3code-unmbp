@@ -557,6 +557,21 @@ describe("Emacs composer editing", () => {
     expect(commands).toEqual(["thread.settle"]);
     expect(editor.text()).toBe("");
     expect(editor.view.state.selection.head).toBe(1);
+
+    commands.length = 0;
+    const citationComment = document.createElement("div");
+    citationComment.setAttribute("data-citation-comment-editor", "true");
+    const commentInput = document.createElement("textarea");
+    citationComment.append(commentInput);
+    document.body.append(citationComment);
+    fixture.cleanups.push(() => citationComment.remove());
+    for (const value of ["", "a comment"]) {
+      commentInput.value = value;
+      commentInput.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "d", ctrlKey: true, bubbles: true, cancelable: true }),
+      );
+    }
+    expect(commands).toEqual([]);
     expect(
       resolveShortcutCommand(
         new KeyboardEvent("keydown", { key: "d", ctrlKey: true }),

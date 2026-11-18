@@ -228,7 +228,13 @@ export function resolveShortcutCommand(
     return null;
   }
 
+  // The citation comment popup is its own editor; nothing typed there settles the thread.
+  const inCitationComment =
+    typeof Element !== "undefined" &&
+    target instanceof Element &&
+    target.closest("[data-citation-comment-editor]") !== null;
   if (
+    !inCitationComment &&
     !isLeaderShortcutEvent(event) &&
     !context.terminalFocus &&
     isEmptyComposerEofShortcut(event, target)
@@ -241,7 +247,7 @@ export function resolveShortcutCommand(
     if (!binding) continue;
     if (!matchesWhenClause(binding.whenAst, context)) continue;
     if (!matchesShortcut(event, shortcutForContext(binding, context), platform)) continue;
-    return binding.command;
+    return inCitationComment && binding.command === "thread.settle" ? null : binding.command;
   }
   return null;
 }
