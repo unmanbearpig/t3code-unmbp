@@ -1480,6 +1480,7 @@ function useKeybindingCatalog() {
 }
 
 function LeaderShortcutSettings() {
+  const setting = useSearchableSetting();
   const settings = useClientSettings();
   const updateSettings = updateClientSettings;
   const [recording, setRecording] = useState(false);
@@ -1487,7 +1488,7 @@ function LeaderShortcutSettings() {
   return (
     <SettingsSection title="Leader key">
       <SettingsRow
-        {...searchableSetting("leader-trigger")}
+        {...setting("leader-trigger")}
         description="Press and release this shortcut, then a leader binding. Applies throughout the app on this device. Escape cancels; unused keys continue typing normally."
         control={
           <div className="flex items-center gap-2">

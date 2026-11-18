@@ -1349,7 +1349,7 @@ export function ChatSettingsPanel() {
             settings.composerEmacsEditingEnabled !==
             DEFAULT_UNIFIED_SETTINGS.composerEmacsEditingEnabled ? (
               <SettingResetButton
-                label="Emacs / readline editing"
+                ariaLabel="Reset Emacs / readline editing to default"
                 onClick={() =>
                   updateSettings({
                     composerEmacsEditingEnabled:
@@ -2383,7 +2383,7 @@ export function MaintenanceSettingsPanel() {
         />
         {isElectron ? (
           <SettingsRow
-            {...searchableSetting("external-terminal")}
+            {...setting("external-terminal")}
             description="Open a separate terminal window in the current project or worktree on this computer."
             control={
               <Select

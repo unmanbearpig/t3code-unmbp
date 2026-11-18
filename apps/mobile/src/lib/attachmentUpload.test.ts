@@ -260,6 +260,8 @@ describe("prepareTurnAttachments", () => {
           supportsImageUploads: true,
         });
 
+        expect(prepared.status).toBe("ready");
+        if (prepared.status !== "ready") return;
         expect(prepared.attachments[0]).toMatchObject({ id: MINTED_ID, name: attachment.name });
         expect(mocks.modernUpload).not.toHaveBeenCalled();
         expect(mocks.createLegacyUploadTask).toHaveBeenCalledExactlyOnceWith(

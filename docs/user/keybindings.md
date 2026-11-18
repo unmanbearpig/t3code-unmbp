@@ -5,6 +5,7 @@ also lists the command IDs and defaults available in your version.
 
 To free a default shortcut for another command, choose **Unassign** from its row's
 actions menu. **Reset to default** brings it back.
+
 ## Leader shortcuts
 
 Press and release **Ctrl+.**, then press **N** for the next thread, **P** for the

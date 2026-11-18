@@ -340,6 +340,7 @@ it.effect("records supervisor failures and interruption while cancelling a stall
                 return {
                   prepared,
                   session: { ...session, closed: connects === 1 ? session.closed : Effect.never },
+                  refusedRouteIds: [],
                 };
               }),
           }),
